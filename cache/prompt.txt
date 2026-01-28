@@ -1,8 +1,8 @@
 # XXX - 数据开发
 ::: left
 icon:info 男/2002.06
-家里蹲大学/大数据
-本科/2025年毕业
+XXX大学/XXXX
+本科/XXXX年毕业
 
 :::
 ::: right
