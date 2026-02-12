@@ -5,7 +5,7 @@ import dashscope
 import websockets
 from dashscope.audio.asr import *
 
-from asrchat_config import config
+from config import config
 
 dashscope.api_key = config["DASHSCOPE_API_KEY"]
 
@@ -77,7 +77,7 @@ class AudioServer:
 
         recognition.start()
 
-        outfile = open('audio.pcm', 'wb')
+        outfile = open('cache/audio.pcm', 'wb')
         try:
             print('Client connected')
             while True:

@@ -29,6 +29,8 @@
             <button id="stopButton" disabled title="快捷键A">停止录音</button>
             <button id="clearButton" title="快捷键C">清除文本</button>
             <button id="saveTXTButton" title="快捷键无">保存chat历史</button>
+            <button id="modelConfigButton" title="配置大模型参数">模型配置</button>
+            <button id="outputButton"  title="快捷键F">Ai-Chat</button>
         </div>
     </div>
 
@@ -36,8 +38,42 @@
     <div class="right-panel">
         <!-- 输出框 -->
         <div class="output-container" id="outputText"></div>
-        <!-- 输出按钮 -->
-        <button id="outputButton" type="button" title="快捷键F">Ai-Chat</button>
+    </div>
+</div>
+
+<!-- 模型配置弹窗 -->
+<div id="modelConfigModal" class="modal hidden">
+    <div class="modal-content">
+        <h3>模型配置</h3>
+        <label class="modal-field">
+            <span>模型（默认 Qwen）：</span>
+            <input
+                id="modelNameInput"
+                type="text"
+                placeholder="留空将使用默认 qwen-max-latest，或输入模型名（如 gpt-4o）"
+                class="model-input"
+            >
+            <!-- 自定义下拉列表，用于展示 /models/list/ 获取到的模型 -->
+            <div id="modelDropdown" class="model-dropdown hidden"></div>
+        </label>
+        <label class="modal-field">
+            <span>API Key：</span>
+            <input id="modelApiKey" type="password" placeholder="如需覆盖后端配置，请填写">
+        </label>
+        <label class="modal-field">
+            <span>Base URL：</span>
+            <input id="modelBaseUrl" type="text" placeholder="例如：https://api.openai.com/v1">
+        </label>
+        <div class="modal-actions">
+            <button id="modelTestConnectionButton" type="button">测试连接</button>
+            <button id="modelConfigSaveButton">保存</button>
+            <button id="modelConfigCancelButton">取消</button>
+        </div>
+        <div id="modelTestResult" class="modal-test-result hidden" aria-live="polite"></div>
+        <p class="modal-tip">
+            不填写 API Key / Base URL / 模型名时，将使用后端默认配置：Qwen（qwen-max-latest）。<br>
+            如需使用任意 OpenAI 兼容模型，请在此处输入模型名，并填写对应的 API Key 与 Base URL，使用“测试连接”验证。
+        </p>
     </div>
 </div>
 

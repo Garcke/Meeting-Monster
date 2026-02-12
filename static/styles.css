@@ -33,8 +33,8 @@ body {
     padding: 2rem;
     box-shadow: var(--shadow-md);
     border-radius: var(--border-radius);
-    width: min(1200px, 95%);
-    height: min(500px, 95vh);
+    width: min(1600px, 95%);
+    height: min(800px, 95vh);
     display: flex;
     flex-direction: column;
     gap: 2rem;
@@ -77,8 +77,14 @@ body {
 
 /* 在styles.css中添加按钮动画 */
 button {
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s, color 0.2s;
     position: relative;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 0.45rem 0.9rem;
+    font-size: 0.85rem;
+    background: #ffffff;
+    cursor: pointer;
 }
 
 button:not(:disabled):hover {
@@ -95,6 +101,53 @@ button:not(:disabled):hover {
 #stopButton:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+/* ================== 按钮区域布局 ================== */
+.buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+    align-items: center;
+}
+
+/* 主要操作：Ai-Chat 按钮更突出 */
+#outputButton {
+    background: var(--primary-color);
+    color: var(--text-light);
+    font-weight: 600;
+    padding-inline: 1.3rem;
+}
+
+#outputButton:not(:disabled):hover {
+    background: #0056b3;
+}
+
+/* 录音相关按钮颜色区分 */
+#startButton {
+    background: var(--success-color);
+    color: var(--text-light);
+    border-color: rgba(0, 0, 0, 0.05);
+}
+
+#stopButton {
+    background: var(--error-color);
+    color: var(--text-light);
+    border-color: rgba(0, 0, 0, 0.05);
+}
+
+/* 辅助按钮弱化一点 */
+#clearButton,
+#saveTXTButton,
+#modelConfigButton {
+    background: #f3f4f6;
+}
+
+@media (max-width: 768px) {
+    .buttons {
+        justify-content: flex-start;
+    }
 }
 
 /* ================== 消息样式优化 ================== */
@@ -209,9 +262,7 @@ button:not(:disabled):hover {
 
 /* ================== 功能容器优化 ================== */
 :is(.chat-container, .output-container) {
-
     height: 600px;
-    border: 1px solid rgba(0, 0, 0, 0.1);
     padding: 1.5rem;
     border-radius: var(--border-radius);
     background: #f3f2f8;
@@ -231,6 +282,11 @@ button:not(:disabled):hover {
     }
 }
 
+/* 让右侧输出区域占满右侧面板高度，不留空白 */
+.right-panel .output-container {
+    height: 100%;
+}
+
 /* ================== 响应式优化 ================== */
 @media (max-width: 768px) {
     .container {
@@ -240,8 +296,8 @@ button:not(:disabled):hover {
     }
 
     :is(.chat-container, .output-container) {
-        height: 400px;
-        padding: 1rem;
+        height: 300px;
+        padding: auto;
     }
 
     .message {
@@ -288,4 +344,145 @@ mjx-container {
 /* 公式在暗色主题下的显示优化 */
 mjx-container > svg {
     filter: invert(1); /* 反转颜色适配暗色背景 */
+}
+
+/* ================== 模型配置弹窗样式 ================== */
+.hidden {
+    display: none !important;
+}
+
+.modal {
+    position: fixed;
+    /* 全屏半透明遮罩 */
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1000;
+}
+
+.modal-content {
+    /* 居中的小弹窗卡片 */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ffffff;
+    padding: 1.5rem 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-md);
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.modal-content h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+    color: var(--text-dark);
+}
+
+.modal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.9rem;
+    position: relative;
+}
+
+.modal-field span {
+    color: var(--text-dark);
+}
+
+.modal-field input,
+.modal-field select {
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+
+.modal-field input:focus,
+.modal-field select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
+}
+
+.model-input {
+    width: 100%;
+}
+
+/* 自定义模型下拉列表（替代原生 datalist，统一样式） */
+.model-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 0.25rem;
+    width: 100%;
+    max-height: 180px;
+    overflow-y: auto;
+    background: #ffffff;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.15);
+    z-index: 1200;
+}
+
+.model-dropdown-item {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    color: var(--text-dark);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.model-dropdown-item:hover {
+    background: rgba(0, 123, 255, 0.08);
+}
+
+/*（已废弃）自定义 API Key 眼睛按钮样式留空占位，保留注释方便以后需要时再启用 */
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.modal-tip {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: #666666;
+    line-height: 1.3;
+}
+
+.modal-test-result {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.modal-test-result.success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #a5d6a7;
+}
+
+.modal-test-result.error {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #ef9a9a;
+}
+
+.modal-test-result.hidden {
+    display: none;
 }
