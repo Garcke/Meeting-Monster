@@ -29,7 +29,7 @@
                 <span id="recordingStatusText">准备就绪</span>
             </div>
             <button id="saveTXTButton" class="button button-quiet" type="button">导出对话</button>
-            <button id="modelConfigButton" class="button button-quiet" type="button">模型配置</button>
+            <span id="modelStatus" class="model-status" title="模型由服务端配置">服务端模型 · 加载中</span>
         </div>
     </header>
 
@@ -108,35 +108,6 @@
         </section>
     </div>
 </main>
-
-<div id="modelConfigModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modelConfigTitle">
-    <div class="modal-content">
-        <div class="modal-heading">
-            <p class="eyebrow">MODEL SETTINGS</p>
-            <h3 id="modelConfigTitle">模型配置</h3>
-        </div>
-        <label class="modal-field">
-            <span>模型</span>
-            <input id="modelNameInput" type="text" placeholder="默认 qwen-max-latest，或输入其他模型名" class="model-input">
-            <div id="modelDropdown" class="model-dropdown hidden"></div>
-        </label>
-        <label class="modal-field">
-            <span>API Key</span>
-            <input id="modelApiKey" type="password" placeholder="如需覆盖后端配置，请填写">
-        </label>
-        <label class="modal-field">
-            <span>Base URL</span>
-            <input id="modelBaseUrl" type="text" placeholder="例如：https://api.openai.com/v1">
-        </label>
-        <div id="modelTestResult" class="modal-test-result hidden" aria-live="polite"></div>
-        <p class="modal-tip">留空时使用后端默认 Qwen 配置。OpenAI 兼容模型需填写模型名、API Key 与 Base URL。</p>
-        <div class="modal-actions">
-            <button id="modelConfigCancelButton" class="button button-quiet" type="button">取消</button>
-            <button id="modelTestConnectionButton" class="button button-secondary" type="button">测试连接</button>
-            <button id="modelConfigSaveButton" class="button button-primary" type="button">保存配置</button>
-        </div>
-    </div>
-</div>
 
 <script type="module" src="scripts.js"></script>
 </body>

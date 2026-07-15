@@ -43,3 +43,15 @@ test('Monster Offer branding provides a visible logo and browser icon', () => {
     assert.match(html, /<h1>Monster Offer<\/h1>/);
     assert.match(css, /\.brand-logo\s*\{/);
 });
+
+test('model configuration is server-owned and browser credentials are removed', () => {
+    assert.match(html, /id="modelStatus"/);
+    assert.doesNotMatch(html, /modelConfigButton|modelConfigModal|modelApiKey|modelBaseUrl/);
+    assert.match(scripts, /\/model-config\//);
+    assert.match(scripts, /JSON\.stringify\(\{content:\s*question\.text\}\)/);
+    assert.doesNotMatch(
+        scripts,
+        /MODEL_CONFIG_STORAGE_KEY|localStorage|api_key|base_url|test_connection|models\/list/,
+    );
+    assert.doesNotMatch(css, /\.modal\s*\{|\.model-dropdown\s*\{|\.modal-field\s*\{/);
+});
