@@ -4,7 +4,6 @@ import {createQuestionStore, parseAsrMessage} from './question_store.js';
 const API_BASE_URL = `${window.location.origin}/api`;
 const ASR_WEBSOCKET_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ASR_WEBSOCKET_URL = `${ASR_WEBSOCKET_PROTOCOL}//${window.location.host}/ws/asr`;
-const MODEL_CONFIG_STORAGE_KEY = 'aiChatModelConfig';
 
 const appShell = document.querySelector('.app-shell');
 const startButton = document.getElementById('startButton');
@@ -23,16 +22,7 @@ const recordingStatus = document.getElementById('recordingStatus');
 const recordingStatusText = document.getElementById('recordingStatusText');
 const mobileTabs = document.querySelectorAll('.mobile-tab');
 const saveTXTButton = document.getElementById('saveTXTButton');
-const modelConfigButton = document.getElementById('modelConfigButton');
-const modelConfigModal = document.getElementById('modelConfigModal');
-const modelApiKeyInput = document.getElementById('modelApiKey');
-const modelBaseUrlInput = document.getElementById('modelBaseUrl');
-const modelNameInput = document.getElementById('modelNameInput');
-const modelDropdown = document.getElementById('modelDropdown');
-const modelConfigSaveButton = document.getElementById('modelConfigSaveButton');
-const modelConfigCancelButton = document.getElementById('modelConfigCancelButton');
-const modelTestConnectionButton = document.getElementById('modelTestConnectionButton');
-const modelTestResult = document.getElementById('modelTestResult');
+const modelStatus = document.getElementById('modelStatus');
 
 const questionStore = createQuestionStore();
 const recorder = new PCMAudioRecorder();
@@ -41,8 +31,6 @@ let ws = null;
 let isSending = false;
 let isRecordingStopping = false;
 let isUserScrolling = false;
-let availableModels = [];
-let currentModelConfig = loadModelConfigFromStorage();
 
 function createElement(tag, className, text) {
     const element = document.createElement(tag);
@@ -242,7 +230,7 @@ async function sendQuestionToAI(questionId) {
         const response = await fetch(`${API_BASE_URL}/chat/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({content: question.text, ...getModelPayloadForRequest()}),
+            body: JSON.stringify({content: question.text}),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         if (!response.body) throw new Error('AI 服务未返回可读取的数据流');
@@ -255,19 +243,23 @@ async function sendQuestionToAI(questionId) {
             const {done, value} = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, {stream: true});
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data: ')) continue;
-                try {
-                    const payload = JSON.parse(trimmed.slice(6));
-                    if (typeof payload.response === 'string') {
-                        questionStore.appendAnswer(question.id, payload.response);
-                        if (questionStore.getSelected()?.id === question.id) renderSelectedAnswer();
-                    }
-                } catch (error) {
-                    if (trimmed !== 'data: {}') console.error('SSE parse error:', error, trimmed);
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
+            for (const rawEvent of events) {
+                let eventName = 'message';
+                let data = '';
+                rawEvent.split('\n').forEach((line) => {
+                    if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                    if (line.startsWith('data:')) data += line.slice(5).trim();
+                });
+                if (!data) continue;
+                const payload = JSON.parse(data);
+                if (eventName === 'error') {
+                    throw new Error(payload.detail || '模型生成失败');
+                }
+                if (typeof payload.response === 'string') {
+                    questionStore.appendAnswer(question.id, payload.response);
+                    if (questionStore.getSelected()?.id === question.id) renderSelectedAnswer();
                 }
             }
         }
@@ -335,7 +327,6 @@ outputDiv.addEventListener('scroll', () => {
 });
 
 document.addEventListener('keydown', (event) => {
-    if (!modelConfigModal.classList.contains('hidden')) return;
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
 
     if (event.code === 'KeyA') {
@@ -350,126 +341,19 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-function loadModelConfigFromStorage() {
+async function loadModelStatus() {
     try {
-        const parsed = JSON.parse(localStorage.getItem(MODEL_CONFIG_STORAGE_KEY) || '{}');
-        return parsed && typeof parsed === 'object' ? parsed : {};
+        const response = await fetch(`${API_BASE_URL}/model-config/`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const {label = '服务端模型', model = '', protocol = ''} = await response.json();
+        modelStatus.textContent = model ? `${label} · ${model}` : label;
+        modelStatus.title = `${protocol || 'server'} 协议，由服务端配置`;
     } catch (error) {
-        console.warn('读取模型配置失败:', error);
-        return {};
+        console.error('读取服务端模型状态失败:', error);
+        modelStatus.textContent = '服务端模型 · 未配置';
+        modelStatus.title = '请检查 config/model_settings.json 和 .env';
     }
 }
-
-function saveModelConfigToStorage(config) {
-    localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(config || {}));
-    currentModelConfig = config || {};
-}
-
-function getModelPayloadForRequest() {
-    const config = loadModelConfigFromStorage();
-    const payload = {};
-    if (config.modelName) payload.model = config.modelName;
-    if (config.apiKey) payload.api_key = config.apiKey;
-    if (config.baseUrl) payload.base_url = config.baseUrl;
-    return payload;
-}
-
-function showModelTestResult(success, message) {
-    modelTestResult.textContent = message || (success ? '连接成功' : '连接失败');
-    modelTestResult.classList.remove('hidden', 'success', 'error');
-    modelTestResult.classList.add(success ? 'success' : 'error');
-}
-
-function hideModelTestResult() {
-    modelTestResult.classList.add('hidden');
-    modelTestResult.textContent = '';
-}
-
-function renderModelDropdown(models) {
-    modelDropdown.innerHTML = '';
-    if (!models.length) {
-        modelDropdown.classList.add('hidden');
-        return;
-    }
-    models.forEach((id) => {
-        const item = createElement('div', 'model-dropdown-item', id);
-        item.addEventListener('mousedown', (event) => {
-            event.preventDefault();
-            modelNameInput.value = id;
-            modelDropdown.classList.add('hidden');
-        });
-        modelDropdown.appendChild(item);
-    });
-    modelDropdown.classList.remove('hidden');
-}
-
-modelTestConnectionButton.addEventListener('click', async () => {
-    const baseUrl = modelBaseUrlInput.value.trim();
-    const apiKey = modelApiKeyInput.value.trim();
-    const model = modelNameInput.value.trim();
-    if (!baseUrl || !apiKey) {
-        showModelTestResult(false, '请先填写 Base URL 和 API Key。');
-        return;
-    }
-
-    hideModelTestResult();
-    modelTestConnectionButton.disabled = true;
-    try {
-        const endpoint = model ? '/test_connection/' : '/models/list/';
-        const payload = model ? {base_url: baseUrl, api_key: apiKey, model} : {base_url: baseUrl, api_key: apiKey};
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (model) {
-            showModelTestResult(data.success === true, data.message || (data.success ? '连接成功' : '请求失败'));
-        } else {
-            availableModels = Array.isArray(data.models) ? data.models : [];
-            renderModelDropdown(availableModels);
-            showModelTestResult(
-                availableModels.length > 0,
-                availableModels.length ? `已获取 ${availableModels.length} 个可用模型。` : '未获取到可用模型。'
-            );
-        }
-    } catch (error) {
-        showModelTestResult(false, `网络错误：${error.message || error}`);
-    } finally {
-        modelTestConnectionButton.disabled = false;
-    }
-});
-
-modelNameInput.addEventListener('focus', () => {
-    if (availableModels.length) renderModelDropdown(availableModels);
-});
-
-document.addEventListener('click', (event) => {
-    if (modelConfigModal.classList.contains('hidden')) return;
-    if (!modelDropdown.contains(event.target) && event.target !== modelNameInput) {
-        modelDropdown.classList.add('hidden');
-    }
-});
-
-modelConfigButton.addEventListener('click', () => {
-    hideModelTestResult();
-    currentModelConfig = loadModelConfigFromStorage();
-    modelApiKeyInput.value = currentModelConfig.apiKey || '';
-    modelBaseUrlInput.value = currentModelConfig.baseUrl || '';
-    modelNameInput.value = currentModelConfig.modelName || '';
-    modelConfigModal.classList.remove('hidden');
-});
-
-modelConfigCancelButton.addEventListener('click', () => modelConfigModal.classList.add('hidden'));
-modelConfigSaveButton.addEventListener('click', () => {
-    saveModelConfigToStorage({
-        modelName: modelNameInput.value.trim(),
-        apiKey: modelApiKeyInput.value.trim(),
-        baseUrl: modelBaseUrlInput.value.trim(),
-    });
-    modelConfigModal.classList.add('hidden');
-    setRecordingStatus('模型配置已保存', 'success');
-});
 
 async function loadAndSetPrompt() {
     try {
@@ -641,4 +525,5 @@ stopButton.addEventListener('click', async () => {
 
 renderQuestionList();
 renderSelectedAnswer();
+loadModelStatus();
 loadAndSetPrompt();
