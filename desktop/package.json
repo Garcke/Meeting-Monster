@@ -1,0 +1,14 @@
+{
+  "name": "monster-offer-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monster Offer Windows privacy desktop shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.js && node --check preload.js && node --check privacy_manager.js"
+  },
+  "devDependencies": {
+    "electron": "37.2.6"
+  }
+}

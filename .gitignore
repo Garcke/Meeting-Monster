@@ -4,6 +4,9 @@
 __pycache__/
 *.py[cod]
 .worktrees/
+desktop/node_modules/
+desktop/release/
+desktop/dist/
 
 # Runtime audio and downloaded ASR models may contain private or large data.
 cache/*.pcm
