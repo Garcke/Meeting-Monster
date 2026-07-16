@@ -1,0 +1,49 @@
+{
+  "name": "meeting-monster-desktop",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Meeting-Monster Windows privacy desktop shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.js && node --check preload.js && node --check privacy_manager.js",
+    "dist": "electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.garcke.meetingmonster",
+    "productName": "Meeting-Monster",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!debug.log",
+      "!dist{,/**/*}"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

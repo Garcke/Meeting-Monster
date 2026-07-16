@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="static/favicon.png" alt="Monster Offer Logo" width="180">
+  <img src="static/favicon.png" alt="Meeting-Monster Logo" width="180">
 </p>
 
-<h1 align="center">Monster Offer</h1>
+<h1 align="center">Meeting-Monster</h1>
 
 <p align="center">本地实时语音转写与 AI 面试辅助回答</p>
 
-Monster Offer 使用本地 sherpa-onnx Streaming Paraformer 完成中英双语实时转写，并通过服务端配置的 OpenAI Compatible 或 Anthropic Messages 模型流式生成回答。
+Meeting-Monster 使用本地 sherpa-onnx Streaming Paraformer 完成中英双语实时转写，并通过服务端配置的 OpenAI Compatible 或 Anthropic Messages 模型流式生成回答。
 
 - 音频在本机识别，不上传到语音云服务。
 - 桌面端使用左右双栏，窄屏使用“面试内容 / AI 回答”标签切换。
@@ -114,7 +114,7 @@ Copy-Item .env.example .env
 
 Anthropic Messages 兼容端点使用 `generic_anthropic`，将 `protocol` 保持为 `anthropic`，并把 `base_url`、`model` 和 `ANTHROPIC_COMPATIBLE_API_KEY` 改为服务商提供的值。
 
-本配置方式参考 [NousResearch/hermes-agent 的 Provider 配置](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/integrations/providers.md)，但 Monster Offer 只实现面试回答需要的 OpenAI Chat Completions 与 Anthropic Messages 两种协议。Nous Portal、OpenAI Codex 登录、GitHub Copilot 和 GitHub Copilot ACP 依赖 OAuth、专用令牌交换、Responses API 或本地 ACP 进程，本版本不支持。
+本配置方式参考 [NousResearch/hermes-agent 的 Provider 配置](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/integrations/providers.md)，但 Meeting-Monster 只实现面试回答需要的 OpenAI Chat Completions 与 Anthropic Messages 两种协议。Nous Portal、OpenAI Codex 登录、GitHub Copilot 和 GitHub Copilot ACP 依赖 OAuth、专用令牌交换、Responses API 或本地 ACP 进程，本版本不支持。
 
 ## 启动项目
 
@@ -198,3 +198,17 @@ start.bat                         Windows 一键启动入口
 ```
 
 本地化的是实时语音识别；配置的文本模型仍可能是远程服务。当前版本尚未进行 EXE 或 APK 打包。
+
+## Windows 桌面隐私模式
+
+Windows 桌面版位于 [`desktop/`](desktop/)，它会启动或复用现有 Python 服务并加载同一套前端。开发启动方式：
+
+```powershell
+cd desktop
+npm install
+npm start
+```
+
+Electron 窗口默认启用系统级捕获保护，并使用透明、无边框、置顶的 Cluely 风格专用悬浮渲染器；桌面端加载 `static/overlay.html`，不再加载旧网页工作台。收起时是紧凑胶囊，展开时胶囊与回复面板直接连接。底层调用 `BrowserWindow.setContentProtection(true/false)`，由 Electron 映射到当前平台支持的窗口内容保护机制。点击胶囊中的保护按钮或按 `Ctrl+Shift+P` 可以切换保护状态，状态徽标会显示保护已开启、已关闭、系统不支持或保护失败。
+
+该机制只保护 Meeting-Monster 自己的窗口，属于尽力而为的系统级捕获保护，不是进程隐藏或反监控机制；不能保证阻止手机拍摄、硬件采集、管理员权限工具或不遵守系统捕获策略的驱动。敏感会议时请优先共享指定窗口，不要共享整个桌面。任务栏图标保持可见，托盘功能不属于安全防护机制。

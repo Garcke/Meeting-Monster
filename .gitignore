@@ -7,5 +7,8 @@ __pycache__/
 # Runtime audio and downloaded ASR models may contain private or large data.
 cache/*.pcm
 models/
+desktop/node_modules/
+desktop/dist/
+desktop/debug.log
 *.tar.bz2
 *.part
