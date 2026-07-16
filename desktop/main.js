@@ -36,6 +36,14 @@ async function canReachServer() {
     }
 }
 
+function isAllowedAppUrl(url) {
+    try {
+        return new URL(url).origin === SERVER_URL;
+    } catch {
+        return false;
+    }
+}
+
 async function waitForServer(timeoutMs = SERVER_TIMEOUT_MS) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -145,10 +153,10 @@ function createMainWindow() {
 
     privacyManager.registerWindow(mainWindow);
     mainWindow.webContents.setWindowOpenHandler(({url}) => ({
-        action: url.startsWith(SERVER_URL) ? 'allow' : 'deny',
+        action: isAllowedAppUrl(url) ? 'allow' : 'deny',
     }));
     mainWindow.webContents.on('will-navigate', (event, url) => {
-        if (!url.startsWith(SERVER_URL)) event.preventDefault();
+        if (!isAllowedAppUrl(url)) event.preventDefault();
     });
     mainWindow.webContents.on('did-finish-load', () => {
         privacyManager.reassertCaptureProtection();
