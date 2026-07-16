@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises';
 const html = await readFile(new URL('../static/index.html', import.meta.url), 'utf8');
 const css = await readFile(new URL('../static/styles.css', import.meta.url), 'utf8');
 const scripts = await readFile(new URL('../static/scripts.js', import.meta.url), 'utf8');
+const privacyScript = await readFile(new URL('../static/privacy_mode.js', import.meta.url), 'utf8');
 
 test('desktop workspace exposes separate interview and answer panes', () => {
     assert.match(html, /class="workspace-grid"/);
@@ -54,4 +55,12 @@ test('model configuration is server-owned and browser credentials are removed', 
         /MODEL_CONFIG_STORAGE_KEY|localStorage|api_key|base_url|test_connection|models\/list/,
     );
     assert.doesNotMatch(css, /\.modal\s*\{|\.model-dropdown\s*\{|\.modal-field\s*\{/);
+});
+
+test('privacy controls and redaction shield are present', () => {
+    assert.match(html, /id="privacyStatusBadge"/);
+    assert.match(html, /id="privacyToggleButton"/);
+    assert.match(html, /id="privacyRedactionShield"/);
+    assert.match(css, /\.privacy-redaction-shield/);
+    assert.match(privacyScript, /monsterOfferPrivacy/);
 });

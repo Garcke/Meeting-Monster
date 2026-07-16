@@ -14,6 +14,12 @@
 </head>
 
 <body>
+<div id="privacyRedactionShield" class="privacy-redaction-shield hidden" role="status" aria-live="polite">
+    <span class="privacy-shield-icon" aria-hidden="true">◆</span>
+    <strong>隐私保护中</strong>
+    <span>转写和 AI 回答已暂时隐藏</span>
+    <button id="privacyShieldToggle" class="button button-primary button-small" type="button">恢复显示</button>
+</div>
 <main class="app-shell" data-active-panel="interview">
     <header class="app-header">
         <div class="brand-block">
@@ -24,6 +30,10 @@
             </div>
         </div>
         <div class="header-actions">
+            <div class="privacy-controls" aria-live="polite">
+                <span id="privacyStatusBadge" class="privacy-status hidden"></span>
+                <button id="privacyToggleButton" class="button button-quiet button-small hidden" type="button">开启脱敏</button>
+            </div>
             <div id="recordingStatus" class="status-pill status-ready" aria-live="polite">
                 <span class="status-dot" aria-hidden="true"></span>
                 <span id="recordingStatusText">准备就绪</span>
@@ -109,6 +119,7 @@
     </div>
 </main>
 
+<script src="privacy_mode.js"></script>
 <script type="module" src="scripts.js"></script>
 </body>
 

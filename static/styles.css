@@ -123,6 +123,39 @@ h1 {
     gap: 9px;
 }
 
+.privacy-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.privacy-status {
+    display: inline-flex;
+    min-height: 27px;
+    align-items: center;
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-soft);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 760;
+    white-space: nowrap;
+}
+
+.privacy-protected {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #15803d;
+}
+
+.privacy-unsupported,
+.privacy-failed {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #b45309;
+}
+
 .status-pill {
     display: inline-flex;
     align-items: center;
@@ -694,6 +727,42 @@ h1 {
 
 .hidden {
     display: none !important;
+}
+
+.privacy-redaction-shield {
+    position: fixed;
+    z-index: 10000;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 32px;
+    color: #e2e8f0;
+    background: rgba(15, 23, 42, 0.98);
+    text-align: center;
+}
+
+.privacy-redaction-shield strong {
+    color: #ffffff;
+    font-size: 1.18rem;
+}
+
+.privacy-redaction-shield > span:not(.privacy-shield-icon) {
+    color: #cbd5e1;
+    font-size: 0.82rem;
+}
+
+.privacy-shield-icon {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 16px;
+    background: rgba(99, 102, 241, 0.22);
+    color: #a5b4fc;
+    font-size: 1.1rem;
 }
 
 .sr-only {
