@@ -3,6 +3,7 @@
 .uv-cache/
 __pycache__/
 *.py[cod]
+.worktrees/
 
 # Runtime audio and downloaded ASR models may contain private or large data.
 cache/*.pcm
