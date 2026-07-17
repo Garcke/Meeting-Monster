@@ -1,16 +1,19 @@
 import PCMAudioRecorder from './audio_recorder.js';
-import {createQuestionStore, parseAsrMessage} from './question_store.js';
+import {createQuestionStore} from './question_store.js';
+import {ModelSettingsController} from './model-settings.js';
 
-const serverUrl = window.location.origin;
-const API_BASE_URL = `${serverUrl}/api`;
-const asrUrl = new URL('/ws/asr', serverUrl);
-asrUrl.protocol = asrUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-const ASR_WEBSOCKET_URL = asrUrl.href;
+const api = window.meetingMonster;
+if (!api) throw new Error('Meeting Monster desktop API is unavailable');
+const meetingMonster = api;
 
 const overlayRoot = document.getElementById('overlayRoot');
 const statusText = document.getElementById('overlayStatusText');
 const liveDot = document.getElementById('overlayLiveDot');
 const protectionButton = document.getElementById('capsuleProtectionToggle');
+const settingsButton = document.getElementById('overlaySettingsButton');
+const settingsDrawer = document.getElementById('overlaySettingsDrawer');
+const settingsClose = document.getElementById('overlaySettingsClose');
+const activeModelButton = document.getElementById('overlayActiveModel');
 const expandButton = document.getElementById('floatingExpandButton');
 const hideButton = document.getElementById('floatingHideButton');
 const transcript = document.getElementById('overlayTranscript');
@@ -29,28 +32,32 @@ const assistButton = document.getElementById('overlayAssistButton');
 const followupButton = document.getElementById('overlayFollowupButton');
 const recapButton = document.getElementById('overlayRecapButton');
 
-const desktopApi = window.meetingMonster?.window;
-const privacyApi = window.meetingMonster?.privacy;
 const questionStore = createQuestionStore();
 const recorder = new PCMAudioRecorder();
-
 let activePartialTranscript = '';
-let ws = null;
-let isRecordingStopping = false;
-let isSending = false;
+let activeChatRequestId = null;
+let activeChatQuestionId = null;
+let answerText = '';
 let activeAction = 'assist';
 let isExpanded = false;
+let isRecording = false;
+let asrActive = false;
 
 function setStatus(message, state = 'ready') {
     statusText.textContent = message;
     liveDot.classList.toggle('is-recording', state === 'recording');
 }
 
+function setAnswerStatus(label, state = 'idle') {
+    answerStatus.textContent = label;
+    answerStatus.className = `answer-status ${state === 'loading' ? 'is-loading' : state === 'complete' ? 'is-complete' : state === 'error' ? 'is-error' : ''}`;
+}
+
 function renderWindowState(state = {}) {
     isExpanded = state.mode === 'expanded';
     overlayRoot.classList.toggle('is-expanded', isExpanded);
     overlayRoot.classList.toggle('is-capsule', !isExpanded);
-    expandButton.innerHTML = isExpanded ? '收起 <span aria-hidden="true">⌃</span>' : '展开 <span aria-hidden="true">⌄</span>';
+    expandButton.textContent = isExpanded ? '收起 ⌃' : '展开 ⌄';
     expandButton.setAttribute('aria-label', isExpanded ? '收起工作台' : '展开工作台');
     expandButton.setAttribute('aria-expanded', String(isExpanded));
 }
@@ -75,13 +82,9 @@ function createTextElement(tag, className, text) {
 function renderTranscript() {
     const questions = questionStore.getQuestions();
     const selected = questionStore.getSelected();
-    transcript.innerHTML = '';
+    const nodes = [];
     questionCount.textContent = `${questions.length} 条`;
-
-    if (!questions.length && !activePartialTranscript) {
-        transcript.appendChild(createTextElement('div', 'overlay-empty-state', '开始转写后，当前问题会显示在这里'));
-    }
-
+    if (!questions.length && !activePartialTranscript) nodes.push(createTextElement('div', 'overlay-empty-state', '开始转写后，当前问题会显示在这里'));
     questions.slice(-4).forEach((item) => {
         const paragraph = createTextElement('p', item.id === selected?.id ? 'is-selected' : '', item.text);
         paragraph.dataset.questionId = item.id;
@@ -92,57 +95,40 @@ function renderTranscript() {
             renderTranscript();
             renderAnswer();
         });
-        transcript.appendChild(paragraph);
+        nodes.push(paragraph);
     });
-
-    if (activePartialTranscript) {
-        transcript.appendChild(createTextElement('p', 'is-partial', activePartialTranscript));
-    }
-}
-
-function setAnswerState(label, state = 'idle') {
-    answerStatus.textContent = label;
-    answerStatus.className = `answer-status ${state === 'loading' ? 'is-loading' : state === 'complete' ? 'is-complete' : state === 'error' ? 'is-error' : ''}`;
-}
-
-function renderMarkdown(target, text) {
-    if (!text) return;
-    if (globalThis.marked?.parse) {
-        target.innerHTML = globalThis.marked.parse(text);
-    } else {
-        target.textContent = text;
-    }
+    if (activePartialTranscript) nodes.push(createTextElement('p', 'is-partial', activePartialTranscript));
+    transcript.replaceChildren(...nodes);
 }
 
 function renderAnswer() {
     const selected = questionStore.getSelected();
-    answer.innerHTML = '';
-    const hasQuestion = Boolean(selected);
-    [assistButton, followupButton, recapButton].forEach((button) => {
-        button.disabled = !hasQuestion || isSending;
-    });
+    const isSending = activeChatRequestId !== null;
+    [assistButton, followupButton, recapButton].forEach((button) => { button.disabled = !selected || isSending; });
     copyButton.disabled = !selected?.answer;
-    answerButton.disabled = !hasQuestion || isSending;
-
+    answerButton.disabled = !selected || isSending;
     if (!selected) {
-        setAnswerState('等待问题');
-        answer.appendChild(createTextElement('div', 'overlay-answer-empty', '选择一个问题后，点击 Assist 生成回答'));
+        setAnswerStatus('等待问题');
+        answer.replaceChildren(createTextElement('div', 'overlay-answer-empty', '选择一个问题后，点击 Assist 生成回答'));
         return;
     }
-
     if (selected.answerStatus === 'loading') {
-        setAnswerState('生成中', 'loading');
-        answer.appendChild(createTextElement('div', 'overlay-answer-empty', '正在组织回答…'));
-    } else if (selected.answerStatus === 'error') {
-        setAnswerState('生成失败', 'error');
-        answer.appendChild(createTextElement('div', 'overlay-answer-empty', selected.errorMessage || 'AI 服务连接失败'));
-    } else if (selected.answer) {
-        setAnswerState('已完成', 'complete');
-        renderMarkdown(answer, selected.answer);
-    } else {
-        setAnswerState('等待生成');
-        answer.appendChild(createTextElement('div', 'overlay-answer-empty', '当前问题已选中，点击 Assist 生成回答'));
+        setAnswerStatus('回答中', 'loading');
+        answer.replaceChildren(createTextElement('div', 'overlay-answer-empty', selected.answer || '正在组织回答…'));
+        return;
     }
+    if (selected.answerStatus === 'error') {
+        setAnswerStatus('回答失败', 'error');
+        answer.replaceChildren(createTextElement('div', 'overlay-answer-empty', selected.errorMessage || '请检查当前模型配置'));
+        return;
+    }
+    if (selected.answer) {
+        setAnswerStatus('已完成', 'complete');
+        answer.textContent = selected.answer;
+        return;
+    }
+    setAnswerStatus('等待生成');
+    answer.replaceChildren(createTextElement('div', 'overlay-answer-empty', '当前问题已选中，点击 Assist 生成回答'));
 }
 
 function buildPrompt(question, action) {
@@ -151,114 +137,76 @@ function buildPrompt(question, action) {
     return question;
 }
 
+async function cancelActiveChat() {
+    if (!activeChatRequestId) return;
+    const requestId = activeChatRequestId;
+    activeChatRequestId = null;
+    activeChatQuestionId = null;
+    await meetingMonster.chat.cancel(requestId).catch(() => undefined);
+}
+
 async function sendQuestionToAI(questionId, action = activeAction) {
-    if (isSending) return;
     const question = questionStore.getQuestion(questionId);
     if (!question) return;
-
-    isSending = true;
+    await cancelActiveChat();
     questionStore.selectQuestion(question.id);
     questionStore.resetAnswer(question.id);
     questionStore.setAnswerStatus(question.id, 'loading');
+    activeChatQuestionId = question.id;
+    activeChatRequestId = crypto.randomUUID();
+    answerText = '';
     renderTranscript();
     renderAnswer();
-
     try {
-        const response = await fetch(`${API_BASE_URL}/chat/`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({content: buildPrompt(question.text, action)}),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (!response.body) throw new Error('AI 服务未返回可读取的数据流');
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-            const {done, value} = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, {stream: true});
-            const events = buffer.split('\n\n');
-            buffer = events.pop() || '';
-            for (const rawEvent of events) {
-                let eventName = 'message';
-                let data = '';
-                rawEvent.split('\n').forEach((line) => {
-                    if (line.startsWith('event:')) eventName = line.slice(6).trim();
-                    if (line.startsWith('data:')) data += line.slice(5).trim();
-                });
-                if (!data) continue;
-                const payload = JSON.parse(data);
-                if (eventName === 'error') throw new Error(payload.detail || '模型生成失败');
-                if (typeof payload.response === 'string') {
-                    questionStore.appendAnswer(question.id, payload.response);
-                    renderAnswer();
-                }
-            }
-        }
-        if (!questionStore.getQuestion(question.id)?.answer) throw new Error('模型没有返回回答内容');
-        questionStore.setAnswerStatus(question.id, 'complete');
+        await meetingMonster.chat.send(activeChatRequestId, buildPrompt(question.text, action));
     } catch (error) {
-        console.error('AI request failed:', error);
-        questionStore.setAnswerStatus(question.id, 'error', `AI 服务连接失败：${error.message || '请检查本地服务'}`);
-    } finally {
-        isSending = false;
+        if (activeChatQuestionId === question.id) {
+            questionStore.setAnswerStatus(question.id, 'error', error.message || '无法请求 AI 回复');
+            activeChatRequestId = null;
+            activeChatQuestionId = null;
+            renderAnswer();
+        }
+    }
+}
+
+function updatePartialTranscript(text) {
+    activePartialTranscript = String(text || '').trim();
+    renderTranscript();
+}
+
+function commitFinalQuestion(text) {
+    activePartialTranscript = '';
+    const question = questionStore.addQuestion(text, 'asr');
+    if (question) {
         renderTranscript();
         renderAnswer();
     }
 }
 
-function addQuestion(text, source = 'manual') {
-    const question = questionStore.addQuestion(text, source);
-    if (!question) return null;
-    renderTranscript();
-    renderAnswer();
-    return question;
-}
-
-function parseAsrResponse(message) {
-    const payload = parseAsrMessage(message);
-    if (payload.kind === 'invalid') return;
-    if (payload.kind === 'error') {
-        setStatus(`识别失败：${payload.message}`, 'error');
-        return;
+function applyAsrStatus(status = {}) {
+    const message = status.message;
+    if (status.state === 'recording') {
+        isRecording = true;
+        asrActive = true;
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        setStatus(message || '正在实时转写', 'recording');
+    } else if (status.state === 'connecting' || status.state === 'stopping') {
+        setStatus(message || (status.state === 'stopping' ? '正在停止转写' : '正在连接转写服务'));
+    } else if (status.state === 'error') {
+        isRecording = false;
+        asrActive = false;
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        setStatus(message || '远程转写失败，请检查 Python 服务', 'error');
+        recorder.stop().catch(() => undefined);
+    } else if (status.state === 'idle') {
+        isRecording = false;
+        asrActive = false;
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        setStatus(message || '转写已停止');
     }
-    if (payload.kind === 'final') {
-        activePartialTranscript = '';
-        addQuestion(payload.text, 'asr');
-    } else {
-        activePartialTranscript = payload.text;
-        renderTranscript();
-    }
-}
-
-function waitForWebSocketOpen(socket, timeoutMs = 5000) {
-    if (socket.readyState === WebSocket.OPEN) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-        const timer = window.setTimeout(() => {
-            cleanup();
-            reject(new Error('连接本地语音服务超时'));
-        }, timeoutMs);
-        const cleanup = () => {
-            window.clearTimeout(timer);
-            socket.removeEventListener('open', handleOpen);
-            socket.removeEventListener('error', handleError);
-            socket.removeEventListener('close', handleClose);
-        };
-        const handleOpen = () => { cleanup(); resolve(); };
-        const handleError = () => { cleanup(); reject(new Error('无法连接本地语音服务')); };
-        const handleClose = () => { cleanup(); reject(new Error('本地语音服务已断开')); };
-        socket.addEventListener('open', handleOpen, {once: true});
-        socket.addEventListener('error', handleError, {once: true});
-        socket.addEventListener('close', handleClose, {once: true});
-    });
-}
-
-function resetRecordingControls() {
-    startButton.disabled = false;
-    stopButton.disabled = true;
-    isRecordingStopping = false;
 }
 
 async function startRecording() {
@@ -266,88 +214,74 @@ async function startRecording() {
     stopButton.disabled = true;
     activePartialTranscript = '';
     renderTranscript();
-    setStatus('正在连接本地识别…', 'processing');
-
     try {
-        const socket = new WebSocket(ASR_WEBSOCKET_URL);
-        ws = socket;
-        socket.onmessage = (event) => {
-            if (typeof event.data !== 'string') return;
-            if (event.data === 'asr stopped') socket.close(1000, 'ASR stopped');
-            else parseAsrResponse(event.data);
-        };
-        socket.onclose = async () => {
-            if (!isRecordingStopping) await recorder.stop().catch(console.error);
-            if (ws === socket) ws = null;
-            resetRecordingControls();
-            if (!statusText.textContent.includes('失败')) setStatus('转写已完成', 'success');
-        };
-        socket.onerror = () => setStatus('本地语音服务连接异常', 'error');
-        await waitForWebSocketOpen(socket);
-        let audioConfigSent = false;
-        await recorder.connect((pcmData, actualSampleRate) => {
-            if (socket.readyState !== WebSocket.OPEN) return;
-            if (!audioConfigSent) {
-                socket.send(JSON.stringify({type: 'audio_config', sample_rate: actualSampleRate}));
-                audioConfigSent = true;
-            }
-            socket.send(pcmData);
-        });
+        const settings = await meetingMonster.settings.getStatus();
+        if (!settings.configured) {
+            openSettingsDrawer();
+            throw new Error('请先配置 Python 服务');
+        }
+        const sampleRate = await recorder.prepare((chunk) => meetingMonster.asr.writePcm(chunk));
+        await meetingMonster.asr.start(sampleRate);
+        asrActive = true;
+        recorder.start();
+        isRecording = true;
+        startButton.disabled = true;
         stopButton.disabled = false;
         setStatus('正在实时转写', 'recording');
     } catch (error) {
-        console.error('启动录音失败:', error);
-        setStatus(`启动失败：${error.message || error}`, 'error');
-        await recorder.stop().catch(console.error);
-        ws?.close();
-        ws = null;
-        resetRecordingControls();
+        await recorder.stop().catch(() => undefined);
+        await meetingMonster.asr.stop().catch(() => undefined);
+        isRecording = false;
+        asrActive = false;
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        setStatus(error.message || '无法开始转写', 'error');
     }
 }
 
 async function stopRecording() {
-    if (isRecordingStopping) return;
-    isRecordingStopping = true;
+    if (!isRecording && !asrActive && stopButton.disabled) return;
     stopButton.disabled = true;
-    setStatus('正在整理最终文本…', 'processing');
-    const socket = ws;
+    setStatus('正在停止转写');
     try {
-        await recorder.stop();
-        if (socket?.readyState === WebSocket.OPEN) {
-            socket.send('stop');
-            window.setTimeout(() => {
-                if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'ASR stop timeout');
-            }, 5000);
-        } else {
-            socket?.close();
-            resetRecordingControls();
+        try {
+            await recorder.stop();
+        } finally {
+            await meetingMonster.asr.stop();
         }
+        setStatus('转写已停止');
     } catch (error) {
-        console.error('停止录音失败:', error);
-        socket?.close();
-        resetRecordingControls();
+        setStatus(error.message || '停止转写失败', 'error');
+    } finally {
+        isRecording = false;
+        asrActive = false;
+        startButton.disabled = false;
+        stopButton.disabled = true;
     }
 }
 
 function submitInput(event) {
     event?.preventDefault();
-    if (isSending) return;
     const text = input.value.trim();
     if (!text) {
         const selected = questionStore.getSelected();
         if (selected) sendQuestionToAI(selected.id, activeAction);
         return;
     }
-    const question = addQuestion(text, 'manual');
+    const question = questionStore.addQuestion(text, 'manual');
     input.value = '';
-    if (question) sendQuestionToAI(question.id, activeAction);
+    if (question) {
+        renderTranscript();
+        renderAnswer();
+        sendQuestionToAI(question.id, activeAction);
+    }
 }
 
 function copySelectedAnswer() {
     const selected = questionStore.getSelected();
     if (!selected?.answer) return;
     navigator.clipboard.writeText(selected.answer)
-        .then(() => setStatus('回答已复制', 'success'))
+        .then(() => setStatus('回答已复制'))
         .catch(() => setStatus('复制失败，请手动选择文本', 'error'));
 }
 
@@ -361,30 +295,105 @@ function setAction(action, label) {
     if (selected && action !== 'assist') sendQuestionToAI(selected.id, action);
 }
 
-expandButton.addEventListener('click', () => {
-    desktopApi?.setExpanded(!isExpanded).then(renderWindowState).catch(() => {});
+function openSettingsDrawer() {
+    settingsDrawer.hidden = false;
+    settingsButton.setAttribute('aria-expanded', 'true');
+    if (!isExpanded) meetingMonster.window.setExpanded(true).then(renderWindowState).catch(() => undefined);
+    settingsClose.focus();
+}
+
+function closeSettingsDrawer() {
+    settingsDrawer.hidden = true;
+    settingsButton.setAttribute('aria-expanded', 'false');
+    settingsButton.focus();
+}
+
+function renderActiveModel(profile) {
+    activeModelButton.textContent = profile?.label ? `当前：${profile.label}` : '未选择模型';
+}
+
+const settingsController = new ModelSettingsController({
+    api: meetingMonster,
+    elements: {
+        serverBaseUrl: document.getElementById('serverBaseUrl'), serverAdminToken: document.getElementById('serverAdminToken'),
+        serverSaveButton: document.getElementById('serverSaveButton'), serverTestButton: document.getElementById('serverTestButton'),
+        serverClearButton: document.getElementById('serverClearButton'), serverStatus: document.getElementById('serverStatus'),
+        modelList: document.getElementById('modelList'), modelForm: document.getElementById('modelForm'),
+        modelProfileId: document.getElementById('modelProfileId'), modelLabel: document.getElementById('modelLabel'),
+        modelProtocol: document.getElementById('modelProtocol'), modelBaseUrl: document.getElementById('modelBaseUrl'),
+        modelName: document.getElementById('modelName'), modelApiKey: document.getElementById('modelApiKey'),
+        modelApiKeyRequired: document.getElementById('modelApiKeyRequired'), modelMaxTokens: document.getElementById('modelMaxTokens'),
+        modelTemperature: document.getElementById('modelTemperature'), modelSaveButton: document.getElementById('modelSaveButton'),
+        modelTestButton: document.getElementById('modelTestButton'), modelCancelButton: document.getElementById('modelCancelButton'),
+        modelNewButton: document.getElementById('modelNewButton'), modelStatus: document.getElementById('modelStatus'),
+    },
+    onActiveModelChanged: renderActiveModel,
 });
-hideButton.addEventListener('click', () => desktopApi?.hide().catch(() => {}));
+
+const unsubscribeChat = meetingMonster.chat.onEvent((event) => {
+    if (event.requestId !== activeChatRequestId) return;
+    if (event.type === 'chunk') {
+        answerText += event.text || '';
+        questionStore.appendAnswer(activeChatQuestionId, event.text || '');
+        answer.textContent = answerText;
+        setAnswerStatus('回答中', 'loading');
+    } else if (event.type === 'done') {
+        questionStore.setAnswerStatus(activeChatQuestionId, 'complete');
+        activeChatRequestId = null;
+        activeChatQuestionId = null;
+        setAnswerStatus('已完成', 'complete');
+        renderTranscript();
+        renderAnswer();
+    } else {
+        questionStore.setAnswerStatus(activeChatQuestionId, 'error', event.text || '回答失败');
+        activeChatRequestId = null;
+        activeChatQuestionId = null;
+        setAnswerStatus(event.text || '回答失败', 'error');
+        renderAnswer();
+    }
+});
+
+const unsubscribeAsrStatus = meetingMonster.asr.onStatus((status) => applyAsrStatus(status));
+const unsubscribeAsrResult = meetingMonster.asr.onResult((event) => {
+    if (event.type === 'partial') updatePartialTranscript(event.text);
+    if (event.type === 'final') commitFinalQuestion(event.text);
+    if (event.type === 'error') {
+        isRecording = false;
+        asrActive = false;
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        recorder.stop().catch(() => undefined);
+        setStatus(event.text || '远程转写失败', 'error');
+    }
+});
+
+expandButton.addEventListener('click', () => meetingMonster.window.setExpanded(!isExpanded).then(renderWindowState).catch(() => undefined));
+hideButton.addEventListener('click', () => meetingMonster.window.hide().catch(() => undefined));
+settingsButton.addEventListener('click', openSettingsDrawer);
+activeModelButton.addEventListener('click', openSettingsDrawer);
+settingsClose.addEventListener('click', closeSettingsDrawer);
 protectionButton.addEventListener('click', async () => {
-    if (!privacyApi?.getStatus || !privacyApi?.setCaptureProtection) return;
     protectionButton.disabled = true;
     try {
-        const current = await privacyApi.getStatus();
-        renderProtectionStatus(await privacyApi.setCaptureProtection(current.captureProtectionEnabled !== true));
+        const current = await meetingMonster.privacy.getStatus();
+        renderProtectionStatus(await meetingMonster.privacy.setCaptureProtection(current.captureProtectionEnabled !== true));
     } catch {
         renderProtectionStatus({captureProtection: 'failed', captureProtectionEnabled: false});
     }
 });
 startButton.addEventListener('click', startRecording);
 stopButton.addEventListener('click', stopRecording);
-clearButton.addEventListener('click', () => {
+clearButton.addEventListener('click', async () => {
+    await cancelActiveChat();
+    if (isRecording || asrActive || !stopButton.disabled) await stopRecording();
     questionStore.clear();
     activePartialTranscript = '';
+    answerText = '';
     input.value = '';
     setAction('assist', 'What should I say?');
     renderTranscript();
     renderAnswer();
-    setStatus('内容已清空', 'success');
+    setStatus('内容已清空');
 });
 copyButton.addEventListener('click', copySelectedAnswer);
 assistButton.addEventListener('click', () => setAction('assist', 'What should I say?'));
@@ -395,21 +404,34 @@ input.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') submitInput(event);
 });
 document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && isExpanded) {
-        desktopApi?.setExpanded(false).then(renderWindowState).catch(() => {});
+    if (event.key === 'Escape' && !settingsDrawer.hidden) {
+        closeSettingsDrawer();
+        return;
     }
-    if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+    if (event.key === 'Escape' && isExpanded) meetingMonster.window.setExpanded(false).then(renderWindowState).catch(() => undefined);
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
     if (event.code === 'KeyA') {
         event.preventDefault();
         if (!startButton.disabled) startButton.click();
         else if (!stopButton.disabled) stopButton.click();
     }
 });
+window.addEventListener('beforeunload', () => {
+    if (activeChatRequestId) meetingMonster.chat.cancel(activeChatRequestId).catch(() => undefined);
+    meetingMonster.asr.stop().catch(() => undefined);
+    unsubscribeChat();
+    unsubscribeAsrStatus();
+    unsubscribeAsrResult();
+    unsubscribeWindowState();
+    unsubscribePrivacyStatus();
+});
 
-desktopApi?.onState(renderWindowState);
-desktopApi?.getState().then(renderWindowState).catch(() => renderWindowState({mode: 'capsule'}));
-privacyApi?.onStatus(renderProtectionStatus);
-privacyApi?.getStatus().then(renderProtectionStatus).catch(() => renderProtectionStatus({captureProtection: 'failed'}));
-
+const unsubscribeWindowState = meetingMonster.window.onState(renderWindowState);
+meetingMonster.window.getState().then(renderWindowState).catch(() => renderWindowState({mode: 'capsule'}));
+const unsubscribePrivacyStatus = meetingMonster.privacy.onStatus(renderProtectionStatus);
+meetingMonster.privacy.getStatus().then(renderProtectionStatus).catch(() => renderProtectionStatus({captureProtection: 'failed'}));
+settingsController.bind();
+settingsController.refreshConnection().catch(() => undefined);
+settingsController.refreshModels().then((profiles) => renderActiveModel(profiles.find((profile) => profile.active))).catch(() => undefined);
 renderTranscript();
 renderAnswer();
