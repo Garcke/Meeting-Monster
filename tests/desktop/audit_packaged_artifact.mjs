@@ -10,7 +10,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), '..', '..');
 const require = createRequire(path.join(projectRoot, 'desktop', 'package.json'));
 const {createPackage, listPackage} = require('@electron/asar');
-const forbiddenEntry = /(^|\/)(?:server|web|python|models|docs|tests)(?:\/|$)|(^|\/)\.git(?:\/|$)|\.map$|sherpa-onnx-node|download_asr_model/i;
+const forbiddenEntry = /(?:^|\/)(?:server|web|python|pyinstaller|models|docs|tests|\.git|\.venv)(?:\/|$)|\.(?:py|pyc|onnx|node|map)$|sherpa-onnx-node|download_asr_model/i;
 
 function normalizeEntry(entry) {
     return entry.replaceAll('\\', '/').replace(/^\/+/, '');
@@ -72,11 +72,27 @@ if (process.env.NODE_TEST_CONTEXT) {
         }
     });
 
-    test('artifact audit permits only the desktop runtime fixture entries', async () => {
-        const fixture = await createFixture(['package.json', 'dist/main/main.js', 'renderer/overlay.html']);
+    for (const entry of [
+        'dist/asr/model.onnx',
+        'renderer/helper.py',
+        'dist/native/addon.node',
+        'dist/.venv/config',
+    ]) {
+        test(`artifact audit rejects ${entry} under an allowed root`, async () => {
+            const fixture = await createFixture(['package.json', 'dist/main/main.js', entry]);
+            try {
+                await assert.rejects(auditPackagedArtifact(fixture.release), /Forbidden packaged entry/);
+            } finally {
+                fs.rmSync(fixture.root, {recursive: true, force: true});
+            }
+        });
+    }
+
+    test('artifact audit permits JavaScript and CSS runtime fixture entries', async () => {
+        const fixture = await createFixture(['package.json', 'dist/main/main.js', 'renderer/overlay.css']);
         try {
             assert.deepEqual((await auditPackagedArtifact(fixture.release)).sort(), [
-                'dist', 'dist/main', 'dist/main/main.js', 'package.json', 'renderer', 'renderer/overlay.html',
+                'dist', 'dist/main', 'dist/main/main.js', 'package.json', 'renderer', 'renderer/overlay.css',
             ]);
         } finally {
             fs.rmSync(fixture.root, {recursive: true, force: true});
