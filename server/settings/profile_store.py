@@ -91,7 +91,7 @@ class SecretCipher:
 class ProfileStore:
     """Atomically persists one user's model profiles without exposing API keys."""
 
-    def __init__(self, path: Path, cipher: SecretCipher) -> None:
+    def __init__(self, path: Path, cipher: SecretCipher | None) -> None:
         self.path = Path(path)
         self.cipher = cipher
 
@@ -167,6 +167,10 @@ class ProfileStore:
 
         api_key = ""
         if profile.encrypted_api_key:
+            if self.cipher is None:
+                raise ModelConfigurationError(
+                    "MODEL_CONFIG_MASTER_KEY is required to decrypt an encrypted API key"
+                )
             api_key = self.cipher.decrypt(profile.encrypted_api_key)
         if not api_key and profile.api_key_env:
             api_key = environ.get(profile.api_key_env, "").strip()
@@ -223,6 +227,10 @@ class ProfileStore:
     ) -> ModelProfile:
         payload = profile_input.model_dump(exclude={"id", "api_key"})
         if profile_input.api_key:
+            if self.cipher is None:
+                raise ModelConfigurationError(
+                    "MODEL_CONFIG_MASTER_KEY is required to encrypt an API key"
+                )
             encrypted_api_key = self.cipher.encrypt(profile_input.api_key)
         payload["encrypted_api_key"] = encrypted_api_key
         return ModelProfile.model_validate(payload)

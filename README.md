@@ -26,7 +26,7 @@ Meeting-Monster 使用本地 sherpa-onnx Streaming Paraformer 完成中英双语
 
 ```powershell
 uv venv --python 3.12 .venv
-uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+uv pip install --python .venv\Scripts\python.exe -r server\requirements.txt
 ```
 
 下载本地语音模型：

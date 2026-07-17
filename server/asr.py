@@ -50,7 +50,7 @@ class LocalASREngine:
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
                 "sherpa-onnx is required for local speech recognition. "
-                "Run `python -m pip install -r requirements.txt`."
+                "Run `python -m pip install -r server/requirements.txt`."
             ) from exc
 
         configured_dir = model_dir or os.getenv("LOCAL_ASR_MODEL_DIR")

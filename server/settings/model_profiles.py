@@ -120,10 +120,9 @@ def resolve_active_profile(
             or DEFAULT_PROFILE_STORE_PATH
         )
         profile_id = environment.get("LLM_ACTIVE_PROFILE", "").strip() or None
-        return ProfileStore(
-            store_path,
-            SecretCipher.from_environment(environment),
-        ).resolve_active_profile(environment, profile_id)
+        master_key = environment.get("MODEL_CONFIG_MASTER_KEY", "").strip()
+        cipher = SecretCipher(master_key) if master_key else None
+        return ProfileStore(store_path, cipher).resolve_active_profile(environment, profile_id)
 
     settings = load_model_settings(path)
     profile_id = environment.get("LLM_ACTIVE_PROFILE", "").strip() or settings.active_profile

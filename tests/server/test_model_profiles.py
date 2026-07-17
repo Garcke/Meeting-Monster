@@ -195,6 +195,45 @@ class ModelProfileTests(unittest.TestCase):
 
         self.assertEqual(resolved.api_key, "stored-secret")
 
+    def test_runtime_store_resolves_default_profile_from_legacy_environment_without_master_key(self):
+        from server.settings.model_profiles import resolve_active_profile
+
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        path = Path(temp_dir.name) / "profiles.json"
+
+        resolved = resolve_active_profile(
+            environ={
+                "MODEL_PROFILE_STORE_PATH": str(path),
+                "LLM_ACTIVE_PROFILE": "openrouter",
+                "OPENROUTER_API_KEY": "legacy-secret",
+            }
+        )
+
+        self.assertTrue(path.is_file())
+        self.assertEqual(resolved.profile_id, "openrouter")
+        self.assertEqual(resolved.api_key, "legacy-secret")
+
+    def test_runtime_store_rejects_encrypted_key_without_master_key_instead_of_fallback(self):
+        from server.settings.model_profiles import ModelConfigurationError, resolve_active_profile
+
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        path = Path(temp_dir.name) / "profiles.json"
+        encrypted_key = Fernet(Fernet.generate_key()).encrypt(b"stored-secret").decode("ascii")
+        payload = self.base_payload()
+        payload["version"] = 1
+        payload["profiles"]["primary"]["encrypted_api_key"] = encrypted_key
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(ModelConfigurationError, "MODEL_CONFIG_MASTER_KEY.*encrypted"):
+            resolve_active_profile(
+                environ={
+                    "MODEL_PROFILE_STORE_PATH": str(path),
+                    "PRIMARY_API_KEY": "legacy-secret",
+                }
+            )
+
     def test_operator_and_runtime_files_do_not_reference_dashscope(self):
         project_root = Path(__file__).resolve().parents[2]
         files = [
