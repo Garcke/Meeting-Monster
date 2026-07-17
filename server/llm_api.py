@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,11 +16,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from server.settings.model_profiles import (
+    DEFAULT_PROFILE_STORE_PATH,
     ModelConfigurationError,
     ResolvedModelProfile,
     resolve_active_profile,
 )
+from server.settings.profile_store import ProfileStore, SecretCipher
 from server.llm_providers import LLMProvider, create_provider
+from server.model_api import create_router as create_model_router
 
 
 PROMPT_FILE = Path(__file__).resolve().parents[1] / "cache" / "prompt.txt"
@@ -41,10 +45,31 @@ ProfileResolver = Callable[[], ResolvedModelProfile]
 ProviderFactory = Callable[[ResolvedModelProfile], LLMProvider]
 
 
+def create_runtime_profile_store(environ: Mapping[str, str] | None = None) -> ProfileStore:
+    """Build the encrypted profile store used by the local API process."""
+
+    environment = os.environ if environ is None else environ
+    store_path = Path(
+        environment.get("MODEL_PROFILE_STORE_PATH", "").strip() or DEFAULT_PROFILE_STORE_PATH
+    )
+    master_key = environment.get("MODEL_CONFIG_MASTER_KEY", "").strip()
+    return ProfileStore(store_path, SecretCipher(master_key) if master_key else None)
+
+
 def create_app(
-    profile_resolver: ProfileResolver = resolve_active_profile,
+    profile_resolver: ProfileResolver | None = None,
     provider_factory: ProviderFactory = create_provider,
+    profile_store: ProfileStore | None = None,
+    admin_token: str | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> FastAPI:
+    environment = os.environ if environ is None else environ
+    runtime_store = profile_store or create_runtime_profile_store(environment)
+    if profile_resolver is None:
+        profile_resolver = lambda: runtime_store.resolve_active_profile(environment)
+    if admin_token is None:
+        admin_token = environment.get("APP_ADMIN_TOKEN", "")
+
     app = FastAPI(title="Meeting-Monster LLM API")
     app.state.conversation_history = []
 
@@ -155,18 +180,18 @@ def create_app(
     async def get_model_config():
         return resolve_profile().public_summary()
 
-    @app.get("/models/")
-    async def list_models():
-        summary = resolve_profile().public_summary()
-        return {
-            **summary,
-            "default": summary["model"],
-            "models": [summary["model"]],
-        }
-
     @app.get("/health/")
     async def health_check():
         return {"status": "ok"}
+
+    app.include_router(
+        create_model_router(
+            profile_store=runtime_store,
+            admin_token=admin_token,
+            provider_factory=provider_factory,
+            environ=environment,
+        )
+    )
 
     return app
 

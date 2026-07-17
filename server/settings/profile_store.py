@@ -158,6 +158,7 @@ class ProfileStore:
         self,
         environ: Mapping[str, str],
         profile_id: str | None = None,
+        api_key_override: str | None = None,
     ) -> ResolvedModelProfile:
         settings = self._load_or_initialize()
         selected_id = profile_id or settings.active_profile
@@ -165,8 +166,8 @@ class ProfileStore:
         if profile is None:
             raise ModelConfigurationError(f"Active model profile does not exist: {selected_id}")
 
-        api_key = ""
-        if profile.encrypted_api_key:
+        api_key = api_key_override or ""
+        if not api_key and profile.encrypted_api_key:
             if self.cipher is None:
                 raise ModelConfigurationError(
                     "MODEL_CONFIG_MASTER_KEY is required to decrypt an encrypted API key"

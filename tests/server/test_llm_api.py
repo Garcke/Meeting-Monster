@@ -1,6 +1,9 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from server.settings.model_profiles import ModelConfigurationError, ResolvedModelProfile
@@ -114,6 +117,50 @@ class LLMAPITests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertIn("MODEL_API_KEY", response.json()["detail"])
+
+    def test_chat_uses_the_profile_newly_activated_in_the_injected_store(self):
+        from server.llm_api import create_app
+        from server.settings.profile_store import ModelProfileInput, ProfileStore, SecretCipher
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = ProfileStore(Path(directory) / "profiles.json", SecretCipher(Fernet.generate_key()))
+            store.create_profile(
+                ModelProfileInput(
+                    id="alternate",
+                    label="Alternate",
+                    protocol="openai",
+                    base_url="https://alternate.example/v1",
+                    model="alternate-model",
+                    api_key_required=False,
+                    max_tokens=32,
+                    temperature=0.2,
+                )
+            )
+            provider = FakeProvider(["answer"])
+            seen_profiles = []
+
+            def provider_factory(profile):
+                seen_profiles.append(profile)
+                return provider
+
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    admin_token="admin-token",
+                    provider_factory=provider_factory,
+                )
+            ) as client:
+                activated = client.post(
+                    "/models/alternate/activate",
+                    headers={"Authorization": "Bearer admin-token"},
+                )
+                response = client.post("/chat/", json={"content": "Question"})
+                configuration = client.get("/model-config/")
+
+        self.assertEqual(activated.status_code, 200)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(seen_profiles[-1].profile_id, "alternate")
+        self.assertEqual(configuration.json()["active_profile"], "alternate")
 
 
 if __name__ == "__main__":
