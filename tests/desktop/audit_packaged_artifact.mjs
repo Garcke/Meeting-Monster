@@ -10,7 +10,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), '..', '..');
 const require = createRequire(path.join(projectRoot, 'desktop', 'package.json'));
 const {createPackage, listPackage} = require('@electron/asar');
-const forbiddenEntry = /(?:^|\/)(?:server|web|python|pyinstaller|models|docs|tests|\.git|\.venv)(?:\/|$)|\.(?:py|pyc|onnx|node|map)$|sherpa-onnx-node|download_asr_model/i;
+const forbiddenEntry = /(?:^|\/)(?:server|web|source|python|pyinstaller|models|docs|tests|\.git|\.venv)(?:\/|$)|\.(?:py|pyc|onnx|node|map)$|sherpa-onnx-node|download_asr_model/i;
 
 function normalizeEntry(entry) {
     return entry.replaceAll('\\', '/').replace(/^\/+/, '');
@@ -79,6 +79,31 @@ if (process.env.NODE_TEST_CONTEXT) {
         'dist/.venv/config',
     ]) {
         test(`artifact audit rejects ${entry} under an allowed root`, async () => {
+            const fixture = await createFixture(['package.json', 'dist/main/main.js', entry]);
+            try {
+                await assert.rejects(auditPackagedArtifact(fixture.release), /Forbidden packaged entry/);
+            } finally {
+                fs.rmSync(fixture.root, {recursive: true, force: true});
+            }
+        });
+    }
+
+    for (const entry of [
+        'dist/source/main.js',
+        'renderer/SoUrCe/helper.js',
+        'renderer/cache/module.pyc',
+        'dist/PyInstaller/bootstrap.js',
+        'renderer/python/launcher.js',
+        'dist/web/index.html',
+        'renderer/models/profile.json',
+        'dist/docs/guide.txt',
+        'renderer/tests/spec.js',
+        'dist/.git/config',
+        'renderer/bundle.map',
+        'dist/sherpa-onnx-node/index.js',
+        'renderer/download_asr_model.js',
+    ]) {
+        test(`artifact audit rejects the forbidden path ${entry}`, async () => {
             const fixture = await createFixture(['package.json', 'dist/main/main.js', entry]);
             try {
                 await assert.rejects(auditPackagedArtifact(fixture.release), /Forbidden packaged entry/);
