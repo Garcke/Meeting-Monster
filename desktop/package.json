@@ -27,6 +27,7 @@
   "build": {
     "appId": "com.garcke.meetingmonster",
     "productName": "Meeting-Monster",
+    "icon": "renderer/favicon.png",
     "directories": {
       "output": "release"
     },
