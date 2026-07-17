@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 
 const CLIENT_MODULE = '../../desktop/dist/main/remote-asr-client.js';
 
+function createPortableCloseEvent(code, reason) {
+    if (typeof CloseEvent === 'function') {
+        return new CloseEvent('close', {code, reason});
+    }
+    const event = new Event('close');
+    Object.defineProperties(event, {
+        code: {value: code},
+        reason: {value: reason},
+    });
+    return event;
+}
+
 class FakeWebSocket extends EventTarget {
     static CONNECTING = 0;
     static OPEN = 1;
@@ -34,7 +46,7 @@ class FakeWebSocket extends EventTarget {
     close(code, reason) {
         this.closeCalls.push({code, reason});
         this.readyState = FakeWebSocket.CLOSED;
-        this.dispatchEvent(new CloseEvent('close', {code, reason}));
+        this.dispatchEvent(createPortableCloseEvent(code, reason));
     }
 }
 
@@ -81,6 +93,20 @@ async function startRecording(Client, harness, sampleRate = 16000) {
     await pending;
     return {client, socket};
 }
+
+test('close event fixture remains portable when CloseEvent is unavailable', () => {
+    const originalCloseEvent = globalThis.CloseEvent;
+    try {
+        globalThis.CloseEvent = undefined;
+        const event = createPortableCloseEvent(1000, 'ASR stopped');
+
+        assert.equal(event.type, 'close');
+        assert.equal(event.code, 1000);
+        assert.equal(event.reason, 'ASR stopped');
+    } finally {
+        globalThis.CloseEvent = originalCloseEvent;
+    }
+});
 
 test('derives only permitted remote ASR WebSocket URLs', async () => {
     const {deriveAsrWebSocketUrl} = await loadClientModule();
