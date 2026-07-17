@@ -10,7 +10,7 @@
     "start": "npm run build && electron .",
     "check": "npm run typecheck",
     "desktop-test": "npm run build && node --test ../tests/desktop/*.mjs",
-    "dist": "npm run dist:win",
+    "dist": "npm run build && electron-builder --win nsis portable",
     "dist:win": "npm run build && electron-builder --win nsis portable",
     "dist:win:unsigned": "npm run build && electron-builder --win nsis portable -c.win.signAndEditExecutable=false -c.forceCodeSigning=false",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --universal",
@@ -29,8 +29,9 @@
       "output": "release"
     },
     "files": [
-      "**/*",
-      "!debug.log"
+      "dist/**/*",
+      "renderer/**/*",
+      "package.json"
     ],
     "win": {
       "signAndEditExecutable": true,
