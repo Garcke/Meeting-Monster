@@ -1,7 +1,7 @@
 import PCMAudioRecorder from './audio_recorder.js';
 import {createQuestionStore} from './question_store.js';
 import {ModelSettingsController} from './model-settings.js';
-import {isCurrentChatRequest, shouldRenderChatOutput, stopRecorderBeforeAsr} from './overlay-session.js';
+import {finishChatTerminal, isCurrentChatRequest, shouldRenderChatOutput, stopRecorderBeforeAsr} from './overlay-session.js';
 
 const api = window.meetingMonster;
 if (!api) throw new Error('Meeting Monster desktop API is unavailable');
@@ -347,21 +347,17 @@ const unsubscribeChat = meetingMonster.chat.onEvent((event) => {
         }
     } else if (event.type === 'done') {
         questionStore.setAnswerStatus(questionId, 'complete');
-        activeChatRequestId = null;
-        activeChatQuestionId = null;
+        const terminal = finishChatTerminal(activeChatRequestId, activeChatQuestionId, event.requestId);
+        activeChatRequestId = terminal.activeChatRequestId;
+        activeChatQuestionId = terminal.activeChatQuestionId;
         renderTranscript();
-        if (renderForSelectedQuestion) {
-            setAnswerStatus('已完成', 'complete');
-            renderAnswer();
-        }
+        renderAnswer();
     } else {
         questionStore.setAnswerStatus(questionId, 'error', event.text || '回答失败');
-        activeChatRequestId = null;
-        activeChatQuestionId = null;
-        if (renderForSelectedQuestion) {
-            setAnswerStatus(event.text || '回答失败', 'error');
-            renderAnswer();
-        }
+        const terminal = finishChatTerminal(activeChatRequestId, activeChatQuestionId, event.requestId);
+        activeChatRequestId = terminal.activeChatRequestId;
+        activeChatQuestionId = terminal.activeChatQuestionId;
+        renderAnswer();
     }
 });
 

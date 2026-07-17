@@ -6,6 +6,13 @@ export function shouldRenderChatOutput(activeQuestionId, selectedQuestionId) {
     return activeQuestionId === selectedQuestionId;
 }
 
+export function finishChatTerminal(activeRequestId, activeQuestionId, requestId) {
+    if (!isCurrentChatRequest(activeRequestId, requestId)) {
+        return {activeChatRequestId: activeRequestId, activeChatQuestionId: activeQuestionId, renderSelectedAnswer: false};
+    }
+    return {activeChatRequestId: null, activeChatQuestionId: null, renderSelectedAnswer: true};
+}
+
 export function stopRecorderBeforeAsr(recorder, asr) {
     let recorderStop;
     try {

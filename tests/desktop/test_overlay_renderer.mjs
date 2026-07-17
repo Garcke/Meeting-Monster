@@ -90,6 +90,35 @@ test('stream chunks keep their answer but do not render over another selected qu
     assert.equal(visibleAnswer, 'selected question B answer');
 });
 
+async function assertTerminalEventRefreshesSelectedAnswer(type) {
+    const {finishChatTerminal} = await loadOverlaySessionHelper();
+    assert.equal(typeof finishChatTerminal, 'function');
+    const state = {
+        activeChatRequestId: 'request-a',
+        activeChatQuestionId: 'question-a',
+        selectedQuestionId: 'question-b',
+        renderCount: 0,
+    };
+
+    const terminal = finishChatTerminal(state.activeChatRequestId, state.activeChatQuestionId, 'request-a', type);
+    state.activeChatRequestId = terminal.activeChatRequestId;
+    state.activeChatQuestionId = terminal.activeChatQuestionId;
+    if (terminal.renderSelectedAnswer) state.renderCount += 1;
+
+    assert.equal(state.activeChatRequestId, null);
+    assert.equal(state.activeChatQuestionId, null);
+    assert.equal(state.activeChatRequestId !== null, false, 'question B controls are enabled after A settles');
+    assert.equal(state.renderCount, 1, 'the currently selected question B is rendered after A settles');
+}
+
+test('done from A refreshes selected question B after clearing active chat', async () => {
+    await assertTerminalEventRefreshesSelectedAnswer('done');
+});
+
+test('error from A refreshes selected question B after clearing active chat', async () => {
+    await assertTerminalEventRefreshesSelectedAnswer('error');
+});
+
 test('unload starts recorder cleanup before stopping ASR', async () => {
     const {stopRecorderBeforeAsr} = await loadOverlaySessionHelper();
     const calls = [];
