@@ -22,6 +22,19 @@ export interface ChatStreamEvent {
 export type ChatEventSink = (event: ChatStreamEvent) => void | Promise<void>;
 export type ModelProfileInput = Record<string, unknown>;
 
+export interface PublicModelProfile {
+    id: string;
+    label: string;
+    protocol: 'openai' | 'anthropic';
+    base_url: string;
+    model: string;
+    api_key_required: boolean;
+    has_api_key: boolean;
+    max_tokens: number;
+    temperature: number | null;
+    active: boolean;
+}
+
 interface ParsedSseEvent {
     type: 'chunk' | 'done' | 'error';
     text?: string;
@@ -36,38 +49,41 @@ export class RemoteApiError extends Error {
 
 export class RemoteApiClient {
     private readonly baseUrl: URL;
-    private readonly secrets: string[];
+    private readonly secrets: Set<string>;
 
     public constructor(private readonly options: RemoteApiClientOptions) {
         this.baseUrl = new URL(options.baseUrl);
         this.baseUrl.search = '';
         this.baseUrl.hash = '';
         if (!this.baseUrl.pathname.endsWith('/')) this.baseUrl.pathname += '/';
-        this.secrets = [options.adminToken];
+        this.secrets = new Set([options.adminToken]);
     }
 
-    public listModels(): Promise<unknown> {
-        return this.requestJson('models/', {method: 'GET'}, true);
+    public listModels(): Promise<{active_profile: string; profiles: PublicModelProfile[]}> {
+        return this.requestJson('models/', {method: 'GET'}, true, undefined, parseModelList);
     }
 
-    public createModel(profile: ModelProfileInput): Promise<unknown> {
-        return this.requestJson('models/', this.jsonRequest('POST', profile), true, profile);
+    public createModel(profile: ModelProfileInput): Promise<PublicModelProfile> {
+        const validated = validateModelProfileInput(profile);
+        return this.requestJson('models/', this.jsonRequest('POST', validated), true, validated, parsePublicModelProfile);
     }
 
-    public updateModel(profileId: string, profile: ModelProfileInput): Promise<unknown> {
-        return this.requestJson(`models/${encodeURIComponent(profileId)}`, this.jsonRequest('PUT', profile), true, profile);
+    public updateModel(profileId: string, profile: ModelProfileInput): Promise<PublicModelProfile> {
+        const validated = validateModelProfileInput(profile);
+        return this.requestJson(`models/${encodeURIComponent(profileId)}`, this.jsonRequest('PUT', validated), true, validated, parsePublicModelProfile);
     }
 
     public async deleteModel(profileId: string): Promise<void> {
-        await this.requestJson(`models/${encodeURIComponent(profileId)}`, {method: 'DELETE'}, true);
+        await this.requestJson(`models/${encodeURIComponent(profileId)}`, {method: 'DELETE'}, true, undefined, parseNoContent);
     }
 
-    public activateModel(profileId: string): Promise<unknown> {
-        return this.requestJson(`models/${encodeURIComponent(profileId)}/activate`, {method: 'POST'}, true);
+    public activateModel(profileId: string): Promise<{active_profile: string; profile: PublicModelProfile}> {
+        return this.requestJson(`models/${encodeURIComponent(profileId)}/activate`, {method: 'POST'}, true, undefined, parseActivation);
     }
 
-    public testModel(profile: ModelProfileInput): Promise<unknown> {
-        return this.requestJson('models/test', this.jsonRequest('POST', profile), true, profile);
+    public testModel(profile: ModelProfileInput): Promise<{ok: boolean; latency_ms: number; model: string}> {
+        const validated = validateModelProfileInput(profile);
+        return this.requestJson('models/test', this.jsonRequest('POST', validated), true, validated, parseModelTest);
     }
 
     public async testConnection(): Promise<{status: ConnectionTestStatus; adminAuthorized: boolean}> {
@@ -99,14 +115,14 @@ export class RemoteApiClient {
         const response = await this.fetchResponse('chat/', {
             ...this.jsonRequest('POST', {content: request.content.trim()}),
             signal: request.signal,
-        }, false);
+        }, false, {content: request.content.trim()});
         if (!response.body) throw new RemoteApiError('Remote chat stream is unavailable', response.status);
         for await (const parsed of parseSseChunks(readResponseBody(response.body), request.signal)) {
             if (request.signal?.aborted) return;
             const event: ChatStreamEvent = {
                 requestId: request.requestId,
                 type: parsed.type,
-                ...(parsed.text ? {text: redactText(parsed.text, this.secrets)} : {}),
+                ...(parsed.text ? {text: redactSensitiveText(parsed.text, this.secrets)} : {}),
             };
             yield event;
             await sink?.(event);
@@ -122,20 +138,26 @@ export class RemoteApiClient {
         };
     }
 
-    private async requestJson(path: string, init: RequestInit, management: boolean, secretBody?: unknown): Promise<unknown> {
+    private async requestJson<T>(
+        path: string,
+        init: RequestInit,
+        management: boolean,
+        secretBody: unknown,
+        parse: (payload: unknown) => T,
+    ): Promise<T> {
         const response = await this.fetchResponse(path, init, management, secretBody);
-        if (response.status === 204) return undefined;
+        if (response.status === 204) return parse(undefined);
         try {
-            return await response.json();
+            return parse(await response.json());
         } catch {
-            throw new RemoteApiError('Remote server returned invalid JSON', response.status);
+            throw new RemoteApiError('Remote server returned an invalid management response', response.status);
         }
     }
 
     private async fetchResponse(path: string, init: RequestInit, management: boolean, secretBody?: unknown): Promise<Response> {
         const headers = new Headers(init.headers);
+        for (const secret of collectStringValues(secretBody)) this.secrets.add(secret);
         if (management) {
-            for (const secret of extractKnownSecrets(secretBody)) this.secrets.push(secret);
             headers.set('Authorization', `Bearer ${this.options.adminToken}`);
         }
         let response: Response;
@@ -161,7 +183,7 @@ export class RemoteApiClient {
         } catch {
             // Server error bodies are optional and must never be surfaced raw.
         }
-        const suffix = detail ? `: ${redactText(detail, this.secrets)}` : '';
+        const suffix = detail ? `: ${redactSensitiveText(detail, this.secrets)}` : '';
         return `Remote request failed (${response.status})${suffix}`;
     }
 
@@ -252,13 +274,22 @@ function parseSseJson(value: string): Record<string, unknown> | undefined {
     }
 }
 
-function extractKnownSecrets(body: unknown): string[] {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
-    const profile = body as Record<string, unknown>;
-    return ['api_key', 'adminToken', 'token'].flatMap((key) => typeof profile[key] === 'string' ? [profile[key] as string] : []);
+export function collectStringValues(value: unknown): string[] {
+    const strings = new Set<string>();
+    const visited = new Set<object>();
+    const visit = (candidate: unknown): void => {
+        if (typeof candidate === 'string') {
+            strings.add(candidate);
+        } else if (candidate && typeof candidate === 'object' && !visited.has(candidate)) {
+            visited.add(candidate);
+            for (const item of Array.isArray(candidate) ? candidate : Object.values(candidate)) visit(item);
+        }
+    };
+    visit(value);
+    return [...strings];
 }
 
-function redactText(value: string, secrets: readonly string[]): string {
+export function redactSensitiveText(value: string, secrets: Iterable<string>): string {
     let safe = value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ');
     for (const secret of secrets) {
         if (secret) safe = safe.split(secret).join('[redacted]');
@@ -273,4 +304,74 @@ function redactText(value: string, secrets: readonly string[]): string {
 
 function isAbort(error: unknown): boolean {
     return Boolean(error && typeof error === 'object' && 'name' in error && error.name === 'AbortError');
+}
+
+const MODEL_INPUT_FIELDS = new Set([
+    'id', 'label', 'protocol', 'base_url', 'model', 'api_key', 'api_key_required', 'max_tokens', 'temperature',
+]);
+
+export function validateModelProfileInput(value: unknown): ModelProfileInput {
+    const input = requireObject(value, 'Model profile input');
+    for (const key of Object.keys(input)) {
+        if (!MODEL_INPUT_FIELDS.has(key)) throw new TypeError(`Model profile field is unsupported: ${key}`);
+    }
+    for (const key of ['id', 'label', 'protocol', 'base_url', 'model']) {
+        if (typeof input[key] !== 'string' || !input[key].trim()) throw new TypeError(`Model profile field is invalid: ${key}`);
+    }
+    if (input.protocol !== 'openai' && input.protocol !== 'anthropic') throw new TypeError('Model profile field is invalid: protocol');
+    if ('api_key' in input && typeof input.api_key !== 'string') throw new TypeError('Model profile field is invalid: api_key');
+    if (typeof input.api_key_required !== 'boolean') throw new TypeError('Model profile field is invalid: api_key_required');
+    if (!Number.isInteger(input.max_tokens) || (input.max_tokens as number) <= 0) throw new TypeError('Model profile field is invalid: max_tokens');
+    if (input.temperature !== null && (typeof input.temperature !== 'number' || !Number.isFinite(input.temperature))) {
+        throw new TypeError('Model profile field is invalid: temperature');
+    }
+    return Object.fromEntries(Object.entries(input).filter(([key]) => MODEL_INPUT_FIELDS.has(key)));
+}
+
+function parseModelList(value: unknown): {active_profile: string; profiles: PublicModelProfile[]} {
+    const payload = requireObject(value, 'Model list response');
+    if (typeof payload.active_profile !== 'string') throw new TypeError('Model list response is invalid');
+    if (!Array.isArray(payload.profiles)) throw new TypeError('Model list response is invalid');
+    return {active_profile: payload.active_profile, profiles: payload.profiles.map(parsePublicModelProfile)};
+}
+
+function parseActivation(value: unknown): {active_profile: string; profile: PublicModelProfile} {
+    const payload = requireObject(value, 'Model activation response');
+    if (typeof payload.active_profile !== 'string') throw new TypeError('Model activation response is invalid');
+    return {active_profile: payload.active_profile, profile: parsePublicModelProfile(payload.profile)};
+}
+
+function parseModelTest(value: unknown): {ok: boolean; latency_ms: number; model: string} {
+    const payload = requireObject(value, 'Model test response');
+    if (typeof payload.ok !== 'boolean' || !Number.isInteger(payload.latency_ms) || (payload.latency_ms as number) < 0 || typeof payload.model !== 'string') {
+        throw new TypeError('Model test response is invalid');
+    }
+    return {ok: payload.ok, latency_ms: payload.latency_ms as number, model: payload.model};
+}
+
+function parseNoContent(value: unknown): void {
+    if (value !== undefined) throw new TypeError('Model delete response is invalid');
+}
+
+function parsePublicModelProfile(value: unknown): PublicModelProfile {
+    const payload = requireObject(value, 'Model profile response');
+    if (
+        typeof payload.id !== 'string' || typeof payload.label !== 'string'
+        || (payload.protocol !== 'openai' && payload.protocol !== 'anthropic')
+        || typeof payload.base_url !== 'string' || typeof payload.model !== 'string'
+        || typeof payload.api_key_required !== 'boolean' || typeof payload.has_api_key !== 'boolean'
+        || !Number.isInteger(payload.max_tokens) || (payload.max_tokens as number) <= 0
+        || (payload.temperature !== null && (typeof payload.temperature !== 'number' || !Number.isFinite(payload.temperature)))
+        || typeof payload.active !== 'boolean'
+    ) throw new TypeError('Model profile response is invalid');
+    return {
+        id: payload.id, label: payload.label, protocol: payload.protocol, base_url: payload.base_url, model: payload.model,
+        api_key_required: payload.api_key_required, has_api_key: payload.has_api_key, max_tokens: payload.max_tokens as number,
+        temperature: payload.temperature as number | null, active: payload.active,
+    };
+}
+
+function requireObject(value: unknown, label: string): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} is invalid`);
+    return value as Record<string, unknown>;
 }

@@ -2,7 +2,7 @@ import {app, BrowserWindow, globalShortcut, ipcMain, safeStorage, type WebConten
 import path from 'node:path';
 import {DesktopSettingsStore, validateBackendUrl, type DesktopConnection} from './desktop-settings';
 import {WindowPrivacyManager} from './privacy-manager';
-import {RemoteApiClient, type ChatStreamEvent, type ModelProfileInput} from './remote-api-client';
+import {RemoteApiClient, validateModelProfileInput, type ChatStreamEvent, type ModelProfileInput} from './remote-api-client';
 import {
     IPC_CHANNELS,
     type ConnectionTestResult,
@@ -58,8 +58,7 @@ function requireText(value: unknown, label: string): string {
 }
 
 function requireProfile(value: unknown): ModelProfileInput {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Model profile is invalid');
-    return value as ModelProfileInput;
+    return validateModelProfileInput(value);
 }
 
 function sendChatEvent(sender: WebContents, event: ChatStreamEvent): void {

@@ -26,6 +26,7 @@ export interface DesktopSettingsStoreOptions {
     safeStorage: SafeStorageLike;
     settingsPath: string;
     production: boolean;
+    fileSystem?: Pick<typeof fs, 'readFile' | 'writeFile' | 'mkdir' | 'rename' | 'unlink'>;
 }
 
 export function validateBackendUrl(value: string, production: boolean): URL {
@@ -63,27 +64,29 @@ export class DesktopSettingsStore {
                 ? {configured: true, baseUrl: connection.baseUrl}
                 : {configured: false, baseUrl: null};
         } catch {
-            await this.clearConnection();
             return {configured: false, baseUrl: null};
         }
     }
 
     public async loadConnection(): Promise<DesktopConnection | undefined> {
-        const persisted = await this.readPersistedSettings();
-        if (!persisted) return undefined;
-        if (!this.options.safeStorage.isEncryptionAvailable()) {
-            throw new Error('Desktop connection encryption is unavailable');
-        }
         try {
+            const persisted = await this.readPersistedSettings();
+            if (!persisted) return undefined;
+            if (!this.options.safeStorage.isEncryptionAvailable()) {
+                throw new SettingsStorageError('Desktop connection encryption is unavailable');
+            }
             const plaintext = this.options.safeStorage.decryptString(Buffer.from(persisted.encryptedConnection, 'base64'));
             const parsed: unknown = JSON.parse(plaintext);
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid connection');
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new SettingsCorruptionError();
             const candidate = parsed as Partial<DesktopConnection>;
             if (typeof candidate.baseUrl !== 'string' || typeof candidate.adminToken !== 'string' || !candidate.adminToken.trim()) {
-                throw new Error('invalid connection');
+                throw new SettingsCorruptionError();
             }
             return {baseUrl: validateBackendUrl(candidate.baseUrl, this.options.production).href, adminToken: candidate.adminToken.trim()};
-        } catch {
+        } catch (error) {
+            if (error instanceof SettingsStorageError) {
+                throw new Error(error.message);
+            }
             await this.clearConnection();
             throw new Error('Stored desktop connection could not be decrypted');
         }
@@ -104,11 +107,11 @@ export class DesktopSettingsStore {
         const payload: PersistedSettings = {version: 1, encryptedConnection};
 
         try {
-            await fs.mkdir(path.dirname(this.options.settingsPath), {recursive: true});
-            await fs.writeFile(this.temporaryPath, JSON.stringify(payload), {encoding: 'utf8', mode: 0o600});
-            await fs.rename(this.temporaryPath, this.options.settingsPath);
+            await this.fileSystem.mkdir(path.dirname(this.options.settingsPath), {recursive: true});
+            await this.fileSystem.writeFile(this.temporaryPath, JSON.stringify(payload), {encoding: 'utf8', mode: 0o600});
+            await this.fileSystem.rename(this.temporaryPath, this.options.settingsPath);
         } catch {
-            await fs.unlink(this.temporaryPath).catch(() => undefined);
+            await this.fileSystem.unlink(this.temporaryPath).catch(() => undefined);
             throw new Error('Unable to persist encrypted desktop connection');
         }
         return {configured: true, baseUrl};
@@ -116,33 +119,40 @@ export class DesktopSettingsStore {
 
     public async clearConnection(): Promise<void> {
         await Promise.all([
-            fs.unlink(this.options.settingsPath).catch(() => undefined),
-            fs.unlink(this.temporaryPath).catch(() => undefined),
+            this.fileSystem.unlink(this.options.settingsPath).catch(() => undefined),
+            this.fileSystem.unlink(this.temporaryPath).catch(() => undefined),
         ]);
     }
 
     private async readPersistedSettings(): Promise<PersistedSettings | undefined> {
         let raw: string;
         try {
-            raw = await fs.readFile(this.options.settingsPath, 'utf8');
+            raw = await this.fileSystem.readFile(this.options.settingsPath, 'utf8');
         } catch (error: unknown) {
             if (isMissingFile(error)) return undefined;
-            throw new Error('Unable to read desktop connection settings');
+            throw new SettingsStorageError('Unable to read desktop connection settings');
         }
         try {
             const parsed: unknown = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid');
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new SettingsCorruptionError();
             const candidate = parsed as Partial<PersistedSettings>;
             if (candidate.version !== 1 || typeof candidate.encryptedConnection !== 'string' || !candidate.encryptedConnection) {
-                throw new Error('invalid');
+                throw new SettingsCorruptionError();
             }
             return {version: 1, encryptedConnection: candidate.encryptedConnection};
-        } catch {
-            await this.clearConnection();
-            throw new Error('Stored desktop connection is invalid');
+        } catch (error) {
+            if (error instanceof SettingsCorruptionError) throw error;
+            throw new SettingsCorruptionError();
         }
     }
+
+    private get fileSystem(): Pick<typeof fs, 'readFile' | 'writeFile' | 'mkdir' | 'rename' | 'unlink'> {
+        return this.options.fileSystem ?? fs;
+    }
 }
+
+class SettingsStorageError extends Error {}
+class SettingsCorruptionError extends Error {}
 
 function isMissingFile(error: unknown): boolean {
     return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');

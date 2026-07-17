@@ -118,3 +118,32 @@ test('corrupt or undecryptable settings are cleared without leaking connection s
     assert.deepEqual(await store.loadStatus(), {configured: false, baseUrl: null});
     fs.rmSync(temporary.directory, {recursive: true, force: true});
 });
+
+test('valid encrypted settings survive unavailable encryption and read failures', async () => {
+    const {DesktopSettingsStore} = await loadSettingsModule();
+    const temporary = temporarySettingsPath();
+    const connection = {baseUrl: 'https://api.example.com', adminToken: 'desktop-admin-token'};
+    const writer = new DesktopSettingsStore({
+        safeStorage: fakeSafeStorage(), settingsPath: temporary.file, production: true,
+    });
+    await writer.saveConnection(connection);
+    const original = fs.readFileSync(temporary.file);
+
+    const encryptionUnavailable = new DesktopSettingsStore({
+        safeStorage: fakeSafeStorage({available: false}), settingsPath: temporary.file, production: true,
+    });
+    assert.deepEqual(await encryptionUnavailable.loadStatus(), {configured: false, baseUrl: null});
+    assert.deepEqual(fs.readFileSync(temporary.file), original);
+
+    const readFailure = new DesktopSettingsStore({
+        safeStorage: fakeSafeStorage(),
+        settingsPath: temporary.file,
+        production: true,
+        fileSystem: {
+            readFile: async () => { throw Object.assign(new Error('access denied'), {code: 'EACCES'}); },
+        },
+    });
+    assert.deepEqual(await readFailure.loadStatus(), {configured: false, baseUrl: null});
+    assert.deepEqual(fs.readFileSync(temporary.file), original);
+    fs.rmSync(temporary.directory, {recursive: true, force: true});
+});
