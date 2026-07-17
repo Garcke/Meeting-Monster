@@ -195,15 +195,19 @@ def create_router(
         )
         short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
         started = time.perf_counter()
+        received_text = False
         try:
             stream = provider_factory(short_profile).stream_text(
                 [{"role": "user", "content": CONNECTIVITY_PROMPT}]
             )
             for text in stream:
                 if text:
+                    received_text = True
                     break
         except Exception as exc:
             raise HTTPException(status_code=422, detail="Model connectivity test failed") from exc
+        if not received_text:
+            raise HTTPException(status_code=422, detail="Model connectivity test failed")
         return {
             "ok": True,
             "latency_ms": int((time.perf_counter() - started) * 1000),

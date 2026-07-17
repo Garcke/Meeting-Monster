@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 class RecordingProvider:
     def __init__(self, chunks=None, error=None):
-        self.chunks = chunks or ["connected"]
+        self.chunks = ["connected"] if chunks is None else chunks
         self.error = error
         self.messages = []
 
@@ -34,15 +34,20 @@ class ModelAPITests(unittest.TestCase):
             SecretCipher(Fernet.generate_key()),
         )
         self.provider = RecordingProvider()
+        self.provider_profiles = []
 
     def create_client(self, *, admin_token=admin_token, provider=None):
         from server.llm_api import create_app
+
+        def provider_factory(profile):
+            self.provider_profiles.append(profile)
+            return provider or self.provider
 
         return TestClient(
             create_app(
                 profile_store=self.store,
                 admin_token=admin_token,
-                provider_factory=lambda profile: provider or self.provider,
+                provider_factory=provider_factory,
             )
         )
 
@@ -153,6 +158,7 @@ class ModelAPITests(unittest.TestCase):
         self.assertEqual(response.json()["model"], "demo-model")
         self.assertIsInstance(response.json()["latency_ms"], int)
         self.assertEqual(self.provider.messages, [[{"role": "user", "content": "Reply with OK."}]])
+        self.assertEqual(self.provider_profiles[-1].max_tokens, 8)
         self.assertEqual(self.store.path.read_bytes() if self.store.path.exists() else None, before)
         self.assertTrue(any(profile.active for profile in self.store.list_profiles()))
 
@@ -176,10 +182,30 @@ class ModelAPITests(unittest.TestCase):
         active_after = next(profile.id for profile in self.store.list_profiles() if profile.active)
         self.assertEqual(active_after, active_before)
 
+    def test_connectivity_test_rejects_an_empty_stream_without_mutating_the_store(self):
+        empty_provider = RecordingProvider(chunks=[])
+        self.store.list_profiles()
+        before = self.store.path.read_bytes()
+        active_before = next(profile.id for profile in self.store.list_profiles() if profile.active)
+
+        with self.create_client(provider=empty_provider) as client:
+            response = client.post(
+                "/models/test",
+                headers=self.auth,
+                json=self.profile_payload(id="temporary", api_key="temporary-secret"),
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "Model connectivity test failed")
+        self.assertNotIn("temporary-secret", response.text)
+        self.assertEqual(self.store.path.read_bytes(), before)
+        active_after = next(profile.id for profile in self.store.list_profiles() if profile.active)
+        self.assertEqual(active_after, active_before)
+
     def test_connectivity_test_accepts_a_stored_profile_with_a_temporary_key_replacement(self):
         from server.settings.profile_store import ModelProfileInput
 
-        self.store.create_profile(ModelProfileInput(**self.profile_payload(api_key=None)))
+        self.store.create_profile(ModelProfileInput(**self.profile_payload(api_key=None, max_tokens=99)))
         before = self.store.path.read_bytes()
 
         with self.create_client() as client:
@@ -190,6 +216,7 @@ class ModelAPITests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.provider_profiles[-1].max_tokens, 8)
         self.assertEqual(self.store.path.read_bytes(), before)
         self.assertNotIn("temporary-secret", json.dumps(response.json()))
 
