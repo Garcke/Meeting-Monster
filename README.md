@@ -18,6 +18,12 @@ Copy-Item .env.example .env
 
 The Web client opens at the Python service origin and sends microphone PCM to that same service over `/ws/asr`.
 
+## Text-model configuration
+
+Non-secret provider defaults live in [`server/config/default_model_profiles.json`](server/config/default_model_profiles.json). Its `active_profile` selects the default profile; set `LLM_ACTIVE_PROFILE` in `.env` to override that selection without editing the file.
+
+Each provider profile declares an `api_key_env` name. Put the active provider key in `.env` under that named variable. The Web client has no model settings UI. Desktop settings can manage remote profiles through the protected model-management API using `APP_ADMIN_TOKEN`.
+
 ## Electron desktop client
 
 The Electron client contains no Python runtime or ASR model. Configure the Python service URL and the model-management admin token in the overlay settings; Electron Main connects to that configured service and sends microphone PCM to it. See [desktop/README.md](desktop/README.md) for local desktop development.

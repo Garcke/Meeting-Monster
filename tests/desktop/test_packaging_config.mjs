@@ -18,8 +18,16 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     assert.match(pkg.build.nsis.artifactName, /Setup/);
     assert.match(pkg.build.portable.artifactName, /Portable/);
     assert.match(pkg.build.mac.artifactName, /Mac-Universal/);
-    assert.equal(pkg.build.win.target[0].arch.includes('x64'), true);
-    assert.equal(pkg.build.mac.target.every((target) => target.arch.includes('universal')), true);
+    assert.deepEqual(pkg.build.win.target, [
+        {target: 'nsis', arch: ['x64']},
+        {target: 'portable', arch: ['x64']},
+    ]);
+    assert.deepEqual(pkg.build.mac.target, [
+        {target: 'dmg', arch: ['universal']},
+        {target: 'zip', arch: ['universal']},
+    ]);
+    assert.equal(pkg.devDependencies?.['@electron/asar'], '3.2.18');
+    assert.equal(pkg.scripts['audit:package'], 'node ../tests/desktop/audit_packaged_artifact.mjs');
 
     for (const [name, command] of Object.entries(pkg.scripts)) {
         if (name.startsWith('dist')) assert.match(command, /^npm run build &&/);

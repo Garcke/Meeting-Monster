@@ -10,7 +10,7 @@ npm ci
 npm start
 ```
 
-In the overlay settings, configure the HTTPS Python service URL and `APP_ADMIN_TOKEN` for model-management requests. Electron Main connects to that service for chat, model management, and `/ws/asr`; microphone PCM leaves the Electron client for the configured Python service.
+In the overlay settings, configure the Python service URL and `APP_ADMIN_TOKEN` for model-management requests. For development, `localhost` or `127.0.0.1` targets may use HTTP/WS. A non-local production service requires HTTPS/WSS. Electron Main connects to that service for chat, model management, and `/ws/asr`; microphone PCM leaves the Electron client for the configured Python service.
 
 ## Privacy behavior
 

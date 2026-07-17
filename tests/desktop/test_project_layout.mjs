@@ -39,3 +39,18 @@ test('desktop source, package scripts, and documentation do not retain local Pyt
         }
     }
 });
+
+test('documentation explains model setup and development transport boundaries', () => {
+    const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+    const desktopReadme = fs.readFileSync(path.join(desktopRoot, 'README.md'), 'utf8');
+
+    assert.match(rootReadme, /server\/config\/default_model_profiles\.json/);
+    assert.match(rootReadme, /active_profile/);
+    assert.match(rootReadme, /LLM_ACTIVE_PROFILE/);
+    assert.match(rootReadme, /api_key_env/);
+    assert.match(rootReadme, /active provider key.*\.env/i);
+    assert.match(rootReadme, /Web client.*no model settings UI/i);
+    assert.match(rootReadme, /Desktop settings.*protected model-management API/i);
+    assert.match(desktopReadme, /localhost.*127\.0\.0\.1.*HTTP\/WS/i);
+    assert.match(desktopReadme, /non-local.*HTTPS\/WSS/i);
+});

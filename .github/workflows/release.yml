@@ -32,6 +32,8 @@ jobs:
         run: npm run desktop-test
       - working-directory: desktop
         run: npm run dist:win:unsigned
+      - working-directory: desktop
+        run: npm run audit:package
       - uses: actions/upload-artifact@v4
         with:
           name: meeting-monster-windows-unsigned
