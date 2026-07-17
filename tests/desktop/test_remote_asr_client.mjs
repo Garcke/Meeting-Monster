@@ -149,6 +149,30 @@ test('literal asr stopped completes an active stop', async () => {
     assert.deepEqual(socket.closeCalls[0], {code: 1000, reason: 'ASR stopped'});
 });
 
+test('stop settles when a socket synchronously emits asr stopped from send', async () => {
+    const {RemoteAsrClient} = await loadClientModule();
+    const harness = createHarness();
+    class ReentrantStopSocket extends FakeWebSocket {
+        send(data) {
+            super.send(data);
+            if (data === 'stop') this.receive('asr stopped');
+        }
+    }
+    harness.options.createWebSocket = (url) => {
+        const socket = new ReentrantStopSocket(url);
+        harness.sockets.push(socket);
+        return socket;
+    };
+    const {client} = await startRecording(RemoteAsrClient, harness);
+
+    const result = await Promise.race([
+        client.stop(),
+        new Promise((resolve) => setTimeout(() => resolve('unsettled'), 0)),
+    ]);
+
+    assert.deepEqual(result, {state: 'idle'});
+});
+
 test('invalid server messages terminate with a protocol error', async () => {
     const {RemoteAsrClient} = await loadClientModule();
     const harness = createHarness();

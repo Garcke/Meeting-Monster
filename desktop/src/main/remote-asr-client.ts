@@ -113,16 +113,21 @@ export class RemoteAsrClient {
 
     public async stop(): Promise<AsrStatus> {
         if (this.status.state !== 'recording') return this.getStatus();
-        if (!this.socket) return this.getStatus();
+        const socket = this.socket;
+        if (!socket) return this.getStatus();
 
         this.setStatus({state: 'stopping'});
-        this.socket.send('stop');
         return new Promise<AsrStatus>((resolve, reject) => {
             this.stopResolve = resolve;
             this.stopReject = reject;
             this.stopTimer = this.options.setTimer(() => {
                 this.fail('Remote ASR stop timed out', true, 'ASR stop timeout');
             }, STOP_TIMEOUT_MS);
+            try {
+                socket.send('stop');
+            } catch {
+                this.fail('Remote ASR connection failed');
+            }
         });
     }
 

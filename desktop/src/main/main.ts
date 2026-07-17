@@ -4,6 +4,7 @@ import {DesktopSettingsStore, validateBackendUrl, type DesktopConnection} from '
 import {WindowPrivacyManager} from './privacy-manager';
 import {RemoteApiClient, validateModelProfileInput, type ChatStreamEvent, type ModelProfileInput} from './remote-api-client';
 import {RemoteAsrClient} from './remote-asr-client';
+import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordinator';
 import {
     IPC_CHANNELS,
     type AsrResultEvent,
@@ -25,12 +26,15 @@ let windowMode: WindowMode = 'capsule';
 let ipcHandlersRegistered = false;
 const activeChatRequests = new Map<string, {controller: AbortController; sender: WebContents}>();
 let remoteAsrClient: RemoteAsrClient | null = null;
-let pcmPort: Electron.MessagePortMain | null = null;
-let asrOwner: WebContents | null = null;
+let asrSessionCoordinator: AsrSessionCoordinator | null = null;
 
 function isAuthorizedSender(event: Electron.IpcMainInvokeEvent): boolean {
-    const senderWindow = BrowserWindow.fromWebContents(event.sender);
-    return Boolean(senderWindow && senderWindow === mainWindow && !senderWindow.isDestroyed());
+    return isAuthorizedWebContents(event.sender);
+}
+
+function isAuthorizedWebContents(sender: WebContents): boolean {
+    const senderWindow = BrowserWindow.fromWebContents(sender);
+    return Boolean(!sender.isDestroyed() && senderWindow && senderWindow === mainWindow && !senderWindow.isDestroyed());
 }
 
 function getPrivacyManager(): WindowPrivacyManager {
@@ -44,10 +48,11 @@ function getSettingsStore(): DesktopSettingsStore {
 }
 
 function getLiveAsrOwner(): WebContents | null {
-    if (!asrOwner || asrOwner.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents !== asrOwner) {
+    const owner = asrSessionCoordinator?.getOwner() as WebContents | null;
+    if (!owner || !isAuthorizedWebContents(owner)) {
         return null;
     }
-    return asrOwner;
+    return owner;
 }
 
 function sendAsrStatus(status: AsrStatus): void {
@@ -60,12 +65,6 @@ function sendAsrResult(event: AsrResultEvent): void {
     if (owner) owner.send(IPC_CHANNELS.asr.result, event);
 }
 
-function closeAsrPort(): void {
-    if (pcmPort) pcmPort.close();
-    pcmPort = null;
-    asrOwner = null;
-}
-
 function getRemoteAsrClient(): RemoteAsrClient {
     getSettingsStore();
     if (remoteAsrClient) return remoteAsrClient;
@@ -74,7 +73,7 @@ function getRemoteAsrClient(): RemoteAsrClient {
         createWebSocket: (url) => new globalThis.WebSocket(url),
         onStatus: (status) => {
             sendAsrStatus(status);
-            if (status.state === 'error') closeAsrPort();
+            if (status.state === 'error') asrSessionCoordinator?.endSession();
         },
         onResult: sendAsrResult,
         setTimer: (callback, milliseconds) => setTimeout(callback, milliseconds),
@@ -83,18 +82,38 @@ function getRemoteAsrClient(): RemoteAsrClient {
     return remoteAsrClient;
 }
 
-function terminateAsr(): void {
+function terminateAsr(owner: AsrSessionSender): void {
     remoteAsrClient?.dispose();
     remoteAsrClient = null;
-    sendAsrResult({type: 'error', text: 'Remote ASR input failed'});
-    sendAsrStatus({state: 'error', message: 'Remote ASR input failed'});
-    closeAsrPort();
+    const sender = owner as WebContents;
+    if (isAuthorizedWebContents(sender)) {
+        sender.send(IPC_CHANNELS.asr.result, {type: 'error', text: 'Remote ASR input failed'});
+        sender.send(IPC_CHANNELS.asr.status, {state: 'error', message: 'Remote ASR input failed'});
+    }
 }
 
 function disposeAsr(): void {
+    asrSessionCoordinator?.endSession();
     remoteAsrClient?.dispose();
     remoteAsrClient = null;
-    closeAsrPort();
+}
+
+function getAsrSessionCoordinator(): AsrSessionCoordinator {
+    getSettingsStore();
+    if (asrSessionCoordinator) return asrSessionCoordinator;
+    asrSessionCoordinator = new AsrSessionCoordinator({
+        isAuthorizedSender: (sender) => isAuthorizedWebContents(sender as WebContents),
+        loadConnection: () => getSettingsStore().loadConnection(),
+        createPort: () => {
+            const {port1, port2} = new MessageChannelMain();
+            return {input: port1, output: port2};
+        },
+        startRemote: (baseUrl, sampleRate) => getRemoteAsrClient().start(baseUrl, sampleRate),
+        writePcm: (buffer) => getRemoteAsrClient().writePcm(buffer),
+        onPortError: terminateAsr,
+        portChannel: IPC_CHANNELS.asr.port,
+    });
+    return asrSessionCoordinator;
 }
 
 async function getRemoteApiClient(connection?: DesktopConnection): Promise<RemoteApiClient> {
@@ -298,39 +317,14 @@ function registerIpcHandlers(): void {
     ipcMain.handle(IPC_CHANNELS.asr.start, async (event, sampleRate: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR request');
         if (!Number.isInteger(sampleRate)) throw new TypeError('ASR sample rate must be an integer');
-        const connection = await getSettingsStore().loadConnection();
-        if (!connection) throw new Error('Remote server is not configured');
-        if (asrOwner) throw new Error('ASR is already active');
-
-        const {port1, port2} = new MessageChannelMain();
-        asrOwner = event.sender;
-        pcmPort = port1;
-        port1.on('message', ({data}) => {
-            if (!(data instanceof ArrayBuffer)) {
-                terminateAsr();
-                return;
-            }
-            try {
-                remoteAsrClient?.writePcm(data);
-            } catch {
-                if (remoteAsrClient?.getStatus().state !== 'error') terminateAsr();
-            }
-        });
-        port1.start();
-        event.sender.postMessage(IPC_CHANNELS.asr.port, null, [port2]);
-        try {
-            return await getRemoteAsrClient().start(connection.baseUrl, sampleRate as number);
-        } catch (error) {
-            closeAsrPort();
-            throw error;
-        }
+        return getAsrSessionCoordinator().start(event.sender as unknown as AsrSessionSender, sampleRate as number);
     });
     ipcMain.handle(IPC_CHANNELS.asr.stop, async (event): Promise<AsrStatus> => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR request');
         try {
             return await getRemoteAsrClient().stop();
         } finally {
-            if (remoteAsrClient?.getStatus().state === 'idle') closeAsrPort();
+            if (remoteAsrClient?.getStatus().state === 'idle') asrSessionCoordinator?.endSession();
         }
     });
     ipcMain.handle(IPC_CHANNELS.asr.getStatus, (event): AsrStatus => {

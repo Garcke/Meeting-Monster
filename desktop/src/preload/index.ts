@@ -12,10 +12,15 @@ import {
 
 let pcmPort: MessagePort | null = null;
 
+function closePcmPort(): void {
+    pcmPort?.close();
+    pcmPort = null;
+}
+
 ipcRenderer.on(IPC_CHANNELS.asr.port, (event) => {
     const port = event.ports[0];
     if (!port) throw new Error('ASR PCM channel is unavailable');
-    pcmPort?.close();
+    closePcmPort();
     pcmPort = port;
 });
 
@@ -65,9 +70,14 @@ const meetingMonster: MeetingMonsterApi = {
     },
     asr: {
         start: async (sampleRate) => {
-            const status = await ipcRenderer.invoke(IPC_CHANNELS.asr.start, sampleRate);
-            if (!pcmPort) throw new Error('ASR PCM channel is unavailable');
-            return status;
+            try {
+                const status = await ipcRenderer.invoke(IPC_CHANNELS.asr.start, sampleRate);
+                if (!pcmPort) throw new Error('ASR PCM channel is unavailable');
+                return status;
+            } catch (error) {
+                closePcmPort();
+                throw error;
+            }
         },
         writePcm: (chunk) => {
             if (!(chunk instanceof Int16Array) || !chunk.byteLength) throw new TypeError('PCM chunk must be Int16Array');
@@ -75,7 +85,13 @@ const meetingMonster: MeetingMonsterApi = {
             const copy = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength) as ArrayBuffer;
             pcmPort.postMessage(copy, [copy]);
         },
-        stop: () => ipcRenderer.invoke(IPC_CHANNELS.asr.stop),
+        stop: async () => {
+            try {
+                return await ipcRenderer.invoke(IPC_CHANNELS.asr.stop);
+            } finally {
+                closePcmPort();
+            }
+        },
         getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.asr.getStatus),
         onStatus: (callback: (status: AsrStatus) => void) => subscribe(IPC_CHANNELS.asr.status, callback),
         onResult: (callback: (event: AsrResultEvent) => void) => subscribe(IPC_CHANNELS.asr.result, callback),
