@@ -10,6 +10,8 @@ const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 
 test('electron-builder packages only the desktop runtime and explicit unsigned targets', () => {
     assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/**/*', 'package.json']);
+    assert.equal(pkg.build.icon, 'renderer/favicon.png');
+    assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
     assert.equal(pkg.dependencies?.['sherpa-onnx-node'], undefined);
     assert.equal(pkg.devDependencies?.['sherpa-onnx-node'], undefined);
     assert.equal(pkg.build.asarUnpack, undefined);
