@@ -13,24 +13,27 @@ async function loadModelSettingsController() {
     return import(`data:text/javascript,${encodeURIComponent(source)}`);
 }
 
-test('model settings renderer exposes backend-owned model selection controls only', () => {
+test('model settings renderer exposes selectable vendors and saved connection controls', () => {
     const html = fs.readFileSync(overlayHtmlPath, 'utf8');
     const source = fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '';
     const requiredIds = [
         'overlaySettingsButton', 'overlayActiveModel', 'overlaySettingsDrawer', 'overlaySettingsClose',
         'modelList', 'modelForm', 'modelProtocol', 'modelApiKey', 'modelMaxTokens', 'modelTemperature',
-        'modelTestButton', 'modelStatus',
+        'modelTestButton', 'modelSaveButton', 'modelStatus',
     ];
 
     for (const id of requiredIds) assert.match(html, new RegExp(`id="${id}"`));
-    for (const id of ['serverBaseUrl', 'serverAdminToken', 'modelBaseUrl', 'modelName', 'modelSaveButton', 'modelCancelButton']) {
+    for (const id of ['serverBaseUrl', 'serverAdminToken', 'modelBaseUrl', 'modelName', 'modelCancelButton']) {
         assert.doesNotMatch(html, new RegExp(`id="${id}"`));
     }
     assert.match(source, /export class ModelSettingsController/);
+    assert.doesNotMatch(html, /id="modelProtocol"[^>]*disabled/);
     assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB|document\.cookie/);
     assert.doesNotMatch(source, /\bfetch\s*\(|\bWebSocket\b/);
     assert.match(source, /this\.api\.models\.list/);
     assert.match(source, /this\.api\.models\.test/);
+    assert.match(source, /this\.api\.models\.save/);
+    assert.match(source, /modelProtocol.*change|addEventListener\(['"]change['"]/s);
     assert.match(source, /profile_id/);
     assert.doesNotMatch(source, /meetingMonster\.models\.(create|update|delete|activate)/);
     assert.match(source, /profile_id/);
@@ -75,4 +78,39 @@ test('selecting a backend profile refreshes the active-model callback', async ()
         globalThis.window = originalWindow;
         globalThis.document = originalDocument;
     }
+});
+
+test('saving a selected model persists the current vendor and advanced fields', async () => {
+    const {ModelSettingsController} = await loadModelSettingsController();
+    const activeProfile = {
+        id: 'generic_anthropic', label: 'Anthropic', protocol: 'anthropic', model: 'claude',
+        api_key_required: true, max_tokens: 100, temperature: 0.2, active: true,
+    };
+    const elements = {
+        modelList: createElement(), modelStatus: createElement(), modelForm: createElement(),
+        modelProtocol: {value: 'anthropic', addEventListener() {}},
+        modelApiKey: {value: 'temporary-key'}, modelMaxTokens: {value: '2048'},
+        modelTemperature: {value: '0.4'}, modelSaveButton: {addEventListener() {}},
+        modelTestButton: {addEventListener() {}},
+    };
+    const saved = [];
+    const controller = new ModelSettingsController({
+        api: {
+            models: {
+                list: async () => ({active_profile: activeProfile.id, profiles: [activeProfile]}),
+                save: async (selection) => { saved.push(selection); return {profile_id: selection.profile_id}; },
+            },
+        },
+        elements,
+    });
+
+    await controller.refreshModels();
+    elements.modelApiKey.value = 'temporary-key';
+    elements.modelMaxTokens.value = '2048';
+    elements.modelTemperature.value = '0.4';
+    await controller.saveConnection();
+    assert.deepEqual(saved, [{
+        profile_id: 'generic_anthropic', protocol: 'anthropic', api_key: 'temporary-key',
+        max_tokens: 2048, temperature: 0.4,
+    }]);
 });

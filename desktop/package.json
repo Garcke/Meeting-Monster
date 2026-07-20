@@ -37,6 +37,7 @@
       "package.json"
     ],
     "win": {
+      "icon": "renderer/favicon.ico",
       "signAndEditExecutable": true,
       "target": [
         {
@@ -56,7 +57,13 @@
     "nsis": {
       "artifactName": "Meeting-Monster-Setup-${version}.${ext}",
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Meeting-Monster",
+      "installerIcon": "renderer/favicon.ico",
+      "uninstallerIcon": "renderer/favicon.ico",
+      "installerHeaderIcon": "renderer/favicon.ico"
     },
     "portable": {
       "artifactName": "Meeting-Monster-Portable-${version}.${ext}"

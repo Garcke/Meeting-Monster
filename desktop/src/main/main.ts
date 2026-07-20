@@ -1,5 +1,6 @@
-import {app, BrowserWindow, globalShortcut, ipcMain, MessageChannelMain, type WebContents} from 'electron';
+import {app, BrowserWindow, globalShortcut, ipcMain, MessageChannelMain, safeStorage, type WebContents} from 'electron';
 import path from 'node:path';
+import {ModelConnectionStore, validateModelConnection, type ModelConnection} from './model-connection-settings';
 import {WindowPrivacyManager} from './privacy-manager';
 import {
     RemoteApiClient,
@@ -24,6 +25,7 @@ const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 
 let mainWindow: BrowserWindow | null = null;
 let privacyManager: WindowPrivacyManager | null = null;
+let modelConnectionStore: ModelConnectionStore | null = null;
 let windowMode: WindowMode = 'capsule';
 let ipcHandlersRegistered = false;
 const activeChatRequests = new Map<string, {controller: AbortController; sender: WebContents}>();
@@ -42,6 +44,11 @@ function isAuthorizedWebContents(sender: WebContents): boolean {
 function getPrivacyManager(): WindowPrivacyManager {
     if (!privacyManager) throw new Error('Privacy manager is not ready');
     return privacyManager;
+}
+
+function getModelConnectionStore(): ModelConnectionStore {
+    if (!modelConnectionStore) throw new Error('Model connection store is not ready');
+    return modelConnectionStore;
 }
 
 function getLiveAsrOwner(): WebContents | null {
@@ -122,6 +129,27 @@ function requireText(value: unknown, label: string): string {
 
 function requireModelSelection(value: unknown): ModelSelectionInput {
     return validateModelSelectionInput(value);
+}
+
+function requireModelConnection(value: unknown): ModelConnection {
+    return validateModelConnection(value);
+}
+
+async function mergeSavedModelConnection(selection: ModelSelectionInput | undefined): Promise<ModelSelectionInput | undefined> {
+    const saved = await getModelConnectionStore().loadConnection();
+    if (!saved && !selection) return undefined;
+    const merged = selection ?? saved;
+    if (!merged) return undefined;
+    return {
+        profile_id: selection?.profile_id ?? saved?.profile_id ?? merged.profile_id,
+        ...(selection?.api_key ?? saved?.api_key ? {api_key: selection?.api_key ?? saved?.api_key} : {}),
+        ...(selection?.max_tokens ?? saved?.max_tokens
+            ? {max_tokens: selection?.max_tokens ?? saved?.max_tokens}
+            : {}),
+        ...(selection?.temperature !== undefined
+            ? {temperature: selection.temperature}
+            : (saved?.temperature === undefined ? {} : {temperature: saved.temperature})),
+    };
 }
 
 function sendChatEvent(sender: WebContents, event: ChatStreamEvent): void {
@@ -224,15 +252,26 @@ function registerIpcHandlers(): void {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
         return (await getRemoteApiClient()).listSelectableModels();
     });
+    ipcMain.handle(IPC_CHANNELS.models.getSaved, async (event) => {
+        if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
+        return getModelConnectionStore().loadSummary();
+    });
+    ipcMain.handle(IPC_CHANNELS.models.save, async (event, connection: unknown) => {
+        if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
+        return getModelConnectionStore().saveConnection(requireModelConnection(connection));
+    });
     ipcMain.handle(IPC_CHANNELS.models.test, async (event, selection: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
-        return (await getRemoteApiClient()).testSelectedModel(requireModelSelection(selection));
+        const modelSelection = await mergeSavedModelConnection(requireModelSelection(selection));
+        if (!modelSelection) throw new Error('Model selection is required');
+        return (await getRemoteApiClient()).testSelectedModel(modelSelection);
     });
     ipcMain.handle(IPC_CHANNELS.chat.send, async (event, requestId: unknown, content: unknown, selection?: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');
         const id = requireText(requestId, 'Chat request id');
         const question = requireText(content, 'Chat content');
-        const modelSelection = selection === undefined ? undefined : requireModelSelection(selection);
+        const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
+        const modelSelection = await mergeSavedModelConnection(requestedSelection);
         activeChatRequests.get(id)?.controller.abort();
         const controller = new AbortController();
         const sender = event.sender;
@@ -333,6 +372,10 @@ function createMainWindow(): void {
 
 function startApplication(): void {
     privacyManager = new WindowPrivacyManager({onStatus: broadcastPrivacyStatus});
+    modelConnectionStore = new ModelConnectionStore({
+        safeStorage,
+        settingsPath: path.join(app.getPath('userData'), 'model-connection.json'),
+    });
     registerIpcHandlers();
     createMainWindow();
 

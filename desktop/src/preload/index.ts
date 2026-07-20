@@ -7,7 +7,9 @@ import {
     type AsrResultEvent,
     type AsrStatus,
     type ModelOptions,
+    type ModelConnectionInput,
     type ModelSelectionInput,
+    type SavedModelConnection,
     type ModelTestResult,
     type Unsubscribe,
     type WindowState,
@@ -54,6 +56,8 @@ const meetingMonster: MeetingMonsterApi = {
     },
     models: {
         list: () => ipcRenderer.invoke(IPC_CHANNELS.models.list) as Promise<ModelOptions>,
+        getSaved: () => ipcRenderer.invoke(IPC_CHANNELS.models.getSaved) as Promise<SavedModelConnection | null>,
+        save: (connection: ModelConnectionInput) => ipcRenderer.invoke(IPC_CHANNELS.models.save, connection) as Promise<SavedModelConnection>,
         test: (selection: ModelSelectionInput) => ipcRenderer.invoke(IPC_CHANNELS.models.test, selection) as Promise<ModelTestResult>,
     },
     chat: {
