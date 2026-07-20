@@ -12,9 +12,11 @@ npm start
 
 The overlay uses the local Python service at `http://127.0.0.1:9000/` by default. Configure model profiles, provider URLs, model names, and provider keys in the Python backend (`server/config/default_model_profiles.json` and `.env`). Electron only reads a redacted model catalog, keeps the selected `profile_id` for the current request, and never asks for a separate ASR URL. The ASR WebSocket is derived automatically as `/ws/asr`; microphone PCM leaves the Electron client for that local Python service.
 
-The model drawer keeps model type, optional API Key, maximum tokens, temperature, connection testing, and model selection. It does not create, edit, or delete backend profiles. For development, `localhost` or `127.0.0.1` targets may use HTTP/WS. A non-local production service requires HTTPS/WSS and should be wired through the application deployment configuration rather than the Electron UI.
+The model drawer keeps model type, optional API Key, maximum tokens, temperature, connection testing, model selection, and encrypted local connection saving. It does not create, edit, or delete backend profiles. For development, `localhost` or `127.0.0.1` targets may use HTTP/WS. A non-local production service requires HTTPS/WSS and should be wired through the application deployment configuration rather than the Electron UI.
 
 The backend exposes `/api/model-options/` for the redacted catalog and `/api/model-test/` for a local connection test. Selecting a model sends only its `profile_id` with the chat request; it does not rewrite `active_profile` or the backend profile file.
+
+Windows packaging uses the Meeting-Monster logo for the application and installer icons. The NSIS installer creates a desktop shortcut and a Start Menu shortcut named `Meeting-Monster`.
 
 ## Privacy behavior
 

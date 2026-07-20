@@ -12,18 +12,26 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/**/*', 'package.json']);
     assert.equal(pkg.build.icon, 'renderer/favicon.png');
     assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
+    const windowsIcon = path.join(projectRoot, 'desktop', 'renderer', 'favicon.ico');
+    assert.ok(fs.statSync(windowsIcon).size > 0);
     assert.equal(pkg.dependencies?.['sherpa-onnx-node'], undefined);
     assert.equal(pkg.devDependencies?.['sherpa-onnx-node'], undefined);
     assert.equal(pkg.build.asarUnpack, undefined);
     assert.equal(pkg.build.extraResources, undefined);
     assert.equal(pkg.build.extraFiles, undefined);
     assert.match(pkg.build.nsis.artifactName, /Setup/);
+    assert.equal(pkg.build.nsis.createDesktopShortcut, true);
+    assert.equal(pkg.build.nsis.createStartMenuShortcut, true);
+    assert.equal(pkg.build.nsis.shortcutName, 'Meeting-Monster');
+    assert.equal(pkg.build.nsis.installerIcon, 'renderer/favicon.ico');
+    assert.equal(pkg.build.nsis.uninstallerIcon, 'renderer/favicon.ico');
     assert.match(pkg.build.portable.artifactName, /Portable/);
     assert.match(pkg.build.mac.artifactName, /Mac-Universal/);
     assert.deepEqual(pkg.build.win.target, [
         {target: 'nsis', arch: ['x64']},
         {target: 'portable', arch: ['x64']},
     ]);
+    assert.equal(pkg.build.win.icon, 'renderer/favicon.ico');
     assert.deepEqual(pkg.build.mac.target, [
         {target: 'dmg', arch: ['universal']},
         {target: 'zip', arch: ['universal']},

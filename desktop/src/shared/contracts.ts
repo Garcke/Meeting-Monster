@@ -13,7 +13,7 @@ export const IPC_CHANNELS = {
         setCaptureProtection: 'privacy:set-capture-protection',
         status: 'privacy:status',
     },
-    models: {list: 'models:list', test: 'models:test'},
+    models: {list: 'models:list', getSaved: 'models:get-saved', save: 'models:save', test: 'models:test'},
     chat: {send: 'chat:send', cancel: 'chat:cancel', event: 'chat:event'},
     asr: {
         start: 'asr:start',
@@ -74,6 +74,18 @@ export interface ModelSelectionInput {
     temperature?: number | null;
 }
 
+export interface ModelConnectionInput extends ModelSelectionInput {
+    protocol: 'openai' | 'anthropic';
+}
+
+export interface SavedModelConnection {
+    profile_id: string;
+    protocol: 'openai' | 'anthropic';
+    has_api_key: boolean;
+    max_tokens?: number;
+    temperature?: number | null;
+}
+
 export interface ModelTestResult {
     ok: boolean;
     latency_ms: number;
@@ -117,6 +129,8 @@ export interface MeetingMonsterApi {
     };
     models: {
         list(): Promise<ModelOptions>;
+        getSaved(): Promise<SavedModelConnection | null>;
+        save(connection: ModelConnectionInput): Promise<SavedModelConnection>;
         test(selection: ModelSelectionInput): Promise<ModelTestResult>;
     };
     chat: {
