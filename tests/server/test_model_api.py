@@ -162,6 +162,18 @@ class ModelAPITests(unittest.TestCase):
         self.assertEqual(self.store.path.read_bytes() if self.store.path.exists() else None, before)
         self.assertTrue(any(profile.active for profile in self.store.list_profiles()))
 
+    def test_connectivity_test_rejects_remote_plain_http_candidate(self):
+        candidate = self.profile_payload(
+            id="temporary",
+            base_url="http://provider.example/v1",
+            api_key="temporary-secret",
+        )
+
+        with self.create_client() as client:
+            response = client.post("/models/test", headers=self.auth, json=candidate)
+
+        self.assertEqual(response.status_code, 422)
+
     def test_connectivity_test_redacts_failure_and_does_not_mutate_active_profile(self):
         failing_provider = RecordingProvider(error=RuntimeError("temporary-secret rejected"))
         self.store.list_profiles()

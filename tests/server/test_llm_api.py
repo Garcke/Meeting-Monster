@@ -80,6 +80,124 @@ class LLMAPITests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_chat_uses_complete_temporary_connection_without_persisting_it(self):
+        from server.llm_api import create_app
+
+        provider = FakeProvider(["answer"])
+        seen_profiles = []
+        with tempfile.TemporaryDirectory() as directory:
+            from server.settings.profile_store import ProfileStore, SecretCipher
+
+            store = ProfileStore(Path(directory) / "profiles.json", SecretCipher(Fernet.generate_key()))
+            before = store.path.read_bytes() if store.path.exists() else None
+
+            def provider_factory(profile):
+                seen_profiles.append(profile)
+                return provider
+
+            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+                response = client.post(
+                    "/chat/",
+                    json={
+                        "content": "Question",
+                        "profile_id": "generic_openai",
+                        "protocol": "openai",
+                        "base_url": "https://provider.example/v1",
+                        "model": "custom-model",
+                        "api_key": "provider-secret",
+                        "max_tokens": 2048,
+                        "temperature": 0.2,
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(seen_profiles[-1].base_url, "https://provider.example/v1")
+            self.assertEqual(seen_profiles[-1].model, "custom-model")
+            self.assertEqual(seen_profiles[-1].api_key, "provider-secret")
+            self.assertEqual(store.path.read_bytes() if store.path.exists() else None, before)
+            self.assertNotIn("provider-secret", response.text)
+
+    def test_chat_rejects_invalid_temporary_connection(self):
+        with self.create_client(FakeProvider(["answer"])) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "profile_id": "generic_openai",
+                    "protocol": "anthropic",
+                    "base_url": "file:///not-allowed",
+                    "model": "custom-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_chat_sse_error_redacts_temporary_connection_values(self):
+        provider = FakeProvider(error=RuntimeError("provider-secret rejected at https://provider.example/v1"))
+        with self.create_client(provider) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "profile_id": "generic_openai",
+                    "protocol": "openai",
+                    "base_url": "https://provider.example/v1",
+                    "model": "custom-model",
+                    "api_key": "provider-secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("provider-secret", response.text)
+        self.assertNotIn("https://provider.example/v1", response.text)
+        self.assertNotIn("custom-model", response.text)
+
+    def test_chat_initialization_error_redacts_temporary_connection_values(self):
+        from server.llm_api import create_app
+
+        def provider_factory(_profile):
+            raise RuntimeError(
+                "invalid key provider-secret for https://provider.example/v1 model custom-model"
+            )
+
+        with TestClient(
+            create_app(
+                profile_resolver=lambda: test_profile(),
+                provider_factory=provider_factory,
+            )
+        ) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "profile_id": "generic_openai",
+                    "protocol": "openai",
+                    "base_url": "https://provider.example/v1",
+                    "model": "custom-model",
+                    "api_key": "provider-secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("provider-secret", response.text)
+        self.assertNotIn("https://provider.example/v1", response.text)
+        self.assertNotIn("custom-model", response.text)
+
+    def test_chat_rejects_remote_plain_http_temporary_connection(self):
+        with self.create_client(FakeProvider(["answer"])) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "profile_id": "generic_openai",
+                    "protocol": "openai",
+                    "base_url": "http://provider.example/v1",
+                    "model": "custom-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+
     def test_public_model_config_omits_endpoint_key_and_environment_name(self):
         with self.create_client(FakeProvider()) as client:
             response = client.get("/model-config/")
@@ -139,6 +257,41 @@ class LLMAPITests(unittest.TestCase):
         self.assertTrue(all("base_url" not in profile for profile in options.json()["profiles"]))
         self.assertTrue(all("api_key" not in profile for profile in options.json()["profiles"]))
         self.assertTrue(all("api_key_env" not in profile for profile in options.json()["profiles"]))
+
+    def test_model_test_uses_complete_temporary_connection_without_persisting_it(self):
+        from server.llm_api import create_app
+
+        provider = FakeProvider(["connected"])
+        seen_profiles = []
+        with tempfile.TemporaryDirectory() as directory:
+            from server.settings.profile_store import ProfileStore, SecretCipher
+
+            store = ProfileStore(Path(directory) / "profiles.json", SecretCipher(Fernet.generate_key()))
+
+            def provider_factory(profile):
+                seen_profiles.append(profile)
+                return provider
+
+            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+                response = client.post(
+                    "/model-test/",
+                    json={
+                        "profile_id": "generic_anthropic",
+                        "protocol": "anthropic",
+                        "base_url": "https://provider.example/anthropic",
+                        "model": "custom-anthropic",
+                        "api_key": "provider-secret",
+                        "max_tokens": 2048,
+                        "temperature": 0.2,
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(seen_profiles[-1].protocol, "anthropic")
+            self.assertEqual(seen_profiles[-1].base_url, "https://provider.example/anthropic")
+            self.assertEqual(seen_profiles[-1].model, "custom-anthropic")
+            self.assertEqual(seen_profiles[-1].api_key, "provider-secret")
+            self.assertNotIn("provider-secret", response.text)
 
     def test_provider_failure_emits_error_and_done_events_without_hanging(self):
         provider = FakeProvider(error=RuntimeError("provider unavailable"))

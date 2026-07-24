@@ -7,17 +7,16 @@ import {fileURLToPath} from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const packagePath = path.join(projectRoot, 'desktop', 'package.json');
 const installerScriptPath = path.join(projectRoot, 'desktop', 'build', 'installer.nsh');
+const workflowPath = path.join(projectRoot, '.github', 'workflows', 'build-desktop.yml');
 const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+const workflow = fs.readFileSync(workflowPath, 'utf8');
 
 test('electron-builder packages only the desktop runtime and explicit unsigned targets', () => {
-    assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/**/*', 'package.json']);
+    assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/favicon.png', 'renderer/favicon.ico', 'package.json', '!**/*.map']);
     assert.equal(pkg.build.icon, 'renderer/favicon.png');
     assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
     const windowsIcon = path.join(projectRoot, 'desktop', 'renderer', 'favicon.ico');
     assert.ok(fs.statSync(windowsIcon).size > 0);
-    assert.equal(pkg.dependencies?.['sherpa-onnx-node'], undefined);
-    assert.equal(pkg.devDependencies?.['sherpa-onnx-node'], undefined);
-    assert.equal(pkg.build.asarUnpack, undefined);
     assert.equal(pkg.build.extraResources, undefined);
     assert.equal(pkg.build.extraFiles, undefined);
     assert.match(pkg.build.nsis.artifactName, /Setup/);
@@ -46,8 +45,30 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     ]);
     assert.equal(pkg.devDependencies?.['@electron/asar'], '3.2.18');
     assert.equal(pkg.scripts['audit:package'], 'node ../tests/desktop/audit_packaged_artifact.mjs');
+    assert.equal(pkg.scripts['audit:package:mac'], 'node ../tests/desktop/audit_packaged_artifact.mjs --mac');
 
     for (const [name, command] of Object.entries(pkg.scripts)) {
         if (name.startsWith('dist')) assert.match(command, /^npm run build &&/);
     }
+});
+
+test('packages the pinned native runtime and unpacks its platform binaries without bundling models', () => {
+    assert.equal(pkg.dependencies['sherpa-onnx-node'], '1.13.4');
+    assert.equal(pkg.dependencies['tar-stream'], '3.2.0');
+    assert.equal(pkg.dependencies['unbzip2-stream'], '1.4.3');
+    assert.deepEqual(pkg.optionalDependencies, {
+        'sherpa-onnx-win-x64': '1.13.4',
+        'sherpa-onnx-darwin-x64': '1.13.4',
+        'sherpa-onnx-darwin-arm64': '1.13.4',
+    });
+    assert.ok(pkg.build.asarUnpack.some((pattern) => /sherpa-onnx-\*/.test(pattern)));
+    assert.equal(pkg.build.extraResources, undefined);
+    assert.equal(pkg.build.extraFiles, undefined);
+});
+
+test('Windows CI audits the Windows package and excludes non-Windows release jobs', () => {
+    assert.ok(workflow.indexOf('npm --prefix desktop run audit:package') > workflow.indexOf('npm --prefix desktop run dist:win:unsigned'));
+    assert.ok(workflow.indexOf('npm --prefix desktop run audit:package') < workflow.indexOf('Upload Windows artifacts'));
+    assert.doesNotMatch(workflow, /dist:mac|audit:package:mac|macos:|Upload macOS artifacts/);
+    assert.doesNotMatch(workflow, /sherpa-onnx-darwin/);
 });

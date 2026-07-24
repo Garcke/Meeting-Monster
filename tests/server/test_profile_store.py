@@ -160,7 +160,35 @@ class ProfileStoreTests(unittest.TestCase):
                             "top_p": None,
                             "extra_headers": {},
                             "extra_body": {},
-                        }
+                        },
+                        "openrouter": {
+                            "label": "OpenRouter",
+                            "protocol": "openai",
+                            "base_url": "https://openrouter.ai/api/v1",
+                            "model": "anthropic/claude-sonnet-4.6",
+                            "api_key_env": "OPENROUTER_API_KEY",
+                            "api_key_required": True,
+                            "encrypted_api_key": None,
+                            "max_tokens": 4096,
+                            "temperature": 0.3,
+                            "top_p": None,
+                            "extra_headers": {},
+                            "extra_body": {},
+                        },
+                        "custom_user": {
+                            "label": "User Custom",
+                            "protocol": "openai",
+                            "base_url": "https://custom.example/v1",
+                            "model": "custom-model",
+                            "api_key_env": "CUSTOM_API_KEY",
+                            "api_key_required": False,
+                            "encrypted_api_key": None,
+                            "max_tokens": 2048,
+                            "temperature": 0.2,
+                            "top_p": None,
+                            "extra_headers": {},
+                            "extra_body": {},
+                        },
                     },
                 }
             ),
@@ -171,12 +199,104 @@ class ProfileStoreTests(unittest.TestCase):
         profiles = store.list_profiles()
 
         profile_ids = {profile.id for profile in profiles}
-        self.assertIn("openrouter", profile_ids)
-        self.assertIn("anthropic", profile_ids)
-        self.assertIn("opencode_zen_anthropic", profile_ids)
+        self.assertNotIn("openrouter", profile_ids)
+        self.assertIn("custom_user", profile_ids)
+        self.assertEqual(profile_ids, {"generic_openai", "generic_anthropic", "custom_user"})
         self.assertEqual(next(profile for profile in profiles if profile.id == "generic_openai").label, "Legacy OpenAI")
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(payload["active_profile"], "generic_openai")
+
+    def test_migration_preserves_custom_profile_that_reuses_obsolete_builtin_id(self):
+        self.path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "active_profile": "generic_openai",
+                    "profiles": {
+                        "generic_openai": {
+                            "label": "Generic OpenAI Compatible",
+                            "protocol": "openai",
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "model": "local-model",
+                            "api_key_env": "OPENAI_COMPATIBLE_API_KEY",
+                            "api_key_required": False,
+                            "encrypted_api_key": None,
+                            "max_tokens": 4096,
+                            "temperature": 0.3,
+                            "top_p": None,
+                            "extra_headers": {},
+                            "extra_body": {},
+                        },
+                        "openrouter": {
+                            "label": "My Private Gateway",
+                            "protocol": "openai",
+                            "base_url": "https://private.example/v1",
+                            "model": "private-model",
+                            "api_key_env": "PRIVATE_GATEWAY_KEY",
+                            "api_key_required": True,
+                            "encrypted_api_key": None,
+                            "max_tokens": 2048,
+                            "temperature": 0.2,
+                            "top_p": None,
+                            "extra_headers": {},
+                            "extra_body": {},
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        profiles = self.make_store().list_profiles()
+
+        preserved = next(profile for profile in profiles if profile.id == "openrouter")
+        self.assertEqual(preserved.label, "My Private Gateway")
+        self.assertEqual(preserved.base_url, "https://private.example/v1")
+
+    def test_migration_preserves_obsolete_id_when_only_advanced_settings_were_customized(self):
+        self.path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "active_profile": "generic_openai",
+                    "profiles": {
+                        "generic_openai": {
+                            "label": "Generic OpenAI Compatible",
+                            "protocol": "openai",
+                            "base_url": "http://127.0.0.1:8000/v1",
+                            "model": "local-model",
+                            "api_key_env": "OPENAI_COMPATIBLE_API_KEY",
+                            "api_key_required": False,
+                            "encrypted_api_key": None,
+                            "max_tokens": 4096,
+                            "temperature": 0.3,
+                            "top_p": None,
+                            "extra_headers": {},
+                            "extra_body": {},
+                        },
+                        "openrouter": {
+                            "label": "OpenRouter",
+                            "protocol": "openai",
+                            "base_url": "https://openrouter.ai/api/v1",
+                            "model": "anthropic/claude-sonnet-4.6",
+                            "api_key_env": "OPENROUTER_API_KEY",
+                            "api_key_required": True,
+                            "encrypted_api_key": None,
+                            "max_tokens": 123,
+                            "temperature": 0.3,
+                            "top_p": None,
+                            "extra_headers": {},
+                            "extra_body": {},
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        profiles = self.make_store().list_profiles()
+
+        self.assertIn("openrouter", {profile.id for profile in profiles})
 
     def test_environment_cipher_requires_a_valid_explicit_fernet_key(self):
         from server.settings.model_profiles import ModelConfigurationError

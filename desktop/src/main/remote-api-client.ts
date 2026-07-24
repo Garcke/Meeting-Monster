@@ -7,8 +7,14 @@ export interface RemoteApiClientOptions {
     fetch: RemoteFetch;
 }
 
+export type ModelProfileId = 'generic_openai' | 'generic_anthropic';
+export type ModelProtocol = 'openai' | 'anthropic';
+
 export interface ModelSelectionInput {
-    profile_id: string;
+    profile_id: ModelProfileId;
+    protocol: ModelProtocol;
+    base_url: string;
+    model: string;
     api_key?: string;
     max_tokens?: number;
     temperature?: number | null;
@@ -44,7 +50,7 @@ export interface PublicModelProfile {
 }
 
 export interface SelectableModelProfile {
-    id: string;
+    id: ModelProfileId;
     label: string;
     protocol: 'openai' | 'anthropic';
     model: string;
@@ -363,24 +369,66 @@ export function validateModelProfileInput(value: unknown): ModelProfileInput {
 
 export function validateModelSelectionInput(value: unknown): ModelSelectionInput {
     const input = requireObject(value, 'Model selection input');
-    const allowed = new Set(['profile_id', 'api_key', 'max_tokens', 'temperature']);
+    const allowed = new Set(['profile_id', 'protocol', 'base_url', 'model', 'api_key', 'max_tokens', 'temperature']);
     for (const key of Object.keys(input)) {
         if (!allowed.has(key)) throw new TypeError(`Model selection field is unsupported: ${key}`);
     }
-    if (typeof input.profile_id !== 'string' || !input.profile_id.trim()) {
+    if (input.profile_id !== 'generic_openai' && input.profile_id !== 'generic_anthropic') {
         throw new TypeError('Model selection field is invalid: profile_id');
     }
-    if ('api_key' in input && typeof input.api_key !== 'string') {
+    const profileId = input.profile_id;
+    const protocol = input.protocol as ModelProtocol;
+    if (protocol !== (profileId === 'generic_openai' ? 'openai' : 'anthropic')) {
+        throw new TypeError('Model selection field is invalid: protocol');
+    }
+    const baseUrl = normalizeProviderBaseUrl(input.base_url);
+    const model = input.model;
+    if (typeof model !== 'string' || !model.trim()) {
+        throw new TypeError('Model selection field is invalid: model');
+    }
+    const apiKey = input.api_key;
+    if (apiKey !== undefined && typeof apiKey !== 'string') {
         throw new TypeError('Model selection field is invalid: api_key');
     }
-    if ('max_tokens' in input && (!Number.isInteger(input.max_tokens) || (input.max_tokens as number) <= 0)) {
+    const maxTokens = input.max_tokens;
+    if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || (maxTokens as number) <= 0)) {
         throw new TypeError('Model selection field is invalid: max_tokens');
     }
-    if ('temperature' in input && input.temperature !== null
-        && (typeof input.temperature !== 'number' || !Number.isFinite(input.temperature))) {
+    const temperature = input.temperature;
+    if (temperature !== undefined && temperature !== null
+        && (typeof temperature !== 'number' || !Number.isFinite(temperature)
+            || temperature < 0 || temperature > 2)) {
         throw new TypeError('Model selection field is invalid: temperature');
     }
-    return Object.fromEntries(Object.entries(input).filter(([, item]) => item !== undefined)) as unknown as ModelSelectionInput;
+    return {
+        profile_id: profileId,
+        protocol,
+        base_url: baseUrl,
+        model: model.trim(),
+        ...(apiKey === undefined || apiKey.trim() === '' ? {} : {api_key: apiKey.trim()}),
+        ...(maxTokens === undefined ? {} : {max_tokens: maxTokens as number}),
+        ...(temperature === undefined ? {} : {temperature: temperature as number | null}),
+    };
+}
+
+function normalizeProviderBaseUrl(value: unknown): string {
+    if (typeof value !== 'string' || !value.trim()) {
+        throw new TypeError('Model selection field is invalid: base_url');
+    }
+    const raw = value.trim();
+    if (raw.includes('?') || raw.includes('#')) {
+        throw new TypeError('Model selection field is invalid: base_url');
+    }
+    let parsed: URL;
+    try {
+        parsed = new URL(raw);
+    } catch {
+        throw new TypeError('Model selection field is invalid: base_url');
+    }
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.search || parsed.hash) {
+        throw new TypeError('Model selection field is invalid: base_url');
+    }
+    return parsed.href.replace(/\/+$/, '');
 }
 
 function parseModelList(value: unknown): {active_profile: string; profiles: PublicModelProfile[]} {
@@ -437,7 +485,7 @@ function parsePublicModelProfile(value: unknown): PublicModelProfile {
 function parseSelectableModelProfile(value: unknown): SelectableModelProfile {
     const payload = requireObject(value, 'Selectable model profile response');
     if (
-        typeof payload.id !== 'string' || typeof payload.label !== 'string'
+        (payload.id !== 'generic_openai' && payload.id !== 'generic_anthropic') || typeof payload.label !== 'string'
         || (payload.protocol !== 'openai' && payload.protocol !== 'anthropic')
         || typeof payload.model !== 'string' || typeof payload.api_key_required !== 'boolean'
         || typeof payload.has_api_key !== 'boolean' || !Number.isInteger(payload.max_tokens)

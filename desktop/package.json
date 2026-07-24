@@ -1,28 +1,55 @@
 {
   "name": "meeting-monster-desktop",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "private": true,
   "description": "Meeting-Monster Windows privacy desktop shell",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:main": "tsc -p tsconfig.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
+    "typecheck": "npm run typecheck:renderer && tsc -p tsconfig.json --noEmit",
+    "unit-test": "vitest run --root .. --config desktop/vitest.config.ts ../tests/desktop/react_overlay.test.tsx ../tests/desktop/react_services.test.ts ../tests/desktop/overlay-state.test.ts",
     "start": "npm run build && electron .",
     "check": "npm run typecheck",
     "desktop-test": "npm run build && node --test ../tests/desktop/*.mjs",
     "audit:package": "node ../tests/desktop/audit_packaged_artifact.mjs",
+    "audit:package:mac": "node ../tests/desktop/audit_packaged_artifact.mjs --mac",
     "dist": "npm run build && electron-builder --win nsis portable",
     "dist:win": "npm run build && electron-builder --win nsis portable",
     "dist:win:unsigned": "npm run build && electron-builder --win nsis portable -c.win.signAndEditExecutable=false -c.forceCodeSigning=false",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --universal",
     "dist:mac:unsigned": "npm run build && electron-builder --mac dmg zip --universal -c.mac.identity=null -c.mac.hardenedRuntime=false -c.mac.notarize=false -c.forceCodeSigning=false"
   },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "sherpa-onnx-node": "1.13.4",
+    "tar-stream": "3.2.0",
+    "unbzip2-stream": "1.4.3"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-darwin-arm64": "1.13.4",
+    "sherpa-onnx-darwin-x64": "1.13.4",
+    "sherpa-onnx-win-x64": "1.13.4"
+  },
   "devDependencies": {
     "@electron/asar": "3.2.18",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "22.20.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
     "electron": "37.2.6",
     "electron-builder": "^26.0.12",
-    "typescript": "5.9.3"
+    "jsdom": "^29.1.1",
+    "typescript": "5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "build": {
     "appId": "com.garcke.meetingmonster",
@@ -33,8 +60,13 @@
     },
     "files": [
       "dist/**/*",
-      "renderer/**/*",
-      "package.json"
+      "renderer/favicon.png",
+      "renderer/favicon.ico",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-*/**"
     ],
     "win": {
       "icon": "renderer/favicon.ico",
@@ -78,11 +110,15 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["universal"]
+          "arch": [
+            "universal"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["universal"]
+          "arch": [
+            "universal"
+          ]
         }
       ]
     }

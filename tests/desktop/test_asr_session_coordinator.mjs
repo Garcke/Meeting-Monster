@@ -33,25 +33,39 @@ class FakePort {
     }
 }
 
-function createHarness({loadConnection, writePcm} = {}) {
+function createHarness({startEngine, stopEngine, writePcm, postMessage} = {}) {
     const actions = [];
     const ports = [];
     const portErrors = [];
-    const remoteStarts = [];
+    const engineStarts = [];
+    const engineStops = [];
+    const pcmWrites = [];
     const senders = [];
     return {
         actions,
         ports,
         portErrors,
-        remoteStarts,
+        engineStarts,
+        engineStops,
+        pcmWrites,
         senders,
-        loadConnection: loadConnection ?? (async () => ({baseUrl: 'https://example.com'})),
-        writePcm: writePcm ?? (() => undefined),
+        startEngine: startEngine ?? (async (sampleRate) => {
+            actions.push('engine:start');
+            engineStarts.push(sampleRate);
+            return {state: 'recording'};
+        }),
+        stopEngine: stopEngine ?? (async () => {
+            actions.push('engine:stop');
+            engineStops.push(1);
+            return {state: 'idle'};
+        }),
+        writePcm: writePcm ?? ((buffer) => pcmWrites.push(buffer)),
         createSender(name) {
             const sender = {
                 name,
                 live: true,
                 postMessage(channel, _message, transferred) {
+                    postMessage?.(channel);
                     actions.push(`post:${channel}`);
                     assert.equal(transferred.length, 1);
                 },
@@ -63,92 +77,209 @@ function createHarness({loadConnection, writePcm} = {}) {
             const {AsrSessionCoordinator} = await loadCoordinatorModule();
             return new AsrSessionCoordinator({
                 isAuthorizedSender: (sender) => sender.live,
-                loadConnection: this.loadConnection,
                 createPort: () => {
                     actions.push('port:create');
                     const input = new FakePort(actions);
                     ports.push(input);
                     return {input, output: {id: ports.length}};
                 },
-                startRemote: async (baseUrl, sampleRate) => {
-                    actions.push('remote:start');
-                    remoteStarts.push({baseUrl, sampleRate});
-                    return {state: 'recording'};
-                },
+                startEngine: this.startEngine,
                 writePcm: this.writePcm,
-                onPortError: (sender) => portErrors.push(sender),
+                stopEngine: this.stopEngine,
+                onPortError: (sender) => {
+                    actions.push(`port:error:${sender.name}`);
+                    portErrors.push(sender);
+                },
                 portChannel: 'asr:port',
             });
         },
     };
 }
 
-test('close during connection loading leaves no owner or port and permits a later start', async () => {
-    let resolveConnection;
-    let firstLoad = true;
-    const harness = createHarness({
-        loadConnection: () => firstLoad
-            ? new Promise((resolve) => {
-                firstLoad = false;
-                resolveConnection = resolve;
-            })
-            : Promise.resolve({baseUrl: 'https://example.com'}),
+function createDeferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((nextResolve, nextReject) => {
+        resolve = nextResolve;
+        reject = nextReject;
     });
-    const coordinator = await harness.build();
-    const closingSender = harness.createSender('closing');
+    return {promise, resolve, reject};
+}
 
-    const firstStart = coordinator.start(closingSender, 16000);
-    closingSender.live = false;
-    resolveConnection({baseUrl: 'https://example.com'});
+function waitForAsyncCleanup() {
+    return new Promise((resolve) => setImmediate(resolve));
+}
 
-    await assert.rejects(firstStart, /Unauthorized ASR request/);
-    assert.equal(harness.ports.length, 0);
-    assert.equal(coordinator.isActive(), false);
-
-    const nextSender = harness.createSender('next');
-    assert.deepEqual(await coordinator.start(nextSender, 16000), {state: 'recording'});
-    assert.equal(coordinator.isActive(), true);
-    coordinator.endSession();
-    assert.equal(coordinator.isActive(), false);
-});
-
-test('delivers the port before starting remote ASR', async () => {
+test('rejects an unauthorized sender before creating a PCM port', async () => {
     const harness = createHarness();
     const coordinator = await harness.build();
-    const sender = harness.createSender('main');
+    const sender = harness.createSender('untrusted');
+    sender.live = false;
 
-    await coordinator.start(sender, 48000);
-
-    assert.deepEqual(harness.actions.slice(0, 3), ['port:create', 'port:start', 'post:asr:port']);
-    assert.equal(harness.actions[3], 'remote:start');
-    assert.deepEqual(harness.remoteStarts, [{baseUrl: 'https://example.com', sampleRate: 48000}]);
+    await assert.rejects(coordinator.start(sender, 16000), /Unauthorized ASR request/);
+    assert.deepEqual(harness.actions, []);
+    assert.equal(coordinator.isActive(), false);
 });
 
-test('remote terminal events release the owner and port for the next session', async () => {
+test('locks a session to its owner until it ends', async () => {
     const harness = createHarness();
     const coordinator = await harness.build();
     const first = harness.createSender('first');
 
     await coordinator.start(first, 16000);
+    await assert.rejects(coordinator.start(harness.createSender('second'), 16000), /ASR is already active/);
+    assert.equal(coordinator.getOwner(), first);
     coordinator.endSession();
-
-    assert.equal(harness.ports[0].closed, true);
     assert.equal(coordinator.isActive(), false);
-    await coordinator.start(harness.createSender('second'), 16000);
-    coordinator.endSession();
-    assert.equal(harness.ports[1].closed, true);
 });
 
-test('a PCM write failure closes the port, releases ownership, and reports a generic port failure', async () => {
-    const harness = createHarness({writePcm: () => { throw new Error('private PCM detail'); }});
+test('delivers the PCM port before starting the local engine', async () => {
+    const harness = createHarness();
     const coordinator = await harness.build();
-    const sender = harness.createSender('main');
+    await coordinator.start(harness.createSender('main'), 16000);
+    assert.deepEqual(harness.actions.slice(0, 3), ['port:create', 'port:start', 'post:asr:port']);
+    assert.deepEqual(harness.engineStarts, [16000]);
+});
 
-    await coordinator.start(sender, 16000);
-    harness.ports[0].receive(new ArrayBuffer(2));
+test('rolls back the port and sanitizes a local engine startup failure', async () => {
+    const harness = createHarness({startEngine: async () => { throw new Error('private native detail'); }});
+    const coordinator = await harness.build();
 
+    await assert.rejects(coordinator.start(harness.createSender('main'), 16000), (error) => {
+        assert.match(error.message, /Local ASR failed/);
+        assert.doesNotMatch(error.message, /private native detail/);
+        return true;
+    });
     assert.equal(harness.ports[0].closed, true);
     assert.equal(coordinator.isActive(), false);
+});
+
+test('cleans up a transferred port when its delivery fails', async () => {
+    const harness = createHarness({postMessage: () => { throw new Error('private delivery detail'); }});
+    const coordinator = await harness.build();
+
+    await assert.rejects(coordinator.start(harness.createSender('main'), 16000), (error) => {
+        assert.match(error.message, /Local ASR failed/);
+        assert.doesNotMatch(error.message, /private delivery detail/);
+        return true;
+    });
+    assert.equal(harness.ports[0].closed, true);
+    assert.equal(coordinator.isActive(), false);
+    assert.deepEqual(harness.engineStarts, []);
+});
+
+test('stops the engine when the sender is no longer authorized after startup', async () => {
+    let sender;
+    const harness = createHarness({startEngine: async () => {
+        sender.live = false;
+        return {state: 'recording'};
+    }});
+    const coordinator = await harness.build();
+    sender = harness.createSender('closing');
+
+    await assert.rejects(coordinator.start(sender, 16000), /Unauthorized ASR request/);
+    assert.deepEqual(harness.engineStops, [1]);
+    assert.equal(harness.ports[0].closed, true);
+    assert.equal(coordinator.isActive(), false);
+});
+
+test('a stale start completion cannot stop or release a newer session', async () => {
+    const firstStart = createDeferred();
+    let starts = 0;
+    const harness = createHarness({startEngine: async (sampleRate) => {
+        starts += 1;
+        harness.engineStarts.push(sampleRate);
+        return starts === 1 ? firstStart.promise : {state: 'recording'};
+    }});
+    const coordinator = await harness.build();
+    const first = harness.createSender('first');
+    const second = harness.createSender('second');
+
+    const startingFirst = coordinator.start(first, 16000);
+    coordinator.endSession();
+    await coordinator.start(second, 16000);
+    first.live = false;
+    firstStart.resolve({state: 'recording'});
+
+    await assert.rejects(startingFirst, /Unauthorized ASR request/);
+    assert.equal(coordinator.getOwner(), second);
+    assert.equal(coordinator.isActive(), true);
+    assert.equal(harness.ports[1].closed, false);
+    assert.deepEqual(harness.engineStops, []);
+});
+
+test('stop drains the local engine and releases the owner and port', async () => {
+    const harness = createHarness();
+    const coordinator = await harness.build();
+    await coordinator.start(harness.createSender('main'), 16000);
+    assert.deepEqual(await coordinator.stop(), {state: 'idle'});
+    assert.equal(coordinator.isActive(), false);
+    assert.deepEqual(harness.engineStops, [1]);
+    assert.equal(harness.ports[0].closed, true);
+});
+
+test('stop releases the session and sanitizes a local engine failure', async () => {
+    const harness = createHarness({stopEngine: async () => { throw new Error('private native detail'); }});
+    const coordinator = await harness.build();
+    await coordinator.start(harness.createSender('main'), 16000);
+
+    await assert.rejects(coordinator.stop(), (error) => {
+        assert.match(error.message, /Local ASR failed/);
+        assert.doesNotMatch(error.message, /private native detail/);
+        return true;
+    });
+    assert.equal(coordinator.isActive(), false);
+    assert.equal(harness.ports[0].closed, true);
+});
+
+test('stop returns idle without calling the engine when there is no session', async () => {
+    const harness = createHarness();
+    const coordinator = await harness.build();
+
+    assert.deepEqual(await coordinator.stop(), {state: 'idle'});
+    assert.deepEqual(harness.engineStops, []);
+});
+
+test('malformed or failed PCM stops the engine before releasing the port and publishing a generic local-ASR error', async () => {
+    const harness = createHarness({writePcm: () => { throw new Error('private native detail'); }});
+    const coordinator = await harness.build();
+    const sender = harness.createSender('main');
+    await coordinator.start(sender, 16000);
+    harness.ports[0].receive(new ArrayBuffer(2));
+    await waitForAsyncCleanup();
+    assert.equal(coordinator.isActive(), false);
     assert.deepEqual(harness.portErrors, [sender]);
+    assert.equal(harness.ports[0].closed, true);
+    assert.deepEqual(harness.engineStops, [1]);
+    assert.deepEqual(harness.actions.slice(-3), ['engine:stop', 'port:close', 'port:error:main']);
     await coordinator.start(harness.createSender('next'), 16000);
+});
+
+test('accepts PCM ArrayBuffer views from the Electron message port', async () => {
+    const harness = createHarness();
+    const coordinator = await harness.build();
+    await coordinator.start(harness.createSender('main'), 16000);
+
+    harness.ports[0].receive(new Uint8Array([0, 0]));
+    await waitForAsyncCleanup();
+
+    assert.equal(coordinator.isActive(), true);
+    assert.equal(harness.pcmWrites.length, 1);
+    assert.equal(harness.pcmWrites[0] instanceof ArrayBuffer, true);
+    assert.deepEqual(Array.from(new Uint8Array(harness.pcmWrites[0])), [0, 0]);
+});
+
+test('rejects malformed PCM before it reaches the local engine', async () => {
+    const harness = createHarness();
+    const coordinator = await harness.build();
+    const sender = harness.createSender('main');
+    await coordinator.start(sender, 16000);
+
+    harness.ports[0].receive(new ArrayBuffer(1));
+    await waitForAsyncCleanup();
+
+    assert.deepEqual(harness.pcmWrites, []);
+    assert.equal(coordinator.isActive(), false);
+    assert.deepEqual(harness.portErrors, [sender]);
+    assert.deepEqual(harness.engineStops, [1]);
 });

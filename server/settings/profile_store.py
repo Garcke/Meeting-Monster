@@ -17,9 +17,23 @@ from .model_profiles import (
     ModelProfile,
     ModelSettings,
     ResolvedModelProfile,
+    normalize_provider_base_url,
 )
 
-BUILTIN_PROFILES_VERSION = 1
+BUILTIN_PROFILES_VERSION = 2
+OBSOLETE_BUILTIN_PROFILE_SIGNATURES = {
+    "openrouter": ("OpenRouter", "openai", "https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4.6", "OPENROUTER_API_KEY", True),
+    "zai_glm": ("Z.AI / GLM", "openai", "https://api.z.ai/api/paas/v4", "glm-5.2", "GLM_API_KEY", True),
+    "kimi_moonshot": ("Kimi / Moonshot", "openai", "https://api.moonshot.ai/v1", "kimi-k2.6", "KIMI_API_KEY", True),
+    "minimax_global": ("MiniMax Global", "anthropic", "https://api.minimax.io/anthropic", "MiniMax-M3", "MINIMAX_API_KEY", True),
+    "minimax_china": ("MiniMax 中国", "anthropic", "https://api.minimaxi.com/anthropic", "MiniMax-M3", "MINIMAX_CN_API_KEY", True),
+    "kilocode": ("Kilo Code", "openai", "https://api.kilo.ai/api/gateway", "anthropic/claude-sonnet-4.6", "KILOCODE_API_KEY", True),
+    "anthropic": ("Anthropic", "anthropic", "https://api.anthropic.com", "claude-sonnet-4-6", "ANTHROPIC_API_KEY", True),
+    "vercel_ai_gateway": ("Vercel AI Gateway", "openai", "https://ai-gateway.vercel.sh/v1", "anthropic/claude-sonnet-4.6", "AI_GATEWAY_API_KEY", True),
+    "opencode_zen_openai": ("OpenCode Zen（OpenAI）", "openai", "https://opencode.ai/zen/v1", "deepseek-v4-flash", "OPENCODE_ZEN_API_KEY", True),
+    "opencode_zen_anthropic": ("OpenCode Zen（Anthropic）", "anthropic", "https://opencode.ai/zen", "qwen3.7-plus", "OPENCODE_ZEN_API_KEY", True),
+    "opencode_go": ("OpenCode Go", "openai", "https://opencode.ai/zen/go/v1", "deepseek-v4-flash", "OPENCODE_GO_API_KEY", True),
+}
 
 
 class ModelProfileInput(BaseModel):
@@ -45,6 +59,11 @@ class ModelProfileInput(BaseModel):
     @classmethod
     def strip_text(cls, value: Any) -> Any:
         return value.strip() if isinstance(value, str) else value
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        return normalize_provider_base_url(value)
 
 
 class PublicModelProfile(BaseModel):
@@ -228,16 +247,23 @@ class ProfileStore:
     def _merge_builtin_profiles(self, settings: ModelSettings) -> ModelSettings:
         defaults = self._default_settings()
         migration_pending = settings.builtin_profiles_version < BUILTIN_PROFILES_VERSION
-        missing_profiles = (
-            {
-                profile_id: profile
-                for profile_id, profile in defaults.profiles.items()
-                if profile_id not in settings.profiles
-            }
-            if migration_pending
-            else {}
-        )
-        active_profile = settings.active_profile if settings.active_profile in settings.profiles else defaults.active_profile
+        removed_profiles = {
+            profile_id: profile
+            for profile_id, profile in settings.profiles.items()
+            if settings.builtin_profiles_version < BUILTIN_PROFILES_VERSION
+            and self._is_obsolete_builtin(profile_id, profile)
+        }
+        profiles = {
+            profile_id: profile
+            for profile_id, profile in settings.profiles.items()
+            if profile_id not in removed_profiles
+        }
+        missing_profiles = {
+            profile_id: profile
+            for profile_id, profile in defaults.profiles.items()
+            if profile_id not in profiles
+        } if migration_pending else {}
+        active_profile = settings.active_profile if settings.active_profile in profiles else defaults.active_profile
         if (
             settings.builtin_profiles_version >= BUILTIN_PROFILES_VERSION
             and not missing_profiles
@@ -248,10 +274,31 @@ class ProfileStore:
             version=max(settings.version, defaults.version),
             builtin_profiles_version=BUILTIN_PROFILES_VERSION,
             active_profile=active_profile,
-            profiles={**missing_profiles, **settings.profiles},
+            profiles={**missing_profiles, **profiles},
         )
         self._persist(merged)
         return merged
+
+    @staticmethod
+    def _is_obsolete_builtin(profile_id: str, profile: ModelProfile) -> bool:
+        signature = OBSOLETE_BUILTIN_PROFILE_SIGNATURES.get(profile_id)
+        if signature is None:
+            return False
+        label, protocol, base_url, model, api_key_env, api_key_required = signature
+        return (
+            profile.label == label
+            and profile.protocol == protocol
+            and profile.base_url == base_url
+            and profile.model == model
+            and profile.api_key_env == api_key_env
+            and profile.api_key_required == api_key_required
+            and profile.encrypted_api_key is None
+            and profile.max_tokens == 4096
+            and profile.temperature == 0.3
+            and profile.top_p is None
+            and profile.extra_headers == {}
+            and profile.extra_body == {}
+        )
 
     def _stored_profile(
         self,
