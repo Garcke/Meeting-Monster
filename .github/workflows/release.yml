@@ -1,4 +1,4 @@
-name: build
+name: Windows CI
 
 on:
   push:
@@ -36,27 +36,6 @@ jobs:
         run: npm run audit:package
       - uses: actions/upload-artifact@v4
         with:
-          name: meeting-monster-windows-unsigned
+          name: meeting-monster-windows-ci
           path: desktop/release/*.exe
-
-  macos-desktop:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-      - working-directory: desktop
-        run: npm ci
-      - working-directory: desktop
-        run: npm run desktop-test
-      - working-directory: desktop
-        run: npm run dist:mac:unsigned
-      - uses: actions/upload-artifact@v4
-        with:
-          name: meeting-monster-macos-unsigned
-          path: |
-            desktop/release/*.dmg
-            desktop/release/*.zip
+          if-no-files-found: error

@@ -1,0 +1,1 @@
+export {CapsuleApp} from './CapsuleApp';

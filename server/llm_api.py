@@ -20,7 +20,9 @@ from server.settings.model_profiles import (
     DEFAULT_PROFILE_STORE_PATH,
     ModelConfigurationError,
     ResolvedModelProfile,
+    TemporaryModelConnection,
     resolve_active_profile,
+    resolve_temporary_profile,
 )
 from server.settings.profile_store import ProfileStore, SecretCipher
 from server.llm_providers import LLMProvider, create_provider
@@ -35,6 +37,10 @@ class UserMessage(BaseModel):
 
     content: str = Field(min_length=1)
     profile_id: str | None = Field(default=None, min_length=1)
+    protocol: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None
     max_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
 
@@ -43,6 +49,9 @@ class ModelTestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile_id: str = Field(min_length=1)
+    protocol: str | None = None
+    base_url: str | None = None
+    model: str | None = None
     api_key: str | None = None
     max_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
@@ -56,6 +65,34 @@ class PromptMessage(BaseModel):
 
 ProfileResolver = Callable[[], ResolvedModelProfile]
 ProviderFactory = Callable[[ResolvedModelProfile], LLMProvider]
+
+CONNECTION_REQUEST_FIELDS = ("profile_id", "protocol", "base_url", "model", "api_key", "max_tokens", "temperature")
+
+
+def parse_temporary_connection(request: BaseModel) -> TemporaryModelConnection | None:
+    values = {
+        field: value
+        for field in CONNECTION_REQUEST_FIELDS
+        if (value := getattr(request, field, None)) is not None
+    }
+    supplied = {field for field, value in values.items() if value is not None}
+    if not supplied or supplied == {"profile_id"}:
+        return None
+    required = {"profile_id", "protocol", "base_url", "model"}
+    if not required.issubset(supplied):
+        raise HTTPException(status_code=422, detail="Invalid temporary model connection")
+    try:
+        return TemporaryModelConnection.model_validate(values)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Invalid temporary model connection") from exc
+
+
+def sanitize_provider_error(error: Exception, profile: ResolvedModelProfile) -> str:
+    message = str(error).strip() or "Model request failed"
+    for secret in (profile.api_key, profile.base_url, profile.model):
+        if secret and secret != "not-needed":
+            message = message.replace(secret, "[redacted]")
+    return message
 
 
 def create_runtime_profile_store(environ: Mapping[str, str] | None = None) -> ProfileStore:
@@ -99,8 +136,11 @@ def create_app(
         api_key: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        connection: TemporaryModelConnection | None = None,
     ) -> ResolvedModelProfile:
         try:
+            if connection is not None:
+                return resolve_temporary_profile(connection, runtime_store, environment)
             profile = (
                 runtime_store.resolve_active_profile(environment, profile_id, api_key_override=api_key)
                 if profile_id
@@ -143,16 +183,19 @@ def create_app(
 
     @app.post("/chat/")
     async def chat(user_message: UserMessage):
+        connection = parse_temporary_connection(user_message)
         profile = resolve_profile(
-            user_message.profile_id,
-            None,
+            user_message.profile_id if connection is None else None,
+            user_message.api_key if connection is None else None,
             user_message.max_tokens,
             user_message.temperature,
+            connection,
         )
         try:
             provider = provider_factory(profile)
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"无法初始化模型客户端: {exc}") from exc
+            safe_detail = sanitize_provider_error(exc, profile)
+            raise HTTPException(status_code=503, detail=f"无法初始化模型客户端: {safe_detail}") from exc
 
         history: list[dict[str, str]] = app.state.conversation_history
         user_entry = {"role": "user", "content": user_message.content.strip()}
@@ -173,7 +216,7 @@ def create_app(
                         if text:
                             publish("chunk", text)
                 except Exception as exc:
-                    publish("error", str(exc))
+                    publish("error", sanitize_provider_error(exc, profile))
                 finally:
                     publish("done")
 
@@ -237,7 +280,14 @@ def create_app(
     @app.post("/model-test/")
     async def test_model(http_request: Request, request: ModelTestRequest):
         require_local_client(http_request)
-        profile = resolve_profile(request.profile_id, request.api_key, request.max_tokens, request.temperature)
+        connection = parse_temporary_connection(request)
+        profile = resolve_profile(
+            request.profile_id if connection is None else None,
+            request.api_key if connection is None else None,
+            request.max_tokens,
+            request.temperature,
+            connection,
+        )
         short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
         started = asyncio.get_running_loop().time()
         received_text = False

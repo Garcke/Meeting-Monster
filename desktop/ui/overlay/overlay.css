@@ -1,0 +1,42 @@
+:root,
+html,
+body,
+#root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: transparent;
+}
+
+* { box-sizing: border-box; }
+
+.overlay-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    background: transparent;
+}
+
+.capsule-layer {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    left: calc((100vw - 360px) / 2);
+    width: 360px;
+    height: 56px;
+}
+
+.panel-layer {
+    position: absolute;
+    z-index: 1;
+    top: 70px;
+    left: 0;
+    width: 648px;
+    height: 450px;
+    pointer-events: none;
+    background: transparent;
+}
+
+.panel-layer .panel-shell:not(.is-hidden) { pointer-events: auto; }

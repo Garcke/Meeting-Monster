@@ -1,4 +1,4 @@
-name: Build desktop releases
+name: Build Windows releases
 
 on:
   workflow_dispatch:
@@ -19,15 +19,21 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
       - name: Install desktop dependencies
         run: npm ci --prefix desktop
 
+      - name: Run desktop tests
+        run: npm --prefix desktop run desktop-test
+
       - name: Build unsigned Windows artifacts
         run: npm --prefix desktop run dist:win:unsigned
+
+      - name: Audit Windows package contents
+        run: npm --prefix desktop run audit:package
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -36,52 +42,25 @@ jobs:
           path: desktop/release/*.exe
           if-no-files-found: error
 
-  macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-
-      - name: Install desktop dependencies
-        run: npm ci --prefix desktop
-
-      - name: Build unsigned macOS artifacts
-        run: npm --prefix desktop run dist:mac:unsigned
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: meeting-monster-macos
-          path: |
-            desktop/release/*.dmg
-            desktop/release/*.zip
-          if-no-files-found: error
-
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows, macos]
+    needs: windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download build artifacts
+      - name: Download Windows build artifacts
         uses: actions/download-artifact@v4
         with:
+          name: meeting-monster-windows
           path: release
 
-      - name: Create GitHub Release and upload assets
+      - name: Create GitHub Release and upload Windows assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          shopt -s globstar nullglob
-          assets=(release/**/*.exe release/**/*.dmg release/**/*.zip)
+          mapfile -t assets < <(find release -type f -name '*.exe' -print)
+          test "${#assets[@]}" -eq 2
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Meeting-Monster $GITHUB_REF_NAME" \

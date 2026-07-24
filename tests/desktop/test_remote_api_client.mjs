@@ -32,11 +32,11 @@ const publicProfile = {
 };
 
 const selectableProfile = {
-    id: 'demo', label: 'Demo', protocol: 'openai', model: 'demo-model',
+    id: 'generic_openai', label: 'OpenAI Compatible', protocol: 'openai', model: 'demo-model',
     api_key_required: true, has_api_key: true, max_tokens: 2048, temperature: 0.2, active: true,
 };
 
-test('model selection uses the public backend catalog and sends only a profile id for chat', async () => {
+test('model selection uses the fixed protocol catalog and sends complete connection fields for chat', async () => {
     const {RemoteApiClient} = await loadClientModule();
     const calls = [];
     const client = new RemoteApiClient({
@@ -44,20 +44,26 @@ test('model selection uses the public backend catalog and sends only a profile i
         fetch: async (url, options = {}) => {
             calls.push({url: String(url), options});
             if (String(url).endsWith('/api/model-options/')) {
-                return new Response(JSON.stringify({active_profile: 'demo', profiles: [selectableProfile]}), {status: 200});
+                return new Response(JSON.stringify({active_profile: 'generic_openai', profiles: [selectableProfile]}), {status: 200});
             }
             return sseResponse(['event: done\ndata: {}\n\n']);
         },
     });
 
-    assert.deepEqual(await client.listSelectableModels(), {active_profile: 'demo', profiles: [selectableProfile]});
+    assert.deepEqual(await client.listSelectableModels(), {active_profile: 'generic_openai', profiles: [selectableProfile]});
     for await (const _event of client.streamChat({
         requestId: 'request-1', content: 'Question',
-        modelSelection: {profile_id: 'demo'},
+        modelSelection: {
+            profile_id: 'generic_openai', protocol: 'openai',
+            base_url: 'https://provider.example.com/v1', model: 'demo-model',
+        },
     })) {}
 
     assert.equal(header(calls[0].options.headers, 'Authorization'), null);
-    assert.equal(calls[1].options.body, JSON.stringify({content: 'Question', profile_id: 'demo'}));
+    assert.equal(calls[1].options.body, JSON.stringify({
+        content: 'Question', profile_id: 'generic_openai', protocol: 'openai',
+        base_url: 'https://provider.example.com/v1', model: 'demo-model',
+    }));
 });
 
 const modelInput = {
@@ -157,6 +163,33 @@ test('model inputs reject unknown fields and recursively redact nested reflected
         collectStringValues({profile: {api_key: 'nested-provider-secret', credentials: ['nested-admin-token']}}),
     );
     assert.doesNotMatch(reflected, /nested-provider-secret|nested-admin-token/);
+});
+
+test('model selections require the fixed protocol catalog and complete connection fields', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    let calls = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => { calls += 1; return new Response('{}', {status: 200}); },
+    });
+    const valid = {
+        profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://provider.example/v1/', model: 'demo-model',
+        max_tokens: 2048, temperature: 0.2,
+    };
+    await client.testSelectedModel(valid).catch(() => undefined);
+    assert.equal(calls, 1);
+    for (const invalid of [
+        {...valid, profile_id: 'unknown'},
+        {...valid, protocol: 'anthropic'},
+        {...valid, base_url: 'https://provider.example/v1?token=secret'},
+        {...valid, base_url: 'https://provider.example/v1?'},
+        {...valid, base_url: 'https://provider.example/v1#'},
+        {...valid, model: '   '},
+        {...valid, unexpected: true},
+    ]) {
+        assert.throws(() => client.testSelectedModel(invalid), /selection field|profile|protocol|base_url|model|unsupported/i);
+    }
+    assert.equal(calls, 1);
 });
 
 test('connection tests distinguish reachable, unauthorized, and unreachable states without credentials', async () => {

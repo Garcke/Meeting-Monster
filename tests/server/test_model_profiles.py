@@ -124,18 +124,15 @@ class ModelProfileTests(unittest.TestCase):
         self.assertNotIn("base_url", rendered)
         self.assertNotIn("api_key_env", rendered)
 
-    def test_project_defaults_use_generic_openai_and_remove_dashscope_profiles(self):
+    def test_project_defaults_contain_only_the_two_compatible_protocols(self):
         from server.settings.model_profiles import load_model_settings
 
         settings = load_model_settings()
 
         self.assertEqual(settings.active_profile, "generic_openai")
-        self.assertIn("generic_openai", settings.profiles)
-        self.assertIn("generic_anthropic", settings.profiles)
-        self.assertFalse(any("dashscope" in name.lower() for name in settings.profiles))
-        self.assertFalse(
-            any("dashscope" in profile.base_url.lower() for profile in settings.profiles.values())
-        )
+        self.assertEqual(set(settings.profiles), {"generic_openai", "generic_anthropic"})
+        self.assertEqual(settings.profiles["generic_openai"].protocol, "openai")
+        self.assertEqual(settings.profiles["generic_anthropic"].protocol, "anthropic")
 
     def test_both_generic_project_profiles_are_keyless_and_use_explicit_protocols(self):
         from server.settings.model_profiles import resolve_active_profile
@@ -195,7 +192,7 @@ class ModelProfileTests(unittest.TestCase):
 
         self.assertEqual(resolved.api_key, "stored-secret")
 
-    def test_runtime_store_resolves_default_profile_from_legacy_environment_without_master_key(self):
+    def test_runtime_store_resolves_generic_default_without_master_key(self):
         from server.settings.model_profiles import resolve_active_profile
 
         temp_dir = tempfile.TemporaryDirectory()
@@ -205,14 +202,13 @@ class ModelProfileTests(unittest.TestCase):
         resolved = resolve_active_profile(
             environ={
                 "MODEL_PROFILE_STORE_PATH": str(path),
-                "LLM_ACTIVE_PROFILE": "openrouter",
-                "OPENROUTER_API_KEY": "legacy-secret",
+                "LLM_ACTIVE_PROFILE": "generic_openai",
             }
         )
 
         self.assertTrue(path.is_file())
-        self.assertEqual(resolved.profile_id, "openrouter")
-        self.assertEqual(resolved.api_key, "legacy-secret")
+        self.assertEqual(resolved.profile_id, "generic_openai")
+        self.assertEqual(resolved.api_key, "not-needed")
 
     def test_runtime_store_rejects_encrypted_key_without_master_key_instead_of_fallback(self):
         from server.settings.model_profiles import ModelConfigurationError, resolve_active_profile
@@ -242,7 +238,6 @@ class ModelProfileTests(unittest.TestCase):
             project_root / "README.md",
             project_root / "server" / "llm_api.py",
             project_root / "server" / "llm_providers.py",
-            project_root / "web" / "scripts.js",
         ]
         combined = "\n".join(path.read_text(encoding="utf-8") for path in files).lower()
 
