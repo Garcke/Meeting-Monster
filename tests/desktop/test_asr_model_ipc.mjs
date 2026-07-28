@@ -118,6 +118,7 @@ async function loadMainHarness() {
         isVisible() { return this.visible; }
         getBounds() { return {...this.bounds}; }
         setBounds(bounds) { this.bounds = {...bounds}; }
+        setShape() {}
         show() { this.visible = true; }
         hide() { this.visible = false; }
         on() {}

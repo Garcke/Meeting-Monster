@@ -43,9 +43,10 @@ test('overlay controller readiness and renderer error channels are wired end-to-
 
 test('workspace/settings switching does not append bounds calls and close waits for the current animation revision', async () => {
     class FakeWindow extends EventEmitter {
-        constructor(options) { super(); this.bounds = {...options.bounds}; this.setBoundsCalls = []; this.destroyed = false; }
+        constructor(options) { super(); this.bounds = {...options.bounds}; this.setBoundsCalls = []; this.setShapeCalls = []; this.destroyed = false; }
         getBounds() { return {...this.bounds}; }
         setBounds(bounds, animate) { this.setBoundsCalls.push({bounds: {...bounds}, animate}); this.bounds = {...this.bounds, ...bounds}; }
+        setShape(rects) { this.setShapeCalls.push(rects.map((rect) => ({...rect}))); }
         show() {}
         hide() {}
         isDestroyed() { return this.destroyed; }
@@ -56,16 +57,20 @@ test('workspace/settings switching does not append bounds calls and close waits 
     const window = controller.getWindow();
     await controller.dispatch({type: 'toggle-workspace'});
     const callsAfterWorkspace = window.setBoundsCalls.length;
+    const shapeCallsAfterWorkspace = window.setShapeCalls.length;
     await controller.dispatch({type: 'toggle-settings'});
     await controller.dispatch({type: 'toggle-workspace'});
     assert.equal(window.setBoundsCalls.length, callsAfterWorkspace);
+    assert.equal(window.setShapeCalls.length, shapeCallsAfterWorkspace);
 
     await controller.dispatch({type: 'toggle-workspace'});
     assert.deepEqual(window.getBounds(), {x: 76, y: 120, width: 648, height: 520});
     await controller.panelAnimationFinished(0);
     assert.deepEqual(window.getBounds(), {x: 76, y: 120, width: 648, height: 520});
     await controller.panelAnimationFinished(controller.getSnapshot().revision);
-    assert.deepEqual(window.getBounds(), {x: 220, y: 120, width: 360, height: 56});
+    assert.deepEqual(window.getBounds(), {x: 76, y: 120, width: 648, height: 520});
+    assert.equal(window.setBoundsCalls.length, 0);
+    assert.deepEqual(window.setShapeCalls.at(-1), [{x: 144, y: 0, width: 360, height: 56}]);
 });
 
 test('Electron settings view accepts wheel scrolling and pointer focus', {timeout: 30_000}, async (t) => {

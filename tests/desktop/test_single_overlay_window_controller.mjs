@@ -16,6 +16,7 @@ class FakeWindow extends EventEmitter {
     this.destroyed = false;
     this.loadFileCalls = [];
     this.setBoundsCalls = [];
+    this.setShapeCalls = [];
     FakeWindow.created.push(this);
   }
 
@@ -24,6 +25,9 @@ class FakeWindow extends EventEmitter {
     this.setBoundsCalls.push({bounds: {...bounds}, animate});
     this.bounds = {...this.bounds, ...bounds};
     this.emit('move');
+  }
+  setShape(rects) {
+    this.setShapeCalls.push(rects.map((rect) => ({...rect})));
   }
   show() { this.visible = true; }
   hide() { this.visible = false; }
@@ -43,19 +47,26 @@ function createController() {
   });
 }
 
-test('creates one overlay window and preserves the capsule anchor while opening', async () => {
+test('keeps one fixed native window while opening the panel around the capsule anchor', async () => {
   const controller = createController();
   await controller.initialize();
 
   assert.equal(FakeWindow.created.length, 1);
   const overlay = FakeWindow.created[0];
-  assert.deepEqual(overlay.getBounds(), {x: 220, y: 120, width: 360, height: 56});
+  assert.deepEqual(overlay.getBounds(), {x: 76, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.setShapeCalls, [
+    [{x: 144, y: 0, width: 360, height: 56}],
+  ]);
   assert.equal(overlay.loadFileCalls[0], path.join('dist/renderer', 'overlay.html'));
   assert.deepEqual(controller.getWindow(), overlay);
 
   await controller.dispatch({type: 'toggle-workspace'});
   assert.deepEqual(overlay.getBounds(), {x: 76, y: 120, width: 648, height: 520});
-  assert.equal(overlay.setBoundsCalls.length, 1);
+  assert.equal(overlay.setBoundsCalls.length, 0);
+  assert.deepEqual(overlay.setShapeCalls.at(-1), [
+    {x: 144, y: 0, width: 360, height: 56},
+    {x: 0, y: 70, width: 648, height: 450},
+  ]);
 });
 
 test('switching workspace and settings does not resize the single window', async () => {
@@ -66,12 +77,14 @@ test('switching workspace and settings does not resize the single window', async
   const opened = await controller.dispatch({type: 'toggle-workspace'});
   await controller.rendererReady(opened.revision);
   const callsAfterOpen = overlay.setBoundsCalls.length;
+  const shapeCallsAfterOpen = overlay.setShapeCalls.length;
 
   await controller.dispatch({type: 'toggle-settings'});
   assert.equal(overlay.setBoundsCalls.length, callsAfterOpen);
+  assert.equal(overlay.setShapeCalls.length, shapeCallsAfterOpen);
 });
 
-test('closing keeps expanded bounds until the matching animation finishes', async () => {
+test('closing keeps fixed bounds and clips the panel only after the matching animation finishes', async () => {
   const controller = createController();
   await controller.initialize();
   const overlay = FakeWindow.created[0];
@@ -84,10 +97,14 @@ test('closing keeps expanded bounds until the matching animation finishes', asyn
   assert.deepEqual(overlay.getBounds(), {x: 76, y: 120, width: 648, height: 520});
 
   await controller.animationFinished(closing.revision);
-  assert.deepEqual(overlay.getBounds(), {x: 220, y: 120, width: 360, height: 56});
+  assert.deepEqual(overlay.getBounds(), {x: 76, y: 120, width: 648, height: 520});
+  assert.equal(overlay.setBoundsCalls.length, 0);
+  assert.deepEqual(overlay.setShapeCalls.at(-1), [
+    {x: 144, y: 0, width: 360, height: 56},
+  ]);
 });
 
-test('expanded drag updates the capsule anchor used for the next collapse', async () => {
+test('a user drag is not reversed when the fixed window collapses', async () => {
   const controller = createController();
   await controller.initialize();
   const overlay = FakeWindow.created[0];
@@ -97,5 +114,6 @@ test('expanded drag updates the capsule anchor used for the next collapse', asyn
   const closing = await controller.dispatch({type: 'toggle-workspace'});
   await controller.animationFinished(closing.revision);
 
-  assert.deepEqual(overlay.getBounds(), {x: 544, y: 300, width: 360, height: 56});
+  assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, width: 648, height: 520});
+  assert.equal(overlay.setBoundsCalls.length, 0);
 });
