@@ -21,7 +21,6 @@ button, input, select, textarea, .no-drag, .settings-scroll, .workspace-content 
     background: rgba(17, 22, 31, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 28px;
-    box-shadow: 0 18px 40px rgba(5, 8, 15, 0.22);
     transition: transform 140ms ease;
 }
 .panel-shell.panel-enter { opacity: 1; transform: translateY(-6px); }
