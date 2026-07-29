@@ -52,7 +52,12 @@ test('workspace/settings switching does not append bounds calls and close waits 
         isDestroyed() { return this.destroyed; }
         loadFile(filePath) { this.loadedFile = filePath; return Promise.resolve(); }
     }
-    const controller = createOverlayWindowController({BrowserWindow: FakeWindow, rendererRoot: 'dist/renderer', initialCapsuleBounds: {x: 220, y: 120}});
+    const controller = createOverlayWindowController({
+        BrowserWindow: FakeWindow,
+        rendererRoot: 'dist/renderer',
+        windowIconPath: path.join('renderer', 'favicon.ico'),
+        initialCapsuleBounds: {x: 220, y: 120},
+    });
     await controller.initialize();
     const window = controller.getWindow();
     await controller.dispatch({type: 'toggle-workspace'});

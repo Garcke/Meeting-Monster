@@ -106,7 +106,7 @@ test('single overlay keeps the capsule visually detached above the panel', () =>
 
 test('privacy policy retains protected overlay defaults and no renderer redaction shield', () => {
     const main = read('desktop', 'src', 'main', 'main.ts');
-    assert.match(main, /taskbarHidden: false/);
+    assert.match(main, /taskbarHidden: true/);
     assert.match(main, /CommandOrControl\+Shift\+P/);
     assert.match(main, /setCaptureProtection/);
     assert.doesNotMatch(main, /privacyRedactionShield|toggleRedacted/);

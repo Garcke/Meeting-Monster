@@ -40,6 +40,7 @@ export interface OverlayWindowControllerOptions {
     BrowserWindow: BrowserWindowConstructor;
     rendererRoot: string;
     initialCapsuleBounds: {x: number; y: number};
+    windowIconPath: string;
     preloadPath?: string;
     onWindowCreated?: (window: BrowserWindowLike) => void;
 }
@@ -149,6 +150,8 @@ export function createOverlayWindowController(
                 hasShadow: false,
                 backgroundColor: '#00000000',
                 resizable: false,
+                icon: options.windowIconPath,
+                skipTaskbar: true,
                 webPreferences: {
                     contextIsolation: true,
                     nodeIntegration: false,

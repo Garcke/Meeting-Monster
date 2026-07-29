@@ -43,6 +43,7 @@ function createController() {
   return createOverlayWindowController({
     BrowserWindow: FakeWindow,
     rendererRoot: 'dist/renderer',
+    windowIconPath: path.join('renderer', 'favicon.ico'),
     initialCapsuleBounds: {x: 220, y: 120},
   });
 }
