@@ -48,6 +48,7 @@ function createController() {
   return createOverlayWindowController({
     BrowserWindow: FakeWindow,
     rendererRoot: 'dist/renderer',
+    windowIconPath: path.join('renderer', 'favicon.ico'),
     initialCapsuleBounds: {x: 220, y: 120},
   });
 }
@@ -65,6 +66,8 @@ test('initializes one transparent overlay at fixed geometry with only the capsul
   assert.equal(overlay.options.alwaysOnTop, true);
   assert.equal(overlay.options.hasShadow, false);
   assert.equal(overlay.options.backgroundColor, '#00000000');
+  assert.equal(overlay.options.skipTaskbar, true);
+  assert.equal(overlay.options.icon, path.join('renderer', 'favicon.ico'));
   assert.equal(overlay.options.webPreferences.backgroundThrottling, false);
   assert.equal(overlay.loadFileCalls[0], path.join('dist/renderer', 'overlay.html'));
   assert.equal(overlay.visible, true);
