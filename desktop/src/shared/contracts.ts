@@ -105,7 +105,7 @@ export interface PrivacyPolicy {
     captureProtectionDefault: true;
     supportedPlatforms: readonly ['win32', 'darwin'];
     captureProtectionShortcut: 'CommandOrControl+Shift+P';
-    taskbarHidden: false;
+    taskbarHidden: true;
 }
 
 export interface SelectableModelProfile {

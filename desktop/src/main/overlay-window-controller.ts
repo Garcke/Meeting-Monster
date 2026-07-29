@@ -10,6 +10,8 @@ export const CAPSULE_BOUNDS = {width: 360, height: 56} as const;
 export const PANEL_BOUNDS = {width: 648, height: 450} as const;
 export const OVERLAY_BOUNDS = {width: 648, height: 520} as const;
 export const PANEL_OFFSET = {x: -144, y: 70} as const;
+export const CAPSULE_SHAPE = {x: -PANEL_OFFSET.x, y: 0, ...CAPSULE_BOUNDS} as const;
+export const PANEL_SHAPE = {x: 0, y: PANEL_OFFSET.y, ...PANEL_BOUNDS} as const;
 
 export interface WindowBounds {
     x: number;
@@ -21,6 +23,7 @@ export interface WindowBounds {
 export interface BrowserWindowLike {
     getBounds(): WindowBounds;
     setBounds(bounds: WindowBounds, animate?: boolean): void;
+    setShape(rects: WindowBounds[]): void;
     show(): void;
     hide(): void;
     isDestroyed(): boolean;
@@ -37,6 +40,7 @@ export interface OverlayWindowControllerOptions {
     BrowserWindow: BrowserWindowConstructor;
     rendererRoot: string;
     initialCapsuleBounds: {x: number; y: number};
+    windowIconPath: string;
     preloadPath?: string;
     onWindowCreated?: (window: BrowserWindowLike) => void;
 }
@@ -92,30 +96,26 @@ export function createOverlayWindowController(
     let overlay: BrowserWindowLike | null = null;
     let snapshot = {...INITIAL_OVERLAY_SNAPSHOT};
     let anchor = {...options.initialCapsuleBounds};
-    let expanded = false;
+    let panelVisible = false;
     let disposed = false;
 
     const isAlive = (): boolean => Boolean(overlay && !overlay.isDestroyed());
 
     const onMove = (): void => {
         if (!isAlive()) return;
-        anchor = anchorFromBounds(overlay!.getBounds(), expanded);
+        anchor = anchorFromBounds(overlay!.getBounds(), true);
     };
 
     const onClosed = (): void => {
         overlay = null;
     };
 
-    const setExpandedBounds = (): void => {
+    const setPanelVisible = (visible: boolean): void => {
         if (!isAlive()) return;
-        expanded = true;
-        overlay!.setBounds(expandedBounds(anchor), false);
-    };
-
-    const setCollapsedBounds = (): void => {
-        if (!isAlive()) return;
-        expanded = false;
-        overlay!.setBounds(collapsedBounds(anchor), false);
+        panelVisible = visible;
+        overlay!.setShape(visible
+            ? [{...CAPSULE_SHAPE}, {...PANEL_SHAPE}]
+            : [{...CAPSULE_SHAPE}]);
     };
 
     const rendererReady = async (revision: number): Promise<OverlaySnapshot> => {
@@ -127,7 +127,7 @@ export function createOverlayWindowController(
     const animationFinished = async (revision: number): Promise<OverlaySnapshot> => {
         if (disposed || !isCurrentOverlayRevision(snapshot, revision)) return {...snapshot};
         if (snapshot.target === 'closed' && snapshot.phase === 'closing') {
-            setCollapsedBounds();
+            setPanelVisible(false);
             snapshot = {...snapshot, phase: 'hidden'};
         }
         return {...snapshot};
@@ -136,7 +136,7 @@ export function createOverlayWindowController(
     return {
         async initialize(): Promise<void> {
             if (disposed || overlay) return;
-            const initial = collapsedBounds(anchor);
+            const initial = expandedBounds(anchor);
             overlay = new options.BrowserWindow(withPreload({
                 x: initial.x,
                 y: initial.y,
@@ -150,6 +150,8 @@ export function createOverlayWindowController(
                 hasShadow: false,
                 backgroundColor: '#00000000',
                 resizable: false,
+                icon: options.windowIconPath,
+                skipTaskbar: true,
                 webPreferences: {
                     contextIsolation: true,
                     nodeIntegration: false,
@@ -157,6 +159,7 @@ export function createOverlayWindowController(
                     backgroundThrottling: false,
                 },
             }, options.preloadPath));
+            setPanelVisible(false);
             options.onWindowCreated?.(overlay);
             overlay.on('move', onMove);
             overlay.on('closed', onClosed);
@@ -166,10 +169,10 @@ export function createOverlayWindowController(
 
         async dispatch(intent: OverlayIntent): Promise<OverlaySnapshot> {
             if (disposed || !isAlive()) return {...snapshot};
-            const wasExpanded = expanded;
+            const wasPanelVisible = panelVisible;
             const next = applyOverlayIntent(snapshot, intent);
-            if (next.target !== 'closed' && !expanded) setExpandedBounds();
-            snapshot = next.target !== 'closed' && wasExpanded
+            if (next.target !== 'closed' && !panelVisible) setPanelVisible(true);
+            snapshot = next.target !== 'closed' && wasPanelVisible
                 ? {...next, phase: 'visible'}
                 : next;
             return {...snapshot};

@@ -4,7 +4,6 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  CAPSULE_BOUNDS,
   OVERLAY_BOUNDS,
   createOverlayWindowController,
 } from '../../desktop/dist/main/overlay-window-controller.js';
@@ -20,6 +19,7 @@ class FakeWindow extends EventEmitter {
     this.destroyed = false;
     this.loadFileCalls = [];
     this.setBoundsCalls = [];
+    this.setShapeCalls = [];
     this.showCalls = 0;
     this.hideCalls = 0;
     FakeWindow.created.push(this);
@@ -30,6 +30,9 @@ class FakeWindow extends EventEmitter {
     this.setBoundsCalls.push({bounds: {...bounds}, animate});
     this.bounds = {...this.bounds, ...bounds};
     this.emit('move');
+  }
+  setShape(rects) {
+    this.setShapeCalls.push(rects.map((rect) => ({...rect})));
   }
   show() { this.showCalls += 1; this.visible = true; }
   hide() { this.hideCalls += 1; this.visible = false; }
@@ -45,29 +48,33 @@ function createController() {
   return createOverlayWindowController({
     BrowserWindow: FakeWindow,
     rendererRoot: 'dist/renderer',
+    windowIconPath: path.join('renderer', 'favicon.ico'),
     initialCapsuleBounds: {x: 220, y: 120},
   });
 }
 
-test('initializes one transparent overlay window at capsule geometry', async () => {
+test('initializes one transparent overlay at fixed geometry with only the capsule shaped in', async () => {
   const controller = createController();
   await controller.initialize();
   const [overlay] = FakeWindow.created;
 
   assert.equal(FakeWindow.created.length, 1);
-  assert.deepEqual(overlay.getBounds(), {x: 220, y: 120, ...CAPSULE_BOUNDS});
+  assert.deepEqual(overlay.getBounds(), {x: 76, y: 120, ...OVERLAY_BOUNDS});
+  assert.deepEqual(overlay.setShapeCalls, [[{x: 144, y: 0, width: 360, height: 56}]]);
   assert.equal(overlay.options.transparent, true);
   assert.equal(overlay.options.frame, false);
   assert.equal(overlay.options.alwaysOnTop, true);
   assert.equal(overlay.options.hasShadow, false);
   assert.equal(overlay.options.backgroundColor, '#00000000');
+  assert.equal(overlay.options.skipTaskbar, true);
+  assert.equal(overlay.options.icon, path.join('renderer', 'favicon.ico'));
   assert.equal(overlay.options.webPreferences.backgroundThrottling, false);
   assert.equal(overlay.loadFileCalls[0], path.join('dist/renderer', 'overlay.html'));
   assert.equal(overlay.visible, true);
   assert.deepEqual(controller.getWindow(), overlay);
 });
 
-test('opening uses the fixed expanded geometry and does not create another window', async () => {
+test('opening changes the native shape without moving or resizing the fixed window', async () => {
   const controller = createController();
   await controller.initialize();
   const [overlay] = FakeWindow.created;
@@ -76,7 +83,11 @@ test('opening uses the fixed expanded geometry and does not create another windo
   assert.deepEqual(opening, {target: 'workspace', phase: 'opening', revision: 1});
   assert.deepEqual(overlay.getBounds(), {x: 76, y: 120, ...OVERLAY_BOUNDS});
   assert.equal(FakeWindow.created.length, 1);
-  assert.equal(overlay.setBoundsCalls.length, 1);
+  assert.equal(overlay.setBoundsCalls.length, 0);
+  assert.deepEqual(overlay.setShapeCalls.at(-1), [
+    {x: 144, y: 0, width: 360, height: 56},
+    {x: 0, y: 70, width: 648, height: 450},
+  ]);
 });
 
 test('destroying the single overlay makes lifecycle callbacks safe no-ops', async () => {

@@ -558,7 +558,7 @@ function registerIpcHandlers(): void {
             captureProtectionDefault: true,
             supportedPlatforms: ['win32', 'darwin'],
             captureProtectionShortcut: 'CommandOrControl+Shift+P',
-            taskbarHidden: false,
+            taskbarHidden: true,
         };
     });
     ipcMain.handle(IPC_CHANNELS.privacy.setCaptureProtection, (event, enabled: unknown) => {
@@ -804,6 +804,7 @@ function createMainWindow(): void {
     const controller = createOverlayWindowController({
         BrowserWindow: BrowserWindow as unknown as new (options: Record<string, unknown>) => BrowserWindowLike,
         rendererRoot: path.join(__dirname, '..', 'renderer'),
+        windowIconPath: path.join(__dirname, '..', '..', 'renderer', 'favicon.ico'),
         initialCapsuleBounds: {
             x: Math.round(workArea.x + (workArea.width - CAPSULE_BOUNDS.width) / 2),
             y: workArea.y + 24,

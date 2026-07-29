@@ -91,16 +91,18 @@ test('README files describe the API-only Electron boundary', () => {
     const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
     const desktopReadme = fs.readFileSync(path.join(desktopRoot, 'README.md'), 'utf8');
 
-    assert.match(rootReadme, /browser client has been removed/i);
-    assert.match(rootReadme, /API-only.*Electron/i);
+    assert.match(rootReadme, /浏览器工作区已移除|browser client has been removed/i);
+    assert.match(rootReadme, /Python.*文本模型 API|API-only.*Electron|Electron.*Python/i);
     assert.match(rootReadme, /HTTP 410/i);
     assert.match(rootReadme, /\/api\/chat\//);
     assert.match(rootReadme, /\/api\/models\//);
     assert.match(rootReadme, /\/api\/model-options\//);
     assert.match(rootReadme, /\/api\/model-test\//);
     assert.match(rootReadme, /\/api\/prompt\//);
-    assert.match(rootReadme, /no Python ASR model or LOCAL_ASR_MODEL_DIR is needed/i);
-    assert.doesNotMatch(rootReadme, /\/ws\/asr|server\.scripts\.download_asr_model|web\/|browser_smoke|node --check web/i);
+   assert.match(rootReadme, /本地语音转写不需要 Python ASR|no Python ASR model or LOCAL_ASR_MODEL_DIR is needed/i);
+   assert.match(rootReadme, /<img[^>]+src="desktop\/renderer\/favicon\.png"/i);
+    assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
+   assert.doesNotMatch(rootReadme, /\/ws\/asr|server\.scripts\.download_asr_model|web\/|browser_smoke|node --check web/i);
 
     assert.match(desktopReadme, /no browser client/i);
     assert.match(desktopReadme, /no Python WebSocket ASR path/i);
@@ -121,13 +123,13 @@ test('README files retain Electron local ASR model and packaging requirements', 
         assert.match(readme, /sherpa-onnx-node/i, `${label} must identify Electron local ASR`);
         assert.match(readme, /streaming-paraformer-bilingual-zh-en/);
         assert.match(readme, /streaming-zipformer-zh-int8-2025-06-30/);
-        assert.match(readme, /manual.*download|download.*explicitly/i, `${label} must require manual model download`);
-        assert.match(readme, /<home>\/.cache\/meeting-monster\/models\/asr\/<model-id>\//i);
+        assert.match(readme, /手动.*下载|manual.*download|download.*explicitly/i);
+        assert.match(readme, /(?:<home>\/\.cache\/meeting-monster\/models\/asr\/<model-id>|\.cache[\\/]meeting-monster[\\/]models[\\/]asr[\\/]<model-id>)/i);
         assert.match(readme, /ModelScope.*Hugging Face|Hugging Face.*ModelScope/is);
-        assert.match(readme, /pinned.*SHA-256|SHA-256.*pinned/is);
-        assert.match(readme, /not bundled.*EXE.*Portable.*DMG.*ZIP/is);
-        assert.match(readme, /startup.*no model-network request|no model-network request.*startup/is);
-        assert.match(readme, /switching.*installed models.*does not download them again/is);
+        assert.match(readme, /固定.*SHA-256|SHA-256.*固定|pinned.*SHA-256|SHA-256.*pinned/is);
+        assert.match(readme, /模型权重.*(?:不打包|不会打包).*(?:EXE).*(?:Portable).*(?:DMG).*(?:ZIP)|not bundled.*EXE.*Portable.*DMG.*ZIP/is);
+        assert.match(readme, /启动.*(?:不|无).*联网.*模型|startup.*no model-network request|no model-network request.*startup/is);
+        assert.match(readme, /切换.*已安装.*(?:不|不会).*下载|switching.*installed models.*does not download them again/is);
         assertReleaseDocumentationIsSafe(readme, label);
         assertElectronDocumentationIsSafe(readme, label);
     }

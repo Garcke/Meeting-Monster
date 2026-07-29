@@ -87,6 +87,14 @@ test('panel keeps transparent shell, transform-only states, scroll pointer safet
     assert.match(worklet, /registerProcessor\('pcm-processor'/);
 });
 
+test('rounded panel shell does not paint a clipped shadow behind its lower corners', () => {
+    const styles = read('desktop', 'ui', 'panel', 'panel.css');
+    const panelShell = styles.match(/\.panel-shell\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+
+    assert.match(panelShell, /border-radius:\s*28px/);
+    assert.doesNotMatch(panelShell, /box-shadow/);
+});
+
 test('single overlay keeps the capsule visually detached above the panel', () => {
     const styles = read('desktop', 'ui', 'overlay', 'overlay.css');
     const panelLayer = styles.match(/\.panel-layer\s*\{([\s\S]*?)\}/)?.[1] ?? '';
@@ -98,7 +106,7 @@ test('single overlay keeps the capsule visually detached above the panel', () =>
 
 test('privacy policy retains protected overlay defaults and no renderer redaction shield', () => {
     const main = read('desktop', 'src', 'main', 'main.ts');
-    assert.match(main, /taskbarHidden: false/);
+    assert.match(main, /taskbarHidden: true/);
     assert.match(main, /CommandOrControl\+Shift\+P/);
     assert.match(main, /setCaptureProtection/);
     assert.doesNotMatch(main, /privacyRedactionShield|toggleRedacted/);

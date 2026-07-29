@@ -42,6 +42,13 @@ test('main preserves secured overlay BrowserWindow options and taskbar policy', 
     const source = mainSource();
     const controller = controllerSource();
 
+    const controllerCreation = source.match(/createOverlayWindowController\(\{[\s\S]*?\n\s*\}\);/);
+    assert.ok(controllerCreation, 'main should configure the overlay controller in one object-literal call');
+    assert.match(
+        controllerCreation[0],
+        /windowIconPath:\s*path\.join\(__dirname,\s*'\.\.',\s*'\.\.',\s*'renderer',\s*'favicon\.ico'\)/,
+    );
+
     for (const required of [
         /transparent: true/,
         /frame: false/,
@@ -51,7 +58,9 @@ test('main preserves secured overlay BrowserWindow options and taskbar policy', 
         /contextIsolation: true/,
         /nodeIntegration: false/,
         /sandbox: false/,
-        /taskbarHidden: false/,
+        /taskbarHidden: true/,
+        /skipTaskbar: true/,
+        /icon: options\.windowIconPath/,
         /CommandOrControl\+Shift\+P/,
         /CommandOrControl\+Shift\+M/,
         /setWindowOpenHandler\(\(\) => \(\{action: 'deny'\}\)\)/,

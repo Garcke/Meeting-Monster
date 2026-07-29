@@ -1,25 +1,27 @@
-# Meeting-Monster
+<p align="center">
+  <img src="desktop/renderer/favicon.png" alt="Meeting-Monster 产品标志" width="112" style="border-radius:50%; object-fit:cover;">
+</p>
 
-The browser client has been removed; the Python service is API-only for Electron. GET / returns HTTP 410. No Python ASR model or LOCAL_ASR_MODEL_DIR is needed.
+<h1 align="center">Meeting-Monster</h1>
 
-Each model requires an explicit manual download. Startup makes no model-network request, and switching between installed models does not download them again.
+<p align="center">Windows 本地实时语音转写与 AI 会议助手</p>
 
-The platform-neutral model path is <home>/.cache/meeting-monster/models/asr/<model-id>/.
+<p align="center">本地 ASR · 系统音频 · Markdown AI 回答 · 隐私优先</p>
 
-Model weights are not bundled in the EXE, Portable, DMG, or ZIP.
+Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成实时语音转写，再通过本地 Python 文本模型 API 生成回答、追问和重述。
 
-Model sources use pinned revisions, byte sizes, and SHA-256 checksums.
+本项目当前只发布 Windows 桌面客户端。浏览器工作区已移除，Python 服务只提供 Electron 所需的文本模型 API；访问根路径 `GET /` 会返回 `HTTP 410`。本地语音转写不需要 Python ASR 模型、vLLM、WSL 或 `LOCAL_ASR_MODEL_DIR`。
 
-Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成实时语音转写，再通过本地 Python API 调用用户配置的文本模型生成回答、追问和重述。
+模型必须由用户在设置页手动选择并下载。启动时不会联网下载模型，切换已安装模型也不会重复下载。
 
-本项目当前只发布 Windows 桌面客户端，不再提供浏览器工作区，也不再通过 Python、vLLM 或 WSL 执行客户端 ASR。
+模型权重不会打包进 EXE、Portable、DMG 或 ZIP。模型源使用固定版本、文件大小和 SHA-256 校验值。
 
 ## 功能概览
 
 - Electron 单 `BrowserWindow`、单 React renderer，悬浮胶囊与展开面板属于同一个应用窗口。
 - 使用 `sherpa-onnx-node` 在本机运行中英文流式 ASR。
 - Windows 支持麦克风、系统音频，以及系统音频＋麦克风混合输入。
-- ASR 模型由设置页手动选择和下载，不会在启动时自动联网下载。
+- ASR 模型由设置页手动选择和下载，启动时不会联网下载。
 - AI 回答、Assist、追问、重述通过本地 Python `/api/chat/` 服务完成，输出按 Markdown 渲染。
 - 仅支持两种文本模型协议：`OpenAI Compatible` 和 `Anthropic Compatible`。
 - 模型权重不打包进安装版或便携版；应用退出按钮会真正结束 Electron 进程。
