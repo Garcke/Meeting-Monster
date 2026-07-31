@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 import unittest
@@ -29,11 +30,13 @@ class FakeProvider:
         self.error = error
         self.messages = None
 
-    def stream_text(self, messages):
+    async def stream_text(self, messages):
         self.messages = list(messages)
         if self.error:
             raise self.error
-        yield from self.chunks
+        for chunk in self.chunks:
+            await asyncio.sleep(0)
+            yield chunk
 
 
 class LLMAPITests(unittest.TestCase):
@@ -356,6 +359,29 @@ class LLMAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(seen_profiles[-1].profile_id, "alternate")
         self.assertEqual(configuration.json()["active_profile"], "alternate")
+
+    def test_app_lifespan_closes_cached_provider_clients(self):
+        from server.llm_api import create_app
+
+        class ClosableProvider(FakeProvider):
+            def __init__(self):
+                super().__init__(["answer"])
+                self.closed = False
+
+            async def aclose(self):
+                self.closed = True
+
+        provider = ClosableProvider()
+        app = create_app(
+            profile_resolver=lambda: test_profile(),
+            provider_factory=lambda _profile: provider,
+        )
+
+        with TestClient(app) as client:
+            response = client.post("/chat/", json={"content": "Question"})
+            self.assertEqual(response.status_code, 200)
+
+        self.assertTrue(provider.closed)
 
 
 if __name__ == "__main__":

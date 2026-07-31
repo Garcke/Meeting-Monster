@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -18,7 +18,7 @@ from server.settings.model_profiles import ModelConfigurationError, ResolvedMode
 from server.settings.profile_store import ModelProfileInput, ProfileStore, PublicModelProfile
 
 
-ProviderFactory = Callable[[ResolvedModelProfile], LLMProvider]
+ProviderFactory = Callable[[ResolvedModelProfile], Awaitable[LLMProvider]]
 CONNECTIVITY_PROMPT = "Reply with OK."
 
 
@@ -197,10 +197,10 @@ def create_router(
         started = time.perf_counter()
         received_text = False
         try:
-            stream = provider_factory(short_profile).stream_text(
+            stream = (await provider_factory(short_profile)).stream_text(
                 [{"role": "user", "content": CONNECTIVITY_PROMPT}]
             )
-            for text in stream:
+            async for text in stream:
                 if text:
                     received_text = True
                     break
