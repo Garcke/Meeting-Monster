@@ -1,4 +1,5 @@
 import json
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,11 +14,13 @@ class RecordingProvider:
         self.error = error
         self.messages = []
 
-    def stream_text(self, messages):
+    async def stream_text(self, messages):
         self.messages.append(list(messages))
         if self.error:
             raise self.error
-        yield from self.chunks
+        for chunk in self.chunks:
+            await asyncio.sleep(0)
+            yield chunk
 
 
 class ModelAPITests(unittest.TestCase):

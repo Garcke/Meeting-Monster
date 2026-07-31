@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import threading
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +25,8 @@ from server.settings.model_profiles import (
     resolve_temporary_profile,
 )
 from server.settings.profile_store import ProfileStore, SecretCipher
-from server.llm_providers import LLMProvider, create_provider
+from server.chat_service import ChatService, sanitize_provider_error
+from server.llm_providers import LLMProvider, ProviderCache, create_provider
 from server.model_api import create_router as create_model_router
 
 
@@ -87,14 +88,6 @@ def parse_temporary_connection(request: BaseModel) -> TemporaryModelConnection |
         raise HTTPException(status_code=422, detail="Invalid temporary model connection") from exc
 
 
-def sanitize_provider_error(error: Exception, profile: ResolvedModelProfile) -> str:
-    message = str(error).strip() or "Model request failed"
-    for secret in (profile.api_key, profile.base_url, profile.model):
-        if secret and secret != "not-needed":
-            message = message.replace(secret, "[redacted]")
-    return message
-
-
 def create_runtime_profile_store(environ: Mapping[str, str] | None = None) -> ProfileStore:
     """Build the encrypted profile store used by the local API process."""
 
@@ -120,8 +113,19 @@ def create_app(
     if admin_token is None:
         admin_token = environment.get("APP_ADMIN_TOKEN", "")
 
-    app = FastAPI(title="Meeting-Monster LLM API")
-    app.state.conversation_history = []
+    provider_cache = ProviderCache(provider_factory)
+    chat_service = ChatService(provider_cache)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            await provider_cache.aclose()
+
+    app = FastAPI(title="Meeting-Monster LLM API", lifespan=lifespan)
+    app.state.chat_service = chat_service
+    app.state.provider_cache = provider_cache
 
     app.add_middleware(
         CORSMiddleware,
@@ -173,12 +177,7 @@ def create_app(
 
     @app.post("/set_prompt/")
     async def set_prompt(prompt_message: PromptMessage):
-        history: list[dict[str, str]] = app.state.conversation_history
-        non_system_messages = [item for item in history if item.get("role") != "system"]
-        history[:] = [
-            {"role": "system", "content": prompt_message.prompt},
-            *non_system_messages,
-        ]
+        chat_service.set_prompt(prompt_message.prompt)
         return {"message": "Prompt has been set."}
 
     @app.post("/chat/")
@@ -192,53 +191,26 @@ def create_app(
             connection,
         )
         try:
-            provider = provider_factory(profile)
+            provider = await chat_service.get_provider(profile)
         except Exception as exc:
             safe_detail = sanitize_provider_error(exc, profile)
             raise HTTPException(status_code=503, detail=f"无法初始化模型客户端: {safe_detail}") from exc
 
-        history: list[dict[str, str]] = app.state.conversation_history
-        user_entry = {"role": "user", "content": user_message.content.strip()}
-        history.append(user_entry)
-        request_messages = [dict(item) for item in history]
-
         async def stream_response():
             yield ": stream start\n\n"
-            loop = asyncio.get_running_loop()
-            queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
-
-            def publish(kind: str, value: Any = None) -> None:
-                loop.call_soon_threadsafe(queue.put_nowait, (kind, value))
-
-            def consume_stream() -> None:
-                try:
-                    for text in provider.stream_text(request_messages):
-                        if text:
-                            publish("chunk", text)
-                except Exception as exc:
-                    publish("error", sanitize_provider_error(exc, profile))
-                finally:
-                    publish("done")
-
-            threading.Thread(target=consume_stream, daemon=True).start()
-            assistant_message = ""
-            stream_failed = False
-
-            while True:
-                kind, value = await queue.get()
+            async for kind, value in chat_service.stream_response(
+                user_message.content,
+                profile,
+                provider,
+            ):
                 if kind == "chunk":
-                    assistant_message += value
                     payload = json.dumps({"response": value}, ensure_ascii=False)
                     yield f"event: chunk\ndata: {payload}\n\n"
                 elif kind == "error":
-                    stream_failed = True
                     payload = json.dumps({"detail": value}, ensure_ascii=False)
                     yield f"event: error\ndata: {payload}\n\n"
                 elif kind == "done":
                     break
-
-            if assistant_message and not stream_failed:
-                history.append({"role": "assistant", "content": assistant_message})
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
@@ -253,11 +225,11 @@ def create_app(
 
     @app.get("/history/")
     async def get_history():
-        return {"history": app.state.conversation_history}
+        return {"history": chat_service.get_history()}
 
     @app.post("/reset/")
     async def reset_history():
-        app.state.conversation_history = []
+        chat_service.reset_history()
         return {"message": "Conversation history has been reset."}
 
     @app.get("/model-config/")
@@ -292,10 +264,10 @@ def create_app(
         started = asyncio.get_running_loop().time()
         received_text = False
         try:
-            stream = provider_factory(short_profile).stream_text(
+            stream = (await chat_service.get_provider(short_profile)).stream_text(
                 [{"role": "user", "content": "Reply with OK."}]
             )
-            for text in stream:
+            async for text in stream:
                 if text:
                     received_text = True
                     break
@@ -317,7 +289,7 @@ def create_app(
         create_model_router(
             profile_store=runtime_store,
             admin_token=admin_token,
-            provider_factory=provider_factory,
+            provider_factory=chat_service.get_provider,
             environ=environment,
         )
     )
