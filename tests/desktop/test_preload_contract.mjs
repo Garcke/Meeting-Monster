@@ -97,7 +97,7 @@ test('shared contracts expose public ASR model snapshots without private downloa
     assert.match(source, /onStatus\(callback: \(snapshot: AsrModelSnapshot\) => void\): Unsubscribe/);
 });
 
-test('model settings IPC and preload return the version-2 non-secret summary map', () => {
+test('model settings IPC and preload return the version-3 non-secret vision summary map', () => {
     const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
     const preload = read('desktop', 'src', 'preload', 'index.ts');
     const summary = contracts.match(
@@ -109,6 +109,8 @@ test('model settings IPC and preload return the version-2 non-secret summary map
 
     assert.match(summary, /active_profile: ModelProfileId/);
     assert.doesNotMatch(savedConnection, /image|data/);
+    assert.match(savedConnection, /vision_verified: boolean/);
+    assert.doesNotMatch(savedConnection, /(?:^|\s)api_key\??:/m);
     assert.match(
         summary,
         /connections: Partial<Record<ModelProfileId, SavedModelConnection>>/,

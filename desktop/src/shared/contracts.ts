@@ -146,6 +146,7 @@ export interface SavedModelConnection {
     has_api_key: boolean;
     max_tokens: number;
     temperature?: number | null;
+    vision_verified: boolean;
 }
 
 export interface SavedModelConnectionSettings {

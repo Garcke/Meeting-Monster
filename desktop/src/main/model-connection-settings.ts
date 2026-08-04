@@ -4,7 +4,7 @@ import type {ModelProfileId, ModelProtocol} from '../shared/contracts';
 
 export type {ModelProfileId, ModelProtocol} from '../shared/contracts';
 
-export interface ModelConnection {
+export interface ModelConnectionCandidate {
     profile_id: ModelProfileId;
     protocol: ModelProtocol;
     base_url: string;
@@ -14,9 +14,20 @@ export interface ModelConnection {
     temperature?: number | null;
 }
 
+/**
+ * Persisted model connection state. The optional marker is a temporary source
+ * compatibility seam for main.ts; persisted settings always use the required
+ * StoredModelConnection shape below. Task 7 removes the legacy caller.
+ */
+export interface ModelConnection extends ModelConnectionCandidate {
+    vision_verified?: boolean;
+}
+
+type StoredModelConnection = ModelConnectionCandidate & {vision_verified: boolean};
+
 export interface ModelConnectionSettings {
     active_profile: ModelProfileId;
-    connections: Partial<Record<ModelProfileId, ModelConnection>>;
+    connections: Partial<Record<ModelProfileId, StoredModelConnection>>;
 }
 
 export interface ModelConnectionSummary {
@@ -27,6 +38,7 @@ export interface ModelConnectionSummary {
     has_api_key: boolean;
     max_tokens: number;
     temperature?: number | null;
+    vision_verified: boolean;
 }
 
 export interface ModelConnectionSummarySettings {
@@ -46,19 +58,19 @@ export interface SafeStorageLike {
     decryptString(ciphertext: Buffer): string;
 }
 
-interface PersistedSettings {
-    version: 2;
-    encryptedConnection: string;
-}
+type PersistedSettings =
+    | {version: 2; encryptedConnection: string}
+    | {version: 3; encryptedConnection: string};
 
 const DEFAULT_ACTIVE_PROFILE: ModelProfileId = 'generic_openai';
 const PROFILE_PROTOCOL: Record<ModelProfileId, ModelProtocol> = {
     generic_openai: 'openai',
     generic_anthropic: 'anthropic',
 };
-const CONNECTION_FIELDS = new Set([
+const CONNECTION_INPUT_FIELDS = new Set([
     'profile_id', 'protocol', 'base_url', 'model', 'api_key', 'max_tokens', 'temperature',
 ]);
+const STORED_CONNECTION_FIELDS = new Set([...CONNECTION_INPUT_FIELDS, 'vision_verified']);
 
 export class ModelConnectionStore {
     private readonly temporaryPath: string;
@@ -67,20 +79,41 @@ export class ModelConnectionStore {
         this.temporaryPath = `${options.settingsPath}.tmp`;
     }
 
-    public async saveConnection(value: ModelConnection): Promise<ModelConnectionSummarySettings> {
-        const operation = this.saveConnectionSerial(value);
+    public async saveVerifiedConnection(value: ModelConnectionCandidate): Promise<ModelConnectionSummarySettings> {
+        return this.enqueueSave(value, true);
+    }
+
+    /**
+     * @deprecated Temporary compatibility for the pre-Task-7 main-process
+     * caller. It deliberately persists the connection as unverified.
+     */
+    public async saveConnection(value: ModelConnectionCandidate): Promise<ModelConnectionSummarySettings> {
+        return this.enqueueSave(value, false);
+    }
+
+    private async enqueueSave(
+        value: ModelConnectionCandidate,
+        visionVerified: boolean,
+    ): Promise<ModelConnectionSummarySettings> {
+        const operation = this.saveConnectionSerial(value, visionVerified);
         this.saveQueue = operation.then(() => undefined, () => undefined);
         return operation;
     }
 
     private saveQueue: Promise<void> = Promise.resolve();
 
-    private async saveConnectionSerial(value: ModelConnection): Promise<ModelConnectionSummarySettings> {
+    private async saveConnectionSerial(
+        value: ModelConnectionCandidate,
+        visionVerified: boolean,
+    ): Promise<ModelConnectionSummarySettings> {
         await this.saveQueue;
         const requested = validateModelConnection(value);
         const current = await this.loadSettings() ?? createEmptyModelConnectionSettings();
         const previous = current.connections[requested.profile_id];
-        const connection = mergeModelConnectionWithSaved(requested, previous);
+        const connection: StoredModelConnection = {
+            ...mergeModelConnectionWithSaved(requested, previous),
+            vision_verified: visionVerified,
+        };
         const settings: ModelConnectionSettings = {
             active_profile: connection.profile_id,
             connections: {
@@ -103,7 +136,10 @@ export class ModelConnectionStore {
             const plaintext = this.options.safeStorage.decryptString(
                 Buffer.from(persisted.encryptedConnection, 'base64'),
             );
-            return validateModelConnectionSettings(JSON.parse(plaintext));
+            const parsed: unknown = JSON.parse(plaintext);
+            return persisted.version === 2
+                ? validateLegacyModelConnectionSettings(parsed)
+                : validateModelConnectionSettings(parsed);
         } catch {
             await this.clearConnection();
             throw new Error('Stored model connections could not be decrypted');
@@ -111,7 +147,7 @@ export class ModelConnectionStore {
     }
 
     /** Compatibility helper for callers that need the active connection. */
-    public async loadConnection(): Promise<ModelConnection | undefined> {
+    public async loadConnection(): Promise<StoredModelConnection | undefined> {
         const settings = await this.loadSettings();
         return settings?.connections[settings.active_profile];
     }
@@ -137,7 +173,7 @@ export class ModelConnectionStore {
             throw new Error('Model connection encryption is unavailable');
         }
         const encryptedConnection = this.options.safeStorage.encryptString(JSON.stringify(settings)).toString('base64');
-        const payload: PersistedSettings = {version: 2, encryptedConnection};
+        const payload: PersistedSettings = {version: 3, encryptedConnection};
         try {
             await this.fileSystem.mkdir(path.dirname(this.options.settingsPath), {recursive: true});
             await this.fileSystem.writeFile(this.temporaryPath, JSON.stringify(payload), {encoding: 'utf8', mode: 0o600});
@@ -165,12 +201,12 @@ export class ModelConnectionStore {
                 await this.clearConnection();
                 return undefined;
             }
-            if (candidate.version !== 2
+            if ((candidate.version !== 2 && candidate.version !== 3)
                 || typeof candidate.encryptedConnection !== 'string'
                 || !candidate.encryptedConnection) {
                 throw new Error('invalid settings');
             }
-            return {version: 2, encryptedConnection: candidate.encryptedConnection};
+            return {version: candidate.version, encryptedConnection: candidate.encryptedConnection};
         } catch (error: unknown) {
             if (error instanceof Error && error.message === 'invalid settings') {
                 throw new Error('Stored model connection settings are invalid');
@@ -184,13 +220,13 @@ export class ModelConnectionStore {
     }
 }
 
-export function validateModelConnection(value: unknown): ModelConnection {
+export function validateModelConnection(value: unknown): ModelConnectionCandidate {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new TypeError('Model connection is invalid');
     }
-    const candidate = value as Partial<ModelConnection>;
+    const candidate = value as Partial<ModelConnectionCandidate>;
     for (const key of Object.keys(candidate)) {
-        if (!CONNECTION_FIELDS.has(key)) throw new TypeError('Model connection contains an unsupported field');
+        if (!CONNECTION_INPUT_FIELDS.has(key)) throw new TypeError('Model connection contains an unsupported field');
     }
 
     if (!isModelProfileId(candidate.profile_id)) {
@@ -213,7 +249,7 @@ export function validateModelConnection(value: unknown): ModelConnection {
         throw new TypeError('Model connection API key is invalid');
     }
 
-    const connection: ModelConnection = {
+    const connection: ModelConnectionCandidate = {
         profile_id: candidate.profile_id,
         protocol: candidate.protocol,
         base_url: baseUrl,
@@ -226,6 +262,33 @@ export function validateModelConnection(value: unknown): ModelConnection {
 }
 
 export function validateModelConnectionSettings(value: unknown): ModelConnectionSettings {
+    const candidate = validateSettingsContainer(value);
+    const connections: Partial<Record<ModelProfileId, StoredModelConnection>> = {};
+    for (const [key, valueForProfile] of Object.entries(candidate.connections)) {
+        if (!isModelProfileId(key)) throw new TypeError('Model connection profile is invalid');
+        const connection = validateStoredModelConnection(valueForProfile);
+        if (connection.profile_id !== key) throw new TypeError('Model connection profile key does not match value');
+        connections[key] = connection;
+    }
+    return {active_profile: candidate.active_profile, connections};
+}
+
+function validateLegacyModelConnectionSettings(value: unknown): ModelConnectionSettings {
+    const candidate = validateSettingsContainer(value);
+    const connections: Partial<Record<ModelProfileId, StoredModelConnection>> = {};
+    for (const [key, valueForProfile] of Object.entries(candidate.connections)) {
+        if (!isModelProfileId(key)) throw new TypeError('Model connection profile is invalid');
+        const connection = validateModelConnection(valueForProfile);
+        if (connection.profile_id !== key) throw new TypeError('Model connection profile key does not match value');
+        connections[key] = {...connection, vision_verified: false};
+    }
+    return {active_profile: candidate.active_profile, connections};
+}
+
+function validateSettingsContainer(value: unknown): {
+    active_profile: ModelProfileId;
+    connections: Record<string, unknown>;
+} {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new TypeError('Model connection settings are invalid');
     }
@@ -236,20 +299,33 @@ export function validateModelConnectionSettings(value: unknown): ModelConnection
     if (!candidate.connections || typeof candidate.connections !== 'object' || Array.isArray(candidate.connections)) {
         throw new TypeError('Model connection map is invalid');
     }
-    const connections: Partial<Record<ModelProfileId, ModelConnection>> = {};
-    for (const [key, valueForProfile] of Object.entries(candidate.connections)) {
-        if (!isModelProfileId(key)) throw new TypeError('Model connection profile is invalid');
-        const connection = validateModelConnection(valueForProfile);
-        if (connection.profile_id !== key) throw new TypeError('Model connection profile key does not match value');
-        connections[key] = connection;
+    return {
+        active_profile: candidate.active_profile,
+        connections: candidate.connections as Record<string, unknown>,
+    };
+}
+
+function validateStoredModelConnection(value: unknown): StoredModelConnection {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new TypeError('Stored model connection is invalid');
     }
-    return {active_profile: candidate.active_profile, connections};
+    const stored = value as Record<string, unknown>;
+    for (const key of Object.keys(stored)) {
+        if (!STORED_CONNECTION_FIELDS.has(key)) {
+            throw new TypeError('Stored model connection contains an unsupported field');
+        }
+    }
+    if (typeof stored.vision_verified !== 'boolean') {
+        throw new TypeError('Stored model connection vision_verified is invalid');
+    }
+    const {vision_verified, ...candidate} = stored;
+    return {...validateModelConnection(candidate), vision_verified};
 }
 
 export function mergeModelConnectionWithSaved(
-    value: ModelConnection,
-    saved: ModelConnection | undefined,
-): ModelConnection {
+    value: ModelConnectionCandidate,
+    saved: ModelConnectionCandidate | undefined,
+): ModelConnectionCandidate {
     const connection = validateModelConnection(value);
     if (!connection.api_key && saved && sameConnectionIdentity(connection, saved) && saved.api_key) {
         connection.api_key = saved.api_key;
@@ -259,13 +335,13 @@ export function mergeModelConnectionWithSaved(
 
 function summarizeModelConnectionSettings(settings: ModelConnectionSettings): ModelConnectionSummarySettings {
     const connections: Partial<Record<ModelProfileId, ModelConnectionSummary>> = {};
-    for (const [profileId, connection] of Object.entries(settings.connections) as [ModelProfileId, ModelConnection][]) {
+    for (const [profileId, connection] of Object.entries(settings.connections) as [ModelProfileId, StoredModelConnection][]) {
         connections[profileId] = summarizeModelConnection(connection);
     }
     return {active_profile: settings.active_profile, connections};
 }
 
-function summarizeModelConnection(connection: ModelConnection): ModelConnectionSummary {
+function summarizeModelConnection(connection: StoredModelConnection): ModelConnectionSummary {
     return {
         profile_id: connection.profile_id,
         protocol: connection.protocol,
@@ -274,6 +350,7 @@ function summarizeModelConnection(connection: ModelConnection): ModelConnectionS
         has_api_key: Boolean(connection.api_key),
         max_tokens: connection.max_tokens,
         ...(connection.temperature === undefined ? {} : {temperature: connection.temperature}),
+        vision_verified: connection.vision_verified,
     };
 }
 
@@ -285,7 +362,7 @@ function createEmptyModelConnectionSummary(): ModelConnectionSummarySettings {
     return {active_profile: DEFAULT_ACTIVE_PROFILE, connections: {}};
 }
 
-function sameConnectionIdentity(left: ModelConnection, right: ModelConnection): boolean {
+function sameConnectionIdentity(left: ModelConnectionCandidate, right: ModelConnectionCandidate): boolean {
     return left.profile_id === right.profile_id
         && left.protocol === right.protocol
         && left.base_url === right.base_url
