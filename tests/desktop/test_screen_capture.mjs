@@ -1,25 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 const CAPTURE_MODULE = '../../desktop/dist/main/screen-capture.js';
+const CAPTURE_SOURCE = new URL('../../desktop/src/main/screen-capture.ts', import.meta.url);
 
 async function loadCaptureModule() {
     return import(CAPTURE_MODULE);
 }
 
-function fakeThumbnail({bytes = Buffer.from('screen-png'), width = 2048, height = 1152, empty = false, bytesForSize} = {}) {
-    const resizedTo = [];
+function fakeThumbnail({
+    bytes = Buffer.from('screen-png'), width = 2048, height = 1152, empty = false, bytesForSize, resizedTo = [],
+} = {}) {
     const thumbnail = {
         isEmpty: () => empty,
         getSize: () => ({width, height}),
         toPNG: () => bytesForSize ? bytesForSize(width, height) : bytes,
         resize: ({width: nextWidth, height: nextHeight}) => {
             resizedTo.push({width: nextWidth, height: nextHeight});
-            return fakeThumbnail({bytes, width: nextWidth, height: nextHeight, empty, bytesForSize}).thumbnail;
+            return fakeThumbnail({bytes, width: nextWidth, height: nextHeight, empty, bytesForSize, resizedTo}).thumbnail;
         },
     };
     return {thumbnail, resizedTo};
 }
+
+test('keeps the capture dependency contract and implementation free of filesystem access', () => {
+    const source = fs.readFileSync(CAPTURE_SOURCE, 'utf8');
+    const dependencyContract = source.match(/export interface ScreenCaptureDependencies \{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(dependencyContract, /screen:/);
+    assert.match(dependencyContract, /desktopCapturer:/);
+    assert.doesNotMatch(dependencyContract, /\b(?:fs|path|file|readFile|writeFile)\b/i);
+    assert.doesNotMatch(source, /node:(?:fs|path)|from ['"](?:fs|path)['"]|\b(?:readFile|writeFile|appendFile|mkdir|unlink)\b/);
+});
 
 function captureDependencies({sources, display = {id: 22, size: {width: 3840, height: 2160}, scaleFactor: 1}}) {
     const calls = [];
@@ -66,7 +79,7 @@ test('captures only the display nearest the cursor at the maximum long edge', as
 test('uses display scale factor when fitting the requested thumbnail size', async () => {
     const {captureCurrentDisplay} = await loadCaptureModule();
     const {dependencies, calls} = captureDependencies({
-        display: {id: 22, size: {width: 2560, height: 1440}, scaleFactor: 1.5},
+        display: {id: 22, size: {width: 1280, height: 720}, scaleFactor: 2},
         sources: [{display_id: '22', thumbnail: fakeThumbnail({width: 2048, height: 1152}).thumbnail}],
     });
 
@@ -90,20 +103,25 @@ test('rejects a missing display source or empty thumbnail', async () => {
 
 test('downscales thumbnails until the PNG is within the byte limit', async () => {
     const {captureCurrentDisplay, MAX_SCREENSHOT_BYTES} = await loadCaptureModule();
-    const bytesForSize = (width) => Buffer.alloc(width > 1600 ? MAX_SCREENSHOT_BYTES + 1 : 64, 7);
+    const bytesForSize = (width) => Buffer.alloc(width > 1024 ? MAX_SCREENSHOT_BYTES + 1 : 64, 7);
     const {thumbnail, resizedTo} = fakeThumbnail({width: 2048, height: 1152, bytesForSize});
     const {dependencies} = captureDependencies({sources: [{display_id: '22', thumbnail}]});
 
     const result = await captureCurrentDisplay(dependencies);
 
-    assert.ok(resizedTo.some(({width}) => width < 2048));
-    assert.ok(Math.max(result.width, result.height) < 2048);
+    assert.deepEqual(resizedTo, [
+        {width: 1638, height: 921},
+        {width: 1310, height: 737},
+        {width: 1048, height: 590},
+        {width: 1024, height: 576},
+    ]);
+    assert.deepEqual({width: result.width, height: result.height}, {width: 1024, height: 576});
     assert.ok(Buffer.from(result.data, 'base64').byteLength <= MAX_SCREENSHOT_BYTES);
 });
 
 test('fails when an image remains above the byte limit at the minimum allowed size', async () => {
     const {captureCurrentDisplay, MAX_SCREENSHOT_BYTES} = await loadCaptureModule();
-    const {thumbnail} = fakeThumbnail({
+    const {thumbnail, resizedTo} = fakeThumbnail({
         width: 2048,
         height: 1152,
         bytesForSize: () => Buffer.alloc(MAX_SCREENSHOT_BYTES + 1, 7),
@@ -111,4 +129,5 @@ test('fails when an image remains above the byte limit at the minimum allowed si
     const {dependencies} = captureDependencies({sources: [{display_id: '22', thumbnail}]});
 
     await assert.rejects(captureCurrentDisplay(dependencies), /Unable to capture the current screen/);
+    assert.deepEqual(resizedTo.at(-1), {width: 1024, height: 576});
 });
