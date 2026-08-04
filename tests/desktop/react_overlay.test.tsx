@@ -7,6 +7,7 @@ import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
 import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, OverlaySnapshot, PrivacyStatus} from '../../desktop/src/shared/contracts';
 import {AUDIO_INPUT_MODE_EVENT, AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
+import {MODEL_SETTINGS_CHANGED_EVENT} from '../../desktop/ui/shared/services/model-settings-service';
 
 const snapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', revision: 0};
 const privacy: PrivacyStatus = {captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 1};
@@ -23,6 +24,17 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
     const chatSends: Array<{requestId: string; prompt: string}> = [];
+    const assistSends: Array<{requestId: string; prompt: string}> = [];
+    const verifiedConnection = {
+        profile_id: 'generic_openai' as const,
+        protocol: 'openai' as const,
+        base_url: 'https://openai.example/v1',
+        model: 'vision-model',
+        has_api_key: true,
+        max_tokens: 2048,
+        temperature: 0.3,
+        vision_verified: true,
+    };
     const api = {
         overlay: {
             intent: vi.fn(async ({type}: {type: 'toggle-workspace' | 'toggle-settings'}) => {
@@ -57,11 +69,12 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         },
         models: {
             list: vi.fn(async () => ({active_profile: 'generic_openai', profiles: []})),
-            getSaved: vi.fn(async () => null), save: vi.fn(), test: vi.fn(),
+            getSaved: vi.fn(async () => ({active_profile: 'generic_openai' as const, connections: {generic_openai: verifiedConnection}})), save: vi.fn(), test: vi.fn(),
         },
         chat: {
             onEvent: vi.fn((listener: (event: ChatStreamEvent) => void) => { chatListeners.add(listener); return () => chatListeners.delete(listener); }),
             send: vi.fn(async (requestId: string, prompt: string) => { chatSends.push({requestId, prompt}); }),
+            assist: vi.fn(async (requestId: string, prompt: string) => { assistSends.push({requestId, prompt}); return {requestId}; }),
             cancel: vi.fn(async () => undefined),
         },
         window: {hide: vi.fn(), show: vi.fn(), getState: vi.fn(), setExpanded: vi.fn(), toggleExpanded: vi.fn(), onState: vi.fn()},
@@ -70,6 +83,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         api,
         intents,
         chatSends,
+        assistSends,
         emitAsrResult: (event: {type: string; text: string}) => { for (const listener of asrListeners) listener(event); },
         emitChatEvent: (event: ChatStreamEvent) => { for (const listener of chatListeners) listener(event); },
     };
@@ -270,6 +284,23 @@ test('settings blocks save before IPC when Base URL or Model ID is invalid', asy
     expect(api.models.save).not.toHaveBeenCalled();
 });
 
+test('settings broadcasts successful multimodal verification saves', async () => {
+    const {api} = fakeApi();
+    const onChanged = vi.fn();
+    api.models.save = vi.fn(async () => api.models.getSaved());
+    window.meetingMonster = api;
+    window.addEventListener(MODEL_SETTINGS_CHANGED_EVENT, onChanged);
+    try {
+        render(<SettingsView active />);
+        await screen.findByLabelText('API 协议');
+        fireEvent.click(screen.getByRole('button', {name: '保存连接'}));
+        await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+        expect(screen.getByText('多模态能力验证成功')).toBeTruthy();
+    } finally {
+        window.removeEventListener(MODEL_SETTINGS_CHANGED_EVENT, onChanged);
+    }
+});
+
 test('settings renders the Windows audio-source selector with system audio selected by default', async () => {
     const {api} = fakeApi();
     window.meetingMonster = api;
@@ -365,7 +396,7 @@ test('workspace header omits the prompt pill while retaining drag affordances', 
 });
 
 test('workspace automatically selects ASR fragments and sends the selected text together', async () => {
-    const {api, chatSends, emitAsrResult} = fakeApi();
+    const {api, chatSends, assistSends, emitAsrResult} = fakeApi();
     window.meetingMonster = api;
     const {container} = render(<WorkspaceView active />);
 
@@ -381,13 +412,25 @@ test('workspace automatically selects ASR fragments and sends the selected text 
     await waitFor(() => expect(chatSends.length).toBe(2));
     expect(chatSends[1]?.prompt).toContain('第一段问题');
     expect(chatSends[1]?.prompt).toContain('第二段补充');
+    expect(assistSends).toHaveLength(0);
 
     fireEvent.click(rows[0]!);
     await waitFor(() => expect(rows[0]?.getAttribute('aria-pressed')).toBe('false'));
 });
 
+test('workspace keeps Assist disabled without a selected question even for a verified model', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+
+    const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
+    await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByText('请在设置中验证图片能力')).toBeNull());
+    expect(assist.disabled).toBe(true);
+});
+
 test('workspace places AI actions after recording controls in the composer row', async () => {
-    const {api, chatSends, emitAsrResult, emitChatEvent} = fakeApi();
+    const {api, chatSends, assistSends, emitAsrResult, emitChatEvent} = fakeApi();
     window.meetingMonster = api;
     const {container} = render(<WorkspaceView active />);
 
@@ -406,18 +449,98 @@ test('workspace places AI actions after recording controls in the composer row',
     expect(aiButtons.every((button) => button.type === 'button' && buttons.indexOf(button) > clearIndex)).toBe(true);
 
     fireEvent.click(aiButtons[0]!);
-    await waitFor(() => expect(chatSends).toHaveLength(2));
-    expect(chatSends[1]?.prompt).toBe('Question');
-    act(() => emitChatEvent({type: 'done', requestId: chatSends[1]!.requestId}));
+    await waitFor(() => expect(assistSends).toHaveLength(1));
+    expect(assistSends[0]?.prompt).toBe('Question');
+    expect(chatSends).toHaveLength(1);
+    act(() => emitChatEvent({type: 'done', requestId: assistSends[0]!.requestId}));
 
     fireEvent.click(aiButtons[1]!);
-    await waitFor(() => expect(chatSends).toHaveLength(3));
-    expect(chatSends[2]?.prompt).toContain('追问');
-    act(() => emitChatEvent({type: 'done', requestId: chatSends[2]!.requestId}));
+    await waitFor(() => expect(chatSends).toHaveLength(2));
+    expect(chatSends[1]?.prompt).toContain('追问');
+    expect(assistSends).toHaveLength(1);
+    act(() => emitChatEvent({type: 'done', requestId: chatSends[1]!.requestId}));
 
     fireEvent.click(aiButtons[2]!);
-    await waitFor(() => expect(chatSends).toHaveLength(4));
-    expect(chatSends[3]?.prompt).toContain('重述');
+    await waitFor(() => expect(chatSends).toHaveLength(3));
+    expect(chatSends[2]?.prompt).toContain('重述');
+    expect(assistSends).toHaveLength(1);
+});
+
+test('workspace disables Assist until a verified model and a selected question exist', async () => {
+    const {api, emitAsrResult} = fakeApi();
+    api.models.getSaved = vi.fn(async () => ({
+        active_profile: 'generic_openai',
+        connections: {generic_openai: {
+            profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://openai.example/v1',
+            model: 'legacy-model', has_api_key: true, max_tokens: 2048, temperature: 0.3,
+            vision_verified: false,
+        }},
+    }));
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+
+    const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
+    expect(assist.disabled).toBe(true);
+    act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(screen.getByText('请在设置中验证图片能力')).toBeTruthy());
+    expect(assist.disabled).toBe(true);
+});
+
+test('workspace shows capture then generation status for screenshot Assist', async () => {
+    let resolveAssist!: (value: {requestId: string}) => void;
+    const {api, chatSends, assistSends, emitAsrResult, emitChatEvent} = fakeApi();
+    api.chat.assist = vi.fn((requestId: string, prompt: string) => {
+        assistSends.push({requestId, prompt});
+        return new Promise<{requestId: string}>((resolve) => { resolveAssist = resolve; });
+    });
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+    act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+    act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
+    await waitFor(() => expect((screen.getByRole('button', {name: '✦ Assist'}) as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(screen.getByRole('button', {name: '✦ Assist'}));
+    await waitFor(() => expect(screen.getByText('正在截图')).toBeTruthy());
+    const requestId = assistSends[0]!.requestId;
+    await act(async () => resolveAssist({requestId}));
+    await waitFor(() => expect(screen.getByText('等待生成')).toBeTruthy());
+    act(() => emitChatEvent({type: 'done', requestId}));
+    await waitFor(() => expect(screen.queryByText('等待生成')).toBeNull());
+});
+
+test('workspace reloads verified model capability after settings changes', async () => {
+    const {api, chatSends, emitAsrResult, emitChatEvent} = fakeApi();
+    const unverified = {
+        profile_id: 'generic_openai' as const, protocol: 'openai' as const, base_url: 'https://openai.example/v1',
+        model: 'vision-model', has_api_key: true, max_tokens: 2048, temperature: 0.3, vision_verified: false,
+    };
+    const verified = {...unverified, vision_verified: true};
+    api.models.getSaved = vi.fn()
+        .mockResolvedValueOnce({active_profile: 'generic_openai', connections: {generic_openai: unverified}})
+        .mockResolvedValue({active_profile: 'generic_openai', connections: {generic_openai: verified}});
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+    act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+    act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
+    const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
+    await waitFor(() => expect(assist.disabled).toBe(true));
+
+    act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
+    await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(assist.disabled).toBe(false));
+});
+
+test('manual form submission remains text-only', async () => {
+    const {api, chatSends, assistSends} = fakeApi();
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+    fireEvent.change(screen.getByLabelText('输入问题'), {target: {value: 'Manual question'}});
+    fireEvent.click(screen.getByRole('button', {name: '发送'}));
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+    expect(chatSends[0]?.prompt).toBe('Manual question');
+    expect(assistSends).toHaveLength(0);
 });
 
 test('workspace renders streamed answers as safe GFM Markdown and hides thinking text', async () => {

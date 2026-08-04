@@ -8,6 +8,8 @@ import type {
     SelectableModelProfile,
 } from '../../../src/shared/contracts';
 
+export const MODEL_SETTINGS_CHANGED_EVENT = 'meeting-monster:model-settings-changed';
+
 export const BUILT_IN_MODEL_PROFILES: readonly SelectableModelProfile[] = [
     {id: 'generic_openai', label: 'OpenAI Compatible', protocol: 'openai', model: '', api_key_required: false, has_api_key: false, max_tokens: 4096, temperature: 0.3, active: true},
     {id: 'generic_anthropic', label: 'Anthropic Compatible', protocol: 'anthropic', model: '', api_key_required: false, has_api_key: false, max_tokens: 4096, temperature: 0.3, active: false},

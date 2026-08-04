@@ -73,6 +73,7 @@ button, input, select, textarea, .no-drag, .settings-scroll, .workspace-content 
 .workspace-composer input { width: 100%; padding: 1px 0 7px; color: #f1f5fc; font-size: 13px; background: transparent; border: 0; outline: none; }
 .workspace-composer input::placeholder { color: rgba(222, 231, 243, 0.55); }
 .audio-error { margin: 0 0 7px; color: #ffb6c1; font-size: 11px; line-height: 1.35; }
+.assist-hint { margin: 0 0 7px; color: #ffc98a; font-size: 11px; line-height: 1.35; }
 .composer-actions { display: flex; align-items: center; gap: 3px; min-width: 0; white-space: nowrap; }
 .composer-divider { width: 1px; height: 16px; margin: 0 3px; flex: 0 0 auto; background: rgba(255,255,255,0.14); }
 .composer-ai-action { flex: 0 0 auto; padding: 4px 6px; color: rgba(236, 242, 251, 0.7); font-size: 12px; background: transparent; border: 0; border-radius: 7px; cursor: pointer; white-space: nowrap; }

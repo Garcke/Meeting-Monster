@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {AsrModelId, AsrModelSnapshot, ModelOptions, ModelProfileId, SavedModelConnectionSettings, SelectableModelProfile} from '../../src/shared/contracts';
 import {createAsrModelActions, describeAsrModel, formatAsrModelStatus} from '../shared/services/asr-model-service';
-import {BUILT_IN_MODEL_PROFILES, buildModelSelection, createModelFormValues, findInitialProfile, getSavedModelConnection, loadModelSettings, saveModelConnection, testModelConnection, type ModelFormValues} from '../shared/services/model-settings-service';
+import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection, createModelFormValues, findInitialProfile, getSavedModelConnection, loadModelSettings, saveModelConnection, testModelConnection, type ModelFormValues} from '../shared/services/model-settings-service';
 import {AUDIO_INPUT_MODE_EVENT, readAudioInputMode, writeAudioInputMode, type AudioInputMode} from '../shared/services/audio-input-mode';
 
 const defaultValues: ModelFormValues = {baseUrl: '', model: '', apiKey: '', maxTokens: '4096', temperature: '0.3'};
@@ -69,12 +69,16 @@ export function SettingsView({active}: {active: boolean}) {
         setRemoteStatus(`已选择：${next.label}`);
     }
     async function save() {
-        try { setSaved(await saveModelConnection(api, profile, values)); setRemoteStatus('连接已保存到本机安全存储'); }
-        catch (error) { setRemoteStatus(error instanceof Error ? `保存失败：${error.message}` : '保存失败'); }
+        try {
+            setSaved(await saveModelConnection(api, profile, values));
+            setRemoteStatus('多模态能力验证成功');
+            window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT));
+        }
+        catch { setRemoteStatus('模型不支持图片输入或连接失败'); }
     }
     async function test() {
-        try { const result = await testModelConnection(api, profile, values); setRemoteStatus(result.ok ? `连接成功 · ${result.model} · ${result.latency_ms}ms` : '连接失败'); }
-        catch (error) { setRemoteStatus(error instanceof Error ? `连接失败：${error.message}` : '连接失败'); }
+        try { const result = await testModelConnection(api, profile, values); setRemoteStatus(result.ok ? `多模态能力验证成功 · ${result.model} · ${result.latency_ms}ms` : '模型不支持图片输入或连接失败'); }
+        catch { setRemoteStatus('模型不支持图片输入或连接失败'); }
     }
     function updateValue(field: keyof ModelFormValues, value: string) {
         setFormSnapshots((current) => ({...current, [profileId]: {...current[profileId], [field]: value}}));

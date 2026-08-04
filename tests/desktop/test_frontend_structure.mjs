@@ -33,7 +33,16 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.match(panelCss, /\.workspace-content\s*\{[^}]*display:\s*grid/s);
     assert.doesNotMatch(workspace, /className="workspace-toolbar no-drag"/);
     assert.match(workspace, /className="composer-actions"[\s\S]*Assist[\s\S]*\u8ffd\u95ee[\s\S]*\u91cd\u8ff0/);
-    assert.match(workspace, /composer-ai-action[\s\S]*ask\('assist'\)[\s\S]*composer-ai-action[\s\S]*ask\('followup'\)[\s\S]*composer-ai-action[\s\S]*ask\('recap'\)/);
+    assert.match(workspace, /async function assistWithScreenshot\(\)[\s\S]*api\.chat\.assist/);
+    assert.match(workspace, /async function sendText\(requestedAction:[\s\S]*api\.chat\.send/);
+    assert.match(workspace, /onClick=\{\(\) => \{ setAction\('assist'\); void assistWithScreenshot\(\); \}\}/);
+    assert.match(workspace, /onClick=\{\(\) => \{ setAction\('followup'\); void sendText\('followup'\); \}\}/);
+    assert.match(workspace, /onClick=\{\(\) => \{ setAction\('recap'\); void sendText\('recap'\); \}\}/);
+    assert.match(workspace, /function submit[\s\S]*sendText\('direct'\)/);
+    assert.match(workspace, /MODEL_SETTINGS_CHANGED_EVENT/);
+    assert.match(workspace, /vision_verified === true/);
+    assert.doesNotMatch(workspace, /image\/png|base64/i);
+    assert.match(panelCss, /\.assist-hint\s*\{/);
     assert.match(panelCss, /grid-template-rows:\s*minmax\(96px,\s*35fr\)\s+minmax\(160px,\s*65fr\)\s+auto/);
     assert.match(panelCss, /\.workspace-transcript\s*\{[^}]*overflow-y:\s*auto/s);
     assert.match(panelCss, /\.answer-scroll\s*\{[^}]*overflow-y:\s*auto/s);

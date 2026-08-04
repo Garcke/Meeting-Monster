@@ -9,7 +9,7 @@ import {
     readAudioInputMode,
     writeAudioInputMode,
 } from '../../desktop/ui/shared/services/audio-input-mode';
-import {BUILT_IN_MODEL_PROFILES, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
+import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
 import type {MeetingMonsterApi, ModelTestResult} from '../../desktop/src/shared/contracts';
 import {stripAssistantThinking} from '../../desktop/ui/shared/services/assistant-markdown';
 
@@ -128,6 +128,10 @@ it('exposes exactly the two fixed protocol profiles', () => {
         {id: 'generic_openai', label: 'OpenAI Compatible', protocol: 'openai'},
         {id: 'generic_anthropic', label: 'Anthropic Compatible', protocol: 'anthropic'},
     ]);
+});
+
+it('uses one stable renderer event for saved model capability changes', () => {
+    expect(MODEL_SETTINGS_CHANGED_EVENT).toBe('meeting-monster:model-settings-changed');
 });
 
 it('builds a complete typed model selection from form values', () => {
