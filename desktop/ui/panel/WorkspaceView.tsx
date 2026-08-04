@@ -89,20 +89,23 @@ export function WorkspaceView({active}: {active: boolean}) {
         const unsubscribeModels = api.asrModels.onStatus((next) => setAsrReady(isAsrModelReady(next, next.currentModelId)));
         void api.asrModels.list().then((next) => setAsrReady(isAsrModelReady(next, next.currentModelId))).catch(() => setAsrReady(false));
         let modelSettingsDisposed = false;
+        let modelSettingsRevision = 0;
         const refreshModelSettings = () => {
+            const revision = ++modelSettingsRevision;
             void loadModelSettings(api).then(({options, saved}) => {
-                if (modelSettingsDisposed) return;
+                if (modelSettingsDisposed || revision !== modelSettingsRevision) return;
                 setRemoteModelLabel(findInitialProfile(options, saved).label);
                 const activeConnection = saved?.connections[saved.active_profile];
                 setVisionVerified(activeConnection?.vision_verified === true);
             }).catch(() => {
-                if (!modelSettingsDisposed) setVisionVerified(false);
+                if (!modelSettingsDisposed && revision === modelSettingsRevision) setVisionVerified(false);
             });
         };
         window.addEventListener(MODEL_SETTINGS_CHANGED_EVENT, refreshModelSettings);
         refreshModelSettings();
         return () => {
             modelSettingsDisposed = true;
+            modelSettingsRevision += 1;
             window.removeEventListener(MODEL_SETTINGS_CHANGED_EVENT, refreshModelSettings);
             unsubscribeStatus();
             unsubscribeResult();

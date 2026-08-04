@@ -5,7 +5,7 @@ import {CapsuleApp} from '../../desktop/ui/capsule/main';
 import {SettingsView} from '../../desktop/ui/panel/SettingsView';
 import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
-import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, OverlaySnapshot, PrivacyStatus} from '../../desktop/src/shared/contracts';
+import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
 import {AUDIO_INPUT_MODE_EVENT, AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
 import {MODEL_SETTINGS_CHANGED_EVENT} from '../../desktop/ui/shared/services/model-settings-service';
 
@@ -502,11 +502,14 @@ test('workspace shows capture then generation status for screenshot Assist', asy
 
     fireEvent.click(screen.getByRole('button', {name: '✦ Assist'}));
     await waitFor(() => expect(screen.getByText('正在截图')).toBeTruthy());
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.composer-ai-action')).every((button) => button.disabled)).toBe(true);
     const requestId = assistSends[0]!.requestId;
     await act(async () => resolveAssist({requestId}));
     await waitFor(() => expect(screen.getByText('等待生成')).toBeTruthy());
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.composer-ai-action')).every((button) => button.disabled)).toBe(true);
     act(() => emitChatEvent({type: 'done', requestId}));
     await waitFor(() => expect(screen.queryByText('等待生成')).toBeNull());
+    expect((screen.getByRole('button', {name: '✦ Assist'}) as HTMLButtonElement).disabled).toBe(false);
 });
 
 test('workspace reloads verified model capability after settings changes', async () => {
@@ -530,6 +533,34 @@ test('workspace reloads verified model capability after settings changes', async
     act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
     await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(assist.disabled).toBe(false));
+});
+
+test('workspace ignores an older model settings refresh that resolves after the latest one', async () => {
+    let resolveOlder!: (value: SavedModelConnectionSettings) => void;
+    let resolveLatest!: (value: SavedModelConnectionSettings) => void;
+    const older = new Promise<SavedModelConnectionSettings>((resolve) => { resolveOlder = resolve; });
+    const latest = new Promise<SavedModelConnectionSettings>((resolve) => { resolveLatest = resolve; });
+    const {api} = fakeApi();
+    const unverified = {
+        profile_id: 'generic_openai' as const, protocol: 'openai' as const, base_url: 'https://openai.example/v1',
+        model: 'vision-model', has_api_key: true, max_tokens: 2048, temperature: 0.3, vision_verified: false,
+    };
+    const verified = {...unverified, vision_verified: true};
+    api.models.getSaved = vi.fn()
+        .mockImplementationOnce(() => older)
+        .mockImplementationOnce(() => latest);
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+    await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledOnce());
+
+    act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
+    await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
+    await act(async () => resolveLatest({active_profile: 'generic_openai', connections: {generic_openai: verified}}));
+    await waitFor(() => expect(screen.queryByText('请在设置中验证图片能力')).toBeNull());
+
+    await act(async () => resolveOlder({active_profile: 'generic_openai', connections: {generic_openai: unverified}}));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.queryByText('请在设置中验证图片能力')).toBeNull();
 });
 
 test('manual form submission remains text-only', async () => {
