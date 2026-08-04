@@ -208,6 +208,7 @@ test('main protects deferred text and Assist handlers with reservation identity 
     assert.match(assistHandler, /const reserved = reserveChatRequest\(id, event\.sender\);[\s\S]*?await requireVerifiedSavedSelection[\s\S]*?isCurrentChatRequest\(id, reserved\)[\s\S]*?await captureCurrentDisplay[\s\S]*?isCurrentChatRequest\(id, reserved\)/);
     assert.match(source, /function releaseChatRequest[\s\S]*?activeChatRequests\.get\(id\) === request/);
     assert.match(source, /function startChatRequest[\s\S]*?if \(args\.reserved && \(!isCurrentChatRequest\(args\.id, args\.reserved\)/);
+    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.chat\.cancel,[\s\S]*?activeChatRequests\.get\(id\)[\s\S]*?activeRequest\.controller\.abort\(\)/);
     assert.match(source, /catch \(error\) \{[\s\S]*?releaseChatRequest\(id, reserved\);[\s\S]*?throw error;/);
 });
 
