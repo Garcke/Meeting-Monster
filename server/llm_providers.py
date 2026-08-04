@@ -8,10 +8,48 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Any, Protocol
 
+from server.chat_images import ChatImage
 from server.settings.model_profiles import ResolvedModelProfile
 
 
-ChatMessage = dict[str, str]
+ChatMessage = dict[str, Any]
+
+
+def _serialize_openai_message(message: ChatMessage) -> ChatMessage:
+    role = message["role"]
+    content = message["content"]
+    image = message.get("image")
+    if role == "user" and isinstance(image, ChatImage):
+        content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{image.media_type};base64,{image.data}",
+                    "detail": "high",
+                },
+            },
+            {"type": "text", "text": content},
+        ]
+    return {"role": role, "content": content}
+
+
+def _serialize_anthropic_message(message: ChatMessage) -> ChatMessage:
+    role = message["role"]
+    content = message["content"]
+    image = message.get("image")
+    if role == "user" and isinstance(image, ChatImage):
+        content = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image.media_type,
+                    "data": image.data,
+                },
+            },
+            {"type": "text", "text": content},
+        ]
+    return {"role": role, "content": content}
 
 
 def _freeze(value: Any) -> Any:
@@ -107,7 +145,7 @@ class OpenAIProvider:
     async def stream_text(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
         request: dict[str, Any] = {
             "model": self.profile.model,
-            "messages": list(messages),
+            "messages": [_serialize_openai_message(message) for message in messages],
             "stream": True,
             "max_tokens": self.profile.max_tokens,
         }
@@ -158,7 +196,7 @@ class AnthropicProvider:
             if message.get("role") == "system" and message.get("content")
         ]
         conversation = [
-            {"role": message["role"], "content": message["content"]}
+            _serialize_anthropic_message(message)
             for message in messages
             if message.get("role") in {"user", "assistant"}
             and message.get("content")

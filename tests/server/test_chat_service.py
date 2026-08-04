@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 
+from server.chat_images import ChatImage
 from server.llm_providers import ProviderCache
 from server.settings.model_profiles import ResolvedModelProfile
 
@@ -50,6 +51,34 @@ class BlockingProvider:
 
 
 class ChatServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_image_is_attached_only_to_provider_snapshot_and_not_history(self):
+        from server.chat_service import ChatService
+
+        image = ChatImage(media_type="image/png", data="encoded-png")
+        provider = FakeProvider(["answer"])
+        service = ChatService(ProviderCache(lambda _profile: provider))
+
+        events = [
+            event
+            async for event in service.stream_response(
+                "Question",
+                test_profile(),
+                provider,
+                image=image,
+            )
+        ]
+
+        self.assertEqual(events[-1], ("done", None))
+        self.assertEqual(provider.messages[-1]["image"], image)
+        self.assertEqual(
+            service.get_history(),
+            [
+                {"role": "user", "content": "Question"},
+                {"role": "assistant", "content": "answer"},
+            ],
+        )
+        self.assertNotIn("encoded-png", repr(service.get_history()))
+
     async def test_stream_saves_assistant_after_successful_stream(self):
         from server.chat_service import ChatService
 

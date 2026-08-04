@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from server.chat_images import parse_chat_image
 from server.settings.model_profiles import (
     DEFAULT_PROFILE_STORE_PATH,
     ModelConfigurationError,
@@ -44,6 +45,14 @@ class UserMessage(BaseModel):
     api_key: str | None = None
     max_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    image: object | None = None
+
+
+class ChatImageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    media_type: str
+    data: str
 
 
 class ModelTestRequest(BaseModel):
@@ -182,6 +191,16 @@ def create_app(
 
     @app.post("/chat/")
     async def chat(user_message: UserMessage):
+        image = None
+        if user_message.image is not None:
+            try:
+                image_request = ChatImageRequest.model_validate(user_message.image)
+                image = parse_chat_image(image_request.media_type, image_request.data)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid screenshot image",
+                ) from exc
         connection = parse_temporary_connection(user_message)
         profile = resolve_profile(
             user_message.profile_id if connection is None else None,
@@ -202,6 +221,7 @@ def create_app(
                 user_message.content,
                 profile,
                 provider,
+                image=image,
             ):
                 if kind == "chunk":
                     payload = json.dumps({"response": value}, ensure_ascii=False)

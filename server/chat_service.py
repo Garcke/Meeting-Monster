@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
+from server.chat_images import ChatImage
 from server.llm_providers import LLMProvider, ProviderCache
 from server.settings.model_profiles import ResolvedModelProfile
 
@@ -56,10 +57,13 @@ class ChatService:
         content: str,
         profile: ResolvedModelProfile,
         provider: LLMProvider,
+        image: ChatImage | None = None,
     ) -> AsyncIterator[ChatEvent]:
         async with self._conversation_lock:
             self._history.append({"role": "user", "content": content.strip()})
             request_messages = [dict(item) for item in self._history]
+            if image is not None:
+                request_messages[-1]["image"] = image
             assistant_message = ""
 
             try:

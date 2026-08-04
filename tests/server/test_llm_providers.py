@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import unittest
 
+from server.chat_images import ChatImage
 from server.settings.model_profiles import ResolvedModelProfile
 
 
@@ -95,6 +96,86 @@ MESSAGES = [
 
 
 class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_openai_adapter_serializes_image_before_text_without_internal_key(self):
+        from server.llm_providers import OpenAIProvider
+
+        client = FakeOpenAIClient()
+        provider = OpenAIProvider(make_profile("openai"), client=client)
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {
+                "role": "user",
+                "content": "Question",
+                "image": ChatImage(media_type="image/png", data="encoded-png"),
+            },
+        ]
+
+        self.assertEqual(
+            [text async for text in provider.stream_text(messages)],
+            ["first", " second"],
+        )
+        self.assertEqual(
+            client.completions.kwargs["messages"],
+            [
+                {"role": "system", "content": "You are helpful."},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,encoded-png",
+                                "detail": "high",
+                            },
+                        },
+                        {"type": "text", "text": "Question"},
+                    ],
+                },
+            ],
+        )
+        self.assertNotIn("image", client.completions.kwargs["messages"][-1])
+
+    async def test_anthropic_adapter_serializes_base64_image_before_text(self):
+        from server.llm_providers import AnthropicProvider
+
+        client = FakeAnthropicClient()
+        provider = AnthropicProvider(make_profile("anthropic"), client=client)
+        messages = [
+            {"role": "system", "content": "You are helpful."},
+            {
+                "role": "user",
+                "content": "Question",
+                "image": ChatImage(media_type="image/png", data="encoded-png"),
+            },
+            {"role": "assistant", "content": "Earlier answer"},
+        ]
+
+        self.assertEqual(
+            [text async for text in provider.stream_text(messages)],
+            ["first", " second"],
+        )
+        self.assertEqual(
+            client.messages.kwargs["messages"],
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "encoded-png",
+                            },
+                        },
+                        {"type": "text", "text": "Question"},
+                    ],
+                },
+                {"role": "assistant", "content": "Earlier answer"},
+            ],
+        )
+        self.assertNotIn("image", client.messages.kwargs["messages"][0])
+
     async def test_openai_adapter_streams_delta_text_and_preserves_messages(self):
         from server.llm_providers import OpenAIProvider
 

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import tempfile
 import unittest
@@ -73,6 +74,71 @@ class LLMAPITests(unittest.TestCase):
                 client.get("/history/").json()["history"][-1],
                 {"role": "assistant", "content": "first second"},
             )
+
+    def test_chat_accepts_a_png_attachment_and_keeps_public_history_text_only(self):
+        from server.chat_images import ChatImage
+
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nfixture").decode("ascii")
+        provider = FakeProvider(["answer"])
+
+        with self.create_client(provider) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "image": {"media_type": "image/png", "data": encoded},
+                },
+            )
+            history = client.get("/history/").json()["history"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(provider.messages[-1]["image"], ChatImage("image/png", encoded))
+        self.assertEqual(history[0], {"role": "user", "content": "Question"})
+        self.assertNotIn(encoded, repr(history))
+
+    def test_chat_rejects_invalid_screenshot_payloads_with_generic_detail(self):
+        payloads = [
+            {"media_type": "image/png", "data": "%%not-base64%%"},
+            {
+                "media_type": "image/png",
+                "data": base64.b64encode(b"not-png").decode("ascii"),
+            },
+            {
+                "media_type": "image/png",
+                "data": base64.b64encode(
+                    b"\x89PNG\r\n\x1a\n" + b"x" * (8 * 1024 * 1024 + 1 - 8)
+                ).decode("ascii"),
+            },
+        ]
+
+        with self.create_client(FakeProvider(["answer"])) as client:
+            responses = [
+                client.post("/chat/", json={"content": "Question", "image": payload})
+                for payload in payloads
+            ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, 422)
+            self.assertEqual(response.json(), {"detail": "Invalid screenshot image"})
+            self.assertNotIn("not-base64", response.text)
+
+    def test_chat_image_schema_rejects_unknown_fields(self):
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nfixture").decode("ascii")
+
+        with self.create_client(FakeProvider(["answer"])) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "image": {
+                        "media_type": "image/png",
+                        "data": encoded,
+                        "file_path": "C:/secret.png",
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_request_rejects_browser_supplied_model_credentials(self):
         with self.create_client(FakeProvider(["answer"])) as client:
