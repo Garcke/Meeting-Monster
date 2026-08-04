@@ -56,6 +56,8 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     assert.match(source, /export interface MeetingMonsterApi/);
     assert.match(source, /export interface ChatImageInput\s*\{[\s\S]*?media_type: 'image\/png';[\s\S]*?data: string;/);
     assert.match(source, /export interface ModelTestResult\s*\{[\s\S]*?vision: true;/);
+    assert.match(source, /chat:\s*\{[\s\S]*?assist: 'chat:assist'/);
+    assert.match(source, /assist\(requestId: string, content: string, selection\?: ModelSelectionInput\): Promise<\{requestId: string\}>/);
     assert.match(source, /quit\(\): Promise<void>/);
     for (const typeName of ['OverlayTarget', 'OverlayPhase', 'OverlaySnapshot', 'OverlayIntent']) {
         assert.match(source, new RegExp(`export (?:type|interface) ${typeName}\\b`));
@@ -64,6 +66,16 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     assert.match(source, /getSnapshot\(\): Promise<OverlaySnapshot>/);
     assert.match(source, /onSnapshot\(callback: \(snapshot: OverlaySnapshot\) => void\): Unsubscribe/);
     assert.match(source, /onWindowError\(callback: \(error: string\) => void\): Unsubscribe/);
+});
+
+test('preload exposes a narrow Assist request without accepting screenshot bytes', () => {
+    const source = read('desktop', 'src', 'preload', 'index.ts');
+
+    assert.match(
+        source,
+        /assist: \(requestId, content, selection\) => ipcRenderer\.invoke\(IPC_CHANNELS\.chat\.assist, requestId, content, selection\)/,
+    );
+    assert.doesNotMatch(source, /assist:\s*\([^)]*(?:image|screenshot|data)/i);
 });
 
 test('shared contracts expose public ASR model snapshots without private download or filesystem data', () => {

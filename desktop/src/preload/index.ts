@@ -104,6 +104,7 @@ const meetingMonster: MeetingMonsterApi = {
     },
     chat: {
         send: (requestId, content, selection) => ipcRenderer.invoke(IPC_CHANNELS.chat.send, requestId, content, selection),
+        assist: (requestId, content, selection) => ipcRenderer.invoke(IPC_CHANNELS.chat.assist, requestId, content, selection),
         cancel: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.chat.cancel, requestId),
         onEvent: (callback: (event: ChatStreamEvent) => void) => subscribe(IPC_CHANNELS.chat.event, callback),
     },

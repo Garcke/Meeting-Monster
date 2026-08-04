@@ -169,6 +169,30 @@ test('main preserves remote AI chat and disposes local ASR on every app lifecycl
     assert.match(source, /app\.whenReady\(\)[\s\S]*\.catch\([\s\S]*disposeAsr\(\)/);
 });
 
+test('main verifies saved model vision before persisting and owns Assist screen capture', () => {
+    const source = mainSource();
+    const saveHandler = source.match(
+        /ipcMain\.handle\(IPC_CHANNELS\.models\.save,[\s\S]*?\n    \}\);/,
+    )?.[0] ?? '';
+    const assistHandler = source.match(
+        /ipcMain\.handle\(IPC_CHANNELS\.chat\.assist,[\s\S]*?\n    \}\);/,
+    )?.[0] ?? '';
+
+    assert.match(source, /import \{captureCurrentDisplay\} from '\.\/screen-capture'/);
+    assert.match(source, /function startChatRequest\([\s\S]*?image\?: ChatImageInput/);
+    assert.match(source, /async function requireVerifiedSavedSelection/);
+    assert.match(saveHandler, /testSelectedModel\(selection\)[\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/);
+    assert.doesNotMatch(saveHandler, /saveConnection\(/);
+    assert.match(assistHandler, /isAuthorizedSender\(event\)/);
+    assert.match(assistHandler, /requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
+    assert.match(assistHandler, /media_type: captured\.mediaType, data: captured\.data/);
+    assert.match(assistHandler, /startChatRequest\([\s\S]*?image/);
+    assert.match(assistHandler, /return \{requestId: id\}/);
+    assert.doesNotMatch(assistHandler, /return[^;]*(?:captured|image|data)/);
+    assert.match(source, /throw new Error\('Model image capability is not verified'\)/);
+    assert.match(source, /throw new Error\('Unable to capture the current screen'\)/);
+});
+
 test('main owns the single-instance lifecycle and authorizes the quit IPC', () => {
     const source = mainSource();
     const secondInstanceHandler = source.match(/app\.on\('second-instance', \(\) => \{[\s\S]*?\n    \}\);/)?.[0] ?? '';

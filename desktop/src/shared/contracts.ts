@@ -15,7 +15,7 @@ export const IPC_CHANNELS = {
         status: 'privacy:status',
     },
     models: {list: 'models:list', getSaved: 'models:get-saved', save: 'models:save', test: 'models:test'},
-    chat: {send: 'chat:send', cancel: 'chat:cancel', event: 'chat:event'},
+    chat: {send: 'chat:send', assist: 'chat:assist', cancel: 'chat:cancel', event: 'chat:event'},
     asrModels: {
         list: 'asr-models:list',
         select: 'asr-models:select',
@@ -220,6 +220,7 @@ export interface MeetingMonsterApi {
     };
     chat: {
         send(requestId: string, content: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
+        assist(requestId: string, content: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
         cancel(requestId: string): Promise<{cancelled: boolean}>;
         onEvent(callback: (event: ChatStreamEvent) => void): Unsubscribe;
     };
