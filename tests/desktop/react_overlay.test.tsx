@@ -301,6 +301,25 @@ test('settings broadcasts successful multimodal verification saves', async () =>
     }
 });
 
+test('settings shows a safe status-aware diagnostic when model verification fails', async () => {
+    const {api} = fakeApi();
+    api.models.test = vi.fn(async () => {
+        throw {
+            code: 'authentication_failed',
+            providerStatus: 401,
+            message: 'provider body must never be displayed',
+        };
+    });
+    window.meetingMonster = api;
+    render(<SettingsView active />);
+
+    await screen.findByLabelText('API 协议');
+    fireEvent.click(screen.getByRole('button', {name: '测试连接'}));
+
+    expect(await screen.findByText('认证失败（HTTP 401）：请检查 API Key 或账号区域')).toBeTruthy();
+    expect(screen.queryByText('provider body must never be displayed')).toBeNull();
+});
+
 test('settings renders the Windows audio-source selector with system audio selected by default', async () => {
     const {api} = fakeApi();
     window.meetingMonster = api;

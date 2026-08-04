@@ -3,6 +3,7 @@ import type {AsrModelId, AsrModelSnapshot, ModelOptions, ModelProfileId, SavedMo
 import {createAsrModelActions, describeAsrModel, formatAsrModelStatus} from '../shared/services/asr-model-service';
 import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection, createModelFormValues, findInitialProfile, getSavedModelConnection, loadModelSettings, saveModelConnection, testModelConnection, type ModelFormValues} from '../shared/services/model-settings-service';
 import {AUDIO_INPUT_MODE_EVENT, readAudioInputMode, writeAudioInputMode, type AudioInputMode} from '../shared/services/audio-input-mode';
+import {formatModelConnectionError} from '../../src/main/remote-api-client';
 
 const defaultValues: ModelFormValues = {baseUrl: '', model: '', apiKey: '', maxTokens: '4096', temperature: '0.3'};
 
@@ -74,11 +75,11 @@ export function SettingsView({active}: {active: boolean}) {
             setRemoteStatus('多模态能力验证成功');
             window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT));
         }
-        catch { setRemoteStatus('模型不支持图片输入或连接失败'); }
+        catch (error) { setRemoteStatus(formatModelConnectionError(error)); }
     }
     async function test() {
         try { const result = await testModelConnection(api, profile, values); setRemoteStatus(result.ok ? `多模态能力验证成功 · ${result.model} · ${result.latency_ms}ms` : '模型不支持图片输入或连接失败'); }
-        catch { setRemoteStatus('模型不支持图片输入或连接失败'); }
+        catch (error) { setRemoteStatus(formatModelConnectionError(error)); }
     }
     function updateValue(field: keyof ModelFormValues, value: string) {
         setFormSnapshots((current) => ({...current, [profileId]: {...current[profileId], [field]: value}}));

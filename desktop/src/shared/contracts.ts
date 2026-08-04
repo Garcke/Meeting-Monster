@@ -88,6 +88,16 @@ export interface AsrModelSnapshot {
 
 export type ModelProfileId = 'generic_openai' | 'generic_anthropic';
 export type ModelProtocol = 'openai' | 'anthropic';
+export type ModelDiagnosticCode =
+    | 'authentication_failed'
+    | 'model_not_found'
+    | 'invalid_request'
+    | 'rate_limited'
+    | 'timeout'
+    | 'unreachable'
+    | 'upstream_error'
+    | 'vision_verification_failed'
+    | 'unknown';
 
 export interface WindowState {
     mode: WindowMode;

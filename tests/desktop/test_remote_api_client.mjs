@@ -295,7 +295,7 @@ test('streamChat redacts reflected PNG data from request-scoped HTTP and SSE err
         for await (const _event of client.streamChat({requestId: 'vision-http-error', content: 'Question', image})) {}
     }, (error) => {
         assert.doesNotMatch(String(error.message), new RegExp(image.data));
-        assert.match(String(error.message), /\[redacted\]/);
+        assert.equal(String(error.message), '模型连接失败（HTTP 422）：请稍后重试');
         return true;
     });
     assert.equal(client.secrets.has(image.data), false);
@@ -404,7 +404,47 @@ test('HTTP errors redact known and structured secrets from errors', async () => 
 
     await assert.rejects(client.createModel(modelInput), (error) => {
         assert.doesNotMatch(String(error.message), /desktop-admin-token|provider-secret|authorization|api_key/i);
-        assert.match(String(error.message), /request failed/i);
+        assert.equal(String(error.message), '模型连接失败（HTTP 403）：请稍后重试');
+        return true;
+    });
+});
+
+test('model connection diagnostics preserve safe structured fields and redact legacy provider details', async () => {
+    const {RemoteApiClient, RemoteApiError, formatModelConnectionError} = await loadClientModule();
+    const selection = {
+        profile_id: 'generic_anthropic', protocol: 'anthropic', base_url: 'https://provider.example/v1', model: 'vision-model',
+    };
+    const responses = [
+        new Response(JSON.stringify({
+            detail: {
+                code: 'authentication_failed',
+                message: 'provider body must never be displayed',
+                provider_status: 401,
+            },
+        }), {status: 422}),
+        new Response(JSON.stringify({
+            detail: 'provider legacy body with api_key=provider-secret',
+        }), {status: 422}),
+    ];
+    let index = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => responses[index++],
+    });
+
+    await assert.rejects(client.testSelectedModel(selection), (error) => {
+        assert.ok(error instanceof RemoteApiError);
+        assert.equal(error.code, 'authentication_failed');
+        assert.equal(error.providerStatus, 401);
+        assert.equal(error.status, 422);
+        assert.equal(formatModelConnectionError(error), '认证失败（HTTP 401）：请检查 API Key 或账号区域');
+        assert.doesNotMatch(error.message, /provider body/i);
+        return true;
+    });
+    await assert.rejects(client.testSelectedModel(selection), (error) => {
+        assert.equal(error.code, undefined);
+        assert.equal(formatModelConnectionError(error), '模型连接失败（HTTP 422）：请稍后重试');
+        assert.doesNotMatch(error.message, /provider-secret|legacy body|api_key/i);
         return true;
     });
 });

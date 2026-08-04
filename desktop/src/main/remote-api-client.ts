@@ -1,4 +1,4 @@
-import type {ChatImageInput, ModelTestResult} from '../shared/contracts';
+import type {ChatImageInput, ModelDiagnosticCode, ModelTestResult} from '../shared/contracts';
 
 export type RemoteFetch = (input: string, init?: RequestInit) => Promise<Response>;
 export type ConnectionTestStatus = 'connected' | 'unauthorized' | 'unreachable';
@@ -70,10 +70,38 @@ interface ParsedSseEvent {
 }
 
 export class RemoteApiError extends Error {
-    public constructor(message: string, public readonly status?: number) {
+    public constructor(
+        message: string,
+        public readonly status?: number,
+        public readonly code?: ModelDiagnosticCode,
+        public readonly providerStatus?: number,
+    ) {
         super(message);
         this.name = 'RemoteApiError';
     }
+}
+
+const MODEL_DIAGNOSTIC_MESSAGES: Record<ModelDiagnosticCode, {label: string; guidance: string}> = {
+    authentication_failed: {label: '认证失败', guidance: '请检查 API Key 或账号区域'},
+    model_not_found: {label: '模型不存在', guidance: '请检查 Model ID'},
+    invalid_request: {label: '请求无效', guidance: '请检查模型连接配置'},
+    rate_limited: {label: '请求过于频繁', guidance: '请稍后重试'},
+    timeout: {label: '连接超时', guidance: '请稍后重试'},
+    unreachable: {label: '无法连接到模型服务', guidance: '请检查网络或 Base URL'},
+    upstream_error: {label: '模型服务暂时不可用', guidance: '请稍后重试'},
+    vision_verification_failed: {label: '图片能力验证未通过', guidance: '请确认模型支持图片输入'},
+    unknown: {label: '模型连接失败', guidance: '请稍后重试'},
+};
+
+export function formatModelConnectionError(error: unknown): string {
+    const candidate = asRecord(error);
+    const code = isModelDiagnosticCode(candidate?.code) ? candidate.code : undefined;
+    const providerStatus = asHttpStatus(candidate?.providerStatus) ?? asHttpStatus(candidate?.provider_status);
+    const status = asHttpStatus(candidate?.status);
+    if (code) return formatDiagnostic(code, providerStatus ?? status);
+
+    const knownMessage = findSafeDiagnosticMessage(candidate?.message);
+    return knownMessage ?? formatDiagnostic('unknown', providerStatus ?? status);
 }
 
 export class RemoteApiClient {
@@ -226,25 +254,31 @@ export class RemoteApiClient {
             throw new RemoteApiError('Remote request is unreachable');
         }
         if (response.ok) return response;
-        throw new RemoteApiError(await this.httpError(response, requestRedactionSecrets), response.status);
+        throw await this.httpError(response);
     }
 
-    private async httpError(response: Response, requestRedactionSecrets: Iterable<string> = []): Promise<string> {
-        let detail = '';
+    private async httpError(response: Response): Promise<RemoteApiError> {
+        let code: ModelDiagnosticCode | undefined;
+        let providerStatus: number | undefined;
         try {
             const payload: unknown = await response.json();
             if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
                 const candidate = payload as Record<string, unknown>;
-                if (typeof candidate.detail === 'string') detail = candidate.detail;
-                else if (typeof candidate.message === 'string') detail = candidate.message;
+                const detail = asRecord(candidate.detail);
+                if (isModelDiagnosticCode(detail?.code)) {
+                    code = detail.code;
+                    providerStatus = asHttpStatus(detail.provider_status);
+                }
             }
         } catch {
-            // Server error bodies are optional and must never be surfaced raw.
+            // Error response bodies are intentionally never surfaced.
         }
-        const suffix = detail
-            ? `: ${redactSensitiveText(detail, [...this.secrets, ...requestRedactionSecrets])}`
-            : '';
-        return `Remote request failed (${response.status})${suffix}`;
+        return new RemoteApiError(
+            formatDiagnostic(code ?? 'unknown', providerStatus ?? response.status),
+            response.status,
+            code,
+            providerStatus,
+        );
     }
 
     private managementHeaders(): Headers {
@@ -541,4 +575,41 @@ function parseSelectableModelProfile(value: unknown): SelectableModelProfile {
 function requireObject(value: unknown, label: string): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} is invalid`);
     return value as Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
+}
+
+function isModelDiagnosticCode(value: unknown): value is ModelDiagnosticCode {
+    return typeof value === 'string' && value in MODEL_DIAGNOSTIC_MESSAGES;
+}
+
+function asHttpStatus(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+        ? value
+        : undefined;
+}
+
+function formatDiagnostic(code: ModelDiagnosticCode, status?: number): string {
+    const {label, guidance} = MODEL_DIAGNOSTIC_MESSAGES[code];
+    return `${label}${status === undefined ? '' : `（HTTP ${status}）`}：${guidance}`;
+}
+
+function findSafeDiagnosticMessage(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    for (const code of Object.keys(MODEL_DIAGNOSTIC_MESSAGES) as ModelDiagnosticCode[]) {
+        const message = formatDiagnostic(code);
+        if (value.includes(message)) return message;
+    }
+    const statusMatch = value.match(/（HTTP (\d{3})）/);
+    const status = asHttpStatus(statusMatch?.[1] === undefined ? undefined : Number(statusMatch[1]));
+    if (status === undefined) return undefined;
+    for (const code of Object.keys(MODEL_DIAGNOSTIC_MESSAGES) as ModelDiagnosticCode[]) {
+        const message = formatDiagnostic(code, status);
+        if (value.includes(message)) return message;
+    }
+    return undefined;
 }
