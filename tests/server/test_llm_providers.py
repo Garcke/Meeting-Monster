@@ -251,6 +251,33 @@ class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(created), 1)
         await cache.aclose()
 
+    async def test_provider_cache_separates_generation_parameters_but_reuses_same_config(self):
+        from dataclasses import replace
+
+        from server.llm_providers import ProviderCache
+
+        created = []
+
+        def factory(profile):
+            provider = object()
+            created.append((profile, provider))
+            return provider
+
+        cache = ProviderCache(factory)
+        base = make_profile("openai")
+        same = replace(base)
+        short_probe = replace(base, max_tokens=8)
+        cooler = replace(base, temperature=0.7)
+        narrower = replace(base, top_p=0.3)
+
+        normal = await cache.get(base)
+        self.assertIs(await cache.get(same), normal)
+        self.assertIsNot(await cache.get(short_probe), normal)
+        self.assertIsNot(await cache.get(cooler), normal)
+        self.assertIsNot(await cache.get(narrower), normal)
+        self.assertEqual(len(created), 4)
+        await cache.aclose()
+
     async def test_provider_cache_evicts_oldest_entry_and_closes_it(self):
         from dataclasses import replace
 

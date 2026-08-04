@@ -418,6 +418,47 @@ class LLMAPITests(unittest.TestCase):
                 )
                 self.assertNotIn("private-provider-secret", response.text)
 
+    def test_model_test_probe_does_not_reuse_eight_token_provider_for_chat(self):
+        from server.llm_api import create_app
+
+        created_profiles = []
+        created_providers = []
+
+        def provider_factory(profile):
+            created_profiles.append(profile)
+            provider = FakeProvider(["answer"])
+            created_providers.append(provider)
+            return provider
+
+        async def vision_probe(provider):
+            async for _ in provider.stream_text([{"role": "user", "content": "probe"}]):
+                return True
+            return False
+
+        connection = {
+            "profile_id": "generic_openai",
+            "protocol": "openai",
+            "base_url": "https://provider.example/v1",
+            "model": "custom-model",
+            "api_key": "provider-secret",
+            "max_tokens": 1024,
+            "temperature": 0.2,
+        }
+        with TestClient(
+            create_app(
+                profile_resolver=lambda: test_profile(),
+                provider_factory=provider_factory,
+                vision_verifier=vision_probe,
+            )
+        ) as client:
+            probe = client.post("/model-test/", json=connection)
+            chat = client.post("/chat/", json={"content": "Question", **connection})
+
+        self.assertEqual(probe.status_code, 200)
+        self.assertEqual(chat.status_code, 200)
+        self.assertEqual([profile.max_tokens for profile in created_profiles], [8, 1024])
+        self.assertIsNot(created_providers[0], created_providers[1])
+
     def test_provider_failure_emits_error_and_done_events_without_hanging(self):
         provider = FakeProvider(error=RuntimeError("provider unavailable"))
         with self.create_client(provider) as client:

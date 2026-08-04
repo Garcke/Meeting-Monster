@@ -102,6 +102,9 @@ class ProviderCache:
             profile.base_url,
             profile.model,
             profile.api_key,
+            profile.max_tokens,
+            profile.temperature,
+            profile.top_p,
             _freeze(profile.extra_headers),
             _freeze(profile.extra_body),
         )
