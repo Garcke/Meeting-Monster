@@ -1,3 +1,5 @@
+import type {ChatImageInput, ModelTestResult} from '../shared/contracts';
+
 export type RemoteFetch = (input: string, init?: RequestInit) => Promise<Response>;
 export type ConnectionTestStatus = 'connected' | 'unauthorized' | 'unreachable';
 
@@ -23,6 +25,7 @@ export interface ModelSelectionInput {
 export interface ChatRequest {
     requestId: string;
     content: string;
+    image?: ChatImageInput;
     modelSelection?: ModelSelectionInput;
     signal?: AbortSignal;
 }
@@ -89,7 +92,7 @@ export class RemoteApiClient {
         return this.requestJson('model-options/', {method: 'GET'}, false, undefined, parseSelectableModelList);
     }
 
-    public testSelectedModel(selection: ModelSelectionInput): Promise<{ok: boolean; latency_ms: number; model: string}> {
+    public testSelectedModel(selection: ModelSelectionInput): Promise<ModelTestResult> {
         const validated = validateModelSelectionInput(selection);
         return this.requestJson('model-test/', this.jsonRequest('POST', validated), false, validated, parseModelTest);
     }
@@ -116,7 +119,7 @@ export class RemoteApiClient {
         return this.requestJson(`models/${encodeURIComponent(profileId)}/activate`, {method: 'POST'}, true, undefined, parseActivation);
     }
 
-    public testModel(profile: ModelProfileInput): Promise<{ok: boolean; latency_ms: number; model: string}> {
+    public testModel(profile: ModelProfileInput): Promise<ModelTestResult> {
         const validated = validateModelProfileInput(profile);
         return this.requestJson('models/test', this.jsonRequest('POST', validated), true, validated, parseModelTest);
     }
@@ -147,14 +150,21 @@ export class RemoteApiClient {
 
     public async *streamChat(request: ChatRequest, sink?: ChatEventSink): AsyncGenerator<ChatStreamEvent> {
         if (!request.requestId.trim() || !request.content.trim() || request.signal?.aborted) return;
+        const modelSelection = request.modelSelection
+            ? validateModelSelectionInput(request.modelSelection)
+            : undefined;
+        const image = request.image === undefined
+            ? undefined
+            : validateChatImageInput(request.image);
         const body = {
             content: request.content.trim(),
-            ...(request.modelSelection ? validateModelSelectionInput(request.modelSelection) : {}),
+            ...(image ? {image} : {}),
+            ...(modelSelection ?? {}),
         };
         const response = await this.fetchResponse('chat/', {
             ...this.jsonRequest('POST', body),
             signal: request.signal,
-        }, false, body);
+        }, false, modelSelection);
         if (!response.body) throw new RemoteApiError('Remote chat stream is unavailable', response.status);
         for await (const parsed of parseSseChunks(readResponseBody(response.body), request.signal)) {
             if (request.signal?.aborted) return;
@@ -411,6 +421,17 @@ export function validateModelSelectionInput(value: unknown): ModelSelectionInput
     };
 }
 
+function validateChatImageInput(value: unknown): ChatImageInput {
+    const input = requireObject(value, 'Chat image input');
+    if (Object.keys(input).some((key) => key !== 'media_type' && key !== 'data')) {
+        throw new TypeError('Chat image input contains an unsupported field');
+    }
+    if (input.media_type !== 'image/png' || typeof input.data !== 'string' || !input.data) {
+        throw new TypeError('Chat image input is invalid');
+    }
+    return {media_type: 'image/png', data: input.data};
+}
+
 function normalizeProviderBaseUrl(value: unknown): string {
     if (typeof value !== 'string' || !value.trim()) {
         throw new TypeError('Model selection field is invalid: base_url');
@@ -452,12 +473,13 @@ function parseActivation(value: unknown): {active_profile: string; profile: Publ
     return {active_profile: payload.active_profile, profile: parsePublicModelProfile(payload.profile)};
 }
 
-function parseModelTest(value: unknown): {ok: boolean; latency_ms: number; model: string} {
+function parseModelTest(value: unknown): ModelTestResult {
     const payload = requireObject(value, 'Model test response');
-    if (typeof payload.ok !== 'boolean' || !Number.isInteger(payload.latency_ms) || (payload.latency_ms as number) < 0 || typeof payload.model !== 'string') {
+    if (payload.ok !== true || payload.vision !== true || !Number.isInteger(payload.latency_ms)
+        || (payload.latency_ms as number) < 0 || typeof payload.model !== 'string') {
         throw new TypeError('Model test response is invalid');
     }
-    return {ok: payload.ok, latency_ms: payload.latency_ms as number, model: payload.model};
+    return {ok: true, vision: true, latency_ms: payload.latency_ms as number, model: payload.model};
 }
 
 function parseNoContent(value: unknown): void {

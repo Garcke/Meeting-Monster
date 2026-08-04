@@ -54,6 +54,8 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     }
     assert.match(source, /export type IpcChannel/);
     assert.match(source, /export interface MeetingMonsterApi/);
+    assert.match(source, /export interface ChatImageInput\s*\{[\s\S]*?media_type: 'image\/png';[\s\S]*?data: string;/);
+    assert.match(source, /export interface ModelTestResult\s*\{[\s\S]*?vision: true;/);
     assert.match(source, /quit\(\): Promise<void>/);
     for (const typeName of ['OverlayTarget', 'OverlayPhase', 'OverlaySnapshot', 'OverlayIntent']) {
         assert.match(source, new RegExp(`export (?:type|interface) ${typeName}\\b`));
@@ -101,8 +103,12 @@ test('model settings IPC and preload return the version-2 non-secret summary map
     const summary = contracts.match(
         /export interface SavedModelConnectionSettings\s*\{([\s\S]*?)\n\}/,
     )?.[1] ?? '';
+    const savedConnection = contracts.match(
+        /export interface SavedModelConnection\s*\{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
 
     assert.match(summary, /active_profile: ModelProfileId/);
+    assert.doesNotMatch(savedConnection, /image|data/);
     assert.match(
         summary,
         /connections: Partial<Record<ModelProfileId, SavedModelConnection>>/,

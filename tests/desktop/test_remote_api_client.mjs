@@ -77,7 +77,7 @@ test('management CRUD uses safe API paths, methods, JSON bodies, and bearer auth
     let responseIndex = 0;
     const responses = [
         {active_profile: 'demo', profiles: [publicProfile]}, publicProfile, publicProfile, null,
-        {active_profile: 'demo', profile: publicProfile}, {ok: true, latency_ms: 5, model: 'demo-model'},
+        {active_profile: 'demo', profile: publicProfile}, {ok: true, vision: true, latency_ms: 5, model: 'demo-model'},
     ];
     const fetch = async (url, options = {}) => {
         calls.push({url: String(url), options});
@@ -124,7 +124,7 @@ test('successful management responses only return public allowlisted DTO fields'
         reflected,
         reflected,
         {active_profile: 'demo', profile: reflected, authorization: 'Bearer desktop-admin-token'},
-        {ok: true, latency_ms: 7, model: 'demo-model', api_key: 'provider-secret'},
+        {ok: true, vision: true, latency_ms: 7, model: 'demo-model', api_key: 'provider-secret'},
     ];
     let index = 0;
     const client = new RemoteApiClient({
@@ -142,7 +142,7 @@ test('successful management responses only return public allowlisted DTO fields'
 
     assert.deepEqual(results, [
         {active_profile: 'demo', profiles: [publicProfile]}, publicProfile, publicProfile,
-        {active_profile: 'demo', profile: publicProfile}, {ok: true, latency_ms: 7, model: 'demo-model'},
+        {active_profile: 'demo', profile: publicProfile}, {ok: true, vision: true, latency_ms: 7, model: 'demo-model'},
     ]);
     assert.doesNotMatch(JSON.stringify(results), /provider-secret|desktop-admin-token|encrypted_api_key|api_key_env|authorization|nested/i);
 });
@@ -253,6 +253,73 @@ test('streamChat parses fragmented CRLF SSE chunks and never sends management au
     assert.deepEqual(callbackEvents, streamed);
     assert.equal(header(seenOptions.headers, 'Authorization'), null);
     assert.equal(seenOptions.body, JSON.stringify({content: 'What is private?'}));
+});
+
+test('streamChat sends a PNG attachment without adding base64 to redaction secrets', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    const image = {media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'};
+    let seenOptions;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async (_url, options = {}) => {
+            seenOptions = options;
+            return sseResponse(['event: done\ndata: {}\n\n']);
+        },
+    });
+
+    for await (const event of client.streamChat({requestId: 'vision-1', content: 'Question', image})) {
+        assert.equal(event.type, 'done');
+    }
+
+    assert.equal(seenOptions.body, JSON.stringify({content: 'Question', image}));
+    assert.equal(client.secrets.has(image.data), false);
+});
+
+test('streamChat rejects invalid image attachments before fetch', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    let fetchCalls = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => {
+            fetchCalls += 1;
+            return sseResponse(['event: done\ndata: {}\n\n']);
+        },
+    });
+    const invalidImages = [
+        {media_type: 'image/jpeg', data: 'encoded'},
+        {media_type: 'image/png', data: ''},
+        {media_type: 'image/png', data: 'encoded', filename: 'screen.png'},
+    ];
+
+    for (const image of invalidImages) {
+        await assert.rejects(async () => {
+            for await (const _event of client.streamChat({requestId: 'vision-invalid', content: 'Question', image})) {}
+        }, /chat image|unsupported field/i);
+    }
+    assert.equal(fetchCalls, 0);
+});
+
+test('model tests require verified vision results and discard extra response fields', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    const validSelection = {
+        profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://provider.example/v1', model: 'demo-model',
+    };
+    const responses = [
+        {ok: true, vision: true, latency_ms: 4, model: 'demo-model', api_key: 'reflected-secret'},
+        {ok: true, latency_ms: 4, model: 'demo-model'},
+        {ok: true, vision: false, latency_ms: 4, model: 'demo-model'},
+    ];
+    let index = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => new Response(JSON.stringify(responses[index++]), {status: 200}),
+    });
+
+    assert.deepEqual(await client.testSelectedModel(validSelection), {
+        ok: true, vision: true, latency_ms: 4, model: 'demo-model',
+    });
+    await assert.rejects(client.testSelectedModel(validSelection), /invalid management response/i);
+    await assert.rejects(client.testSelectedModel(validSelection), /invalid management response/i);
 });
 
 test('streamChat forwards sanitized SSE errors and stops on AbortSignal cancellation', async () => {

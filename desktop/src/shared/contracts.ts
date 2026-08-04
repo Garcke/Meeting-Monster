@@ -155,8 +155,14 @@ export interface SavedModelConnectionSettings {
 
 export interface ModelTestResult {
     ok: boolean;
+    vision: true;
     latency_ms: number;
     model: string;
+}
+
+export interface ChatImageInput {
+    media_type: 'image/png';
+    data: string;
 }
 
 export interface ChatStreamEvent {
