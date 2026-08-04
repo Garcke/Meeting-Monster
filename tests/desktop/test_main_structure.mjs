@@ -188,7 +188,7 @@ test('main verifies saved model vision before persisting and owns Assist screen 
     assert.match(assistHandler, /reserved\.controller\.signal\.aborted[\s\S]*?return \{requestId: id\}/);
     assert.match(assistHandler, /captureCurrentDisplay[\s\S]*?activeChatRequests\.get\(id\)[\s\S]*?reserved\.controller\.signal\.aborted/);
     assert.match(assistHandler, /media_type: captured\.mediaType, data: captured\.data/);
-    assert.match(assistHandler, /startChatRequest\([\s\S]*?image/);
+    assert.match(assistHandler, /startChatRequest\([\s\S]*?image[\s\S]*?reserved/);
     assert.match(assistHandler, /return \{requestId: id\}/);
     assert.doesNotMatch(assistHandler, /return[^;]*(?:captured|image|data)/);
     assert.match(source, /throw new Error\('Model image capability is not verified'\)/);

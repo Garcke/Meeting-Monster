@@ -507,13 +507,14 @@ function startChatRequest(args: {
     sender: WebContents;
     modelSelection?: ModelSelectionInput;
     image?: ChatImageInput;
+    reserved?: ActiveChatRequest;
 }): void {
-    const pending = activeChatRequests.get(args.id);
-    const active = pending
-        && pending.sender === args.sender
-        && pending.phase === 'capturing'
-        && !pending.controller.signal.aborted
-        ? pending
+    const active = args.reserved
+        && activeChatRequests.get(args.id) === args.reserved
+        && args.reserved.sender === args.sender
+        && args.reserved.phase === 'capturing'
+        && !args.reserved.controller.signal.aborted
+        ? args.reserved
         : reserveChatRequest(args.id, args.sender);
     active.phase = 'streaming';
     const {controller} = active;
@@ -768,7 +769,14 @@ function registerIpcHandlers(): void {
             return {requestId: id};
         }
         const image: ChatImageInput = {media_type: captured.mediaType, data: captured.data};
-        startChatRequest({id, content: question, sender: event.sender, modelSelection: verified, image});
+        startChatRequest({
+            id,
+            content: question,
+            sender: event.sender,
+            modelSelection: verified,
+            image,
+            reserved,
+        });
         return {requestId: id};
     });
     ipcMain.handle(IPC_CHANNELS.chat.cancel, (event, requestId: unknown) => {
