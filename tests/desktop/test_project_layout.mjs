@@ -135,6 +135,17 @@ test('README files retain Electron local ASR model and packaging requirements', 
     }
 });
 
+test('README documents Assist screenshots and verified image input', () => {
+    const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+
+    assert.match(rootReadme, /Assist[\s\S]{0,160}当前鼠标所在显示器[\s\S]{0,160}完整截图/);
+    assert.match(rootReadme, /多模态模型[\s\S]{0,80}图片输入/);
+    assert.match(rootReadme, /截图数据仅保留在 Electron 主进程内存中/);
+    assert.match(rootReadme, /不会写入磁盘/);
+    assert.match(rootReadme, /不传给 renderer/);
+    assert.match(rootReadme, /不进入对话历史记录/);
+});
+
 test('Electron uses the fixed local Python service and does not expose connection settings', () => {
     const mainSource = fs.readFileSync(path.join(desktopRoot, 'src', 'main', 'main.ts'), 'utf8');
     const preloadSource = fs.readFileSync(path.join(desktopRoot, 'src', 'preload', 'index.ts'), 'utf8');
