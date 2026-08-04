@@ -110,20 +110,10 @@ test('trusted save writes version 3 and persists only an internally assigned ver
     fs.rmSync(temporary.directory, {recursive: true, force: true});
 });
 
-test('deprecated unverified save cannot forge trusted vision state', async () => {
+test('model connection store exposes only the trusted save API', async () => {
     const {ModelConnectionStore} = await import(SETTINGS_MODULE);
-    const temporary = temporarySettingsPath();
-    const store = new ModelConnectionStore({
-        safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
-    });
-
-    const summary = await store.saveConnection(openAiConnection());
-    assert.equal(summary.connections.generic_openai.vision_verified, false);
-    assert.equal(
-        (await store.loadSettings()).connections.generic_openai.vision_verified,
-        false,
-    );
-    fs.rmSync(temporary.directory, {recursive: true, force: true});
+    assert.equal('saveVerifiedConnection' in ModelConnectionStore.prototype, true);
+    assert.equal('saveConnection' in ModelConnectionStore.prototype, false);
 });
 
 test('version-3 settings require a boolean vision capability', async () => {

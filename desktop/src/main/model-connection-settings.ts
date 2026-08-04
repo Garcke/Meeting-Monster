@@ -14,20 +14,13 @@ export interface ModelConnectionCandidate {
     temperature?: number | null;
 }
 
-/**
- * Persisted model connection state. The optional marker is a temporary source
- * compatibility seam for main.ts; persisted settings always use the required
- * StoredModelConnection shape below. Task 7 removes the legacy caller.
- */
 export interface ModelConnection extends ModelConnectionCandidate {
-    vision_verified?: boolean;
+    vision_verified: boolean;
 }
-
-type StoredModelConnection = ModelConnectionCandidate & {vision_verified: boolean};
 
 export interface ModelConnectionSettings {
     active_profile: ModelProfileId;
-    connections: Partial<Record<ModelProfileId, StoredModelConnection>>;
+    connections: Partial<Record<ModelProfileId, ModelConnection>>;
 }
 
 export interface ModelConnectionSummary {
@@ -80,39 +73,21 @@ export class ModelConnectionStore {
     }
 
     public async saveVerifiedConnection(value: ModelConnectionCandidate): Promise<ModelConnectionSummarySettings> {
-        return this.enqueueSave(value, true);
-    }
-
-    /**
-     * @deprecated Temporary compatibility for the pre-Task-7 main-process
-     * caller. It deliberately persists the connection as unverified.
-     */
-    public async saveConnection(value: ModelConnectionCandidate): Promise<ModelConnectionSummarySettings> {
-        return this.enqueueSave(value, false);
-    }
-
-    private async enqueueSave(
-        value: ModelConnectionCandidate,
-        visionVerified: boolean,
-    ): Promise<ModelConnectionSummarySettings> {
-        const operation = this.saveConnectionSerial(value, visionVerified);
+        const operation = this.saveVerifiedConnectionSerial(value);
         this.saveQueue = operation.then(() => undefined, () => undefined);
         return operation;
     }
 
     private saveQueue: Promise<void> = Promise.resolve();
 
-    private async saveConnectionSerial(
-        value: ModelConnectionCandidate,
-        visionVerified: boolean,
-    ): Promise<ModelConnectionSummarySettings> {
+    private async saveVerifiedConnectionSerial(value: ModelConnectionCandidate): Promise<ModelConnectionSummarySettings> {
         await this.saveQueue;
         const requested = validateModelConnection(value);
         const current = await this.loadSettings() ?? createEmptyModelConnectionSettings();
         const previous = current.connections[requested.profile_id];
-        const connection: StoredModelConnection = {
+        const connection: ModelConnection = {
             ...mergeModelConnectionWithSaved(requested, previous),
-            vision_verified: visionVerified,
+            vision_verified: true,
         };
         const settings: ModelConnectionSettings = {
             active_profile: connection.profile_id,
@@ -147,7 +122,7 @@ export class ModelConnectionStore {
     }
 
     /** Compatibility helper for callers that need the active connection. */
-    public async loadConnection(): Promise<StoredModelConnection | undefined> {
+    public async loadConnection(): Promise<ModelConnection | undefined> {
         const settings = await this.loadSettings();
         return settings?.connections[settings.active_profile];
     }
@@ -263,7 +238,7 @@ export function validateModelConnection(value: unknown): ModelConnectionCandidat
 
 export function validateModelConnectionSettings(value: unknown): ModelConnectionSettings {
     const candidate = validateSettingsContainer(value);
-    const connections: Partial<Record<ModelProfileId, StoredModelConnection>> = {};
+    const connections: Partial<Record<ModelProfileId, ModelConnection>> = {};
     for (const [key, valueForProfile] of Object.entries(candidate.connections)) {
         if (!isModelProfileId(key)) throw new TypeError('Model connection profile is invalid');
         const connection = validateStoredModelConnection(valueForProfile);
@@ -275,7 +250,7 @@ export function validateModelConnectionSettings(value: unknown): ModelConnection
 
 function validateLegacyModelConnectionSettings(value: unknown): ModelConnectionSettings {
     const candidate = validateSettingsContainer(value);
-    const connections: Partial<Record<ModelProfileId, StoredModelConnection>> = {};
+    const connections: Partial<Record<ModelProfileId, ModelConnection>> = {};
     for (const [key, valueForProfile] of Object.entries(candidate.connections)) {
         if (!isModelProfileId(key)) throw new TypeError('Model connection profile is invalid');
         const connection = validateModelConnection(valueForProfile);
@@ -305,7 +280,7 @@ function validateSettingsContainer(value: unknown): {
     };
 }
 
-function validateStoredModelConnection(value: unknown): StoredModelConnection {
+function validateStoredModelConnection(value: unknown): ModelConnection {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new TypeError('Stored model connection is invalid');
     }
@@ -335,13 +310,13 @@ export function mergeModelConnectionWithSaved(
 
 function summarizeModelConnectionSettings(settings: ModelConnectionSettings): ModelConnectionSummarySettings {
     const connections: Partial<Record<ModelProfileId, ModelConnectionSummary>> = {};
-    for (const [profileId, connection] of Object.entries(settings.connections) as [ModelProfileId, StoredModelConnection][]) {
+    for (const [profileId, connection] of Object.entries(settings.connections) as [ModelProfileId, ModelConnection][]) {
         connections[profileId] = summarizeModelConnection(connection);
     }
     return {active_profile: settings.active_profile, connections};
 }
 
-function summarizeModelConnection(connection: StoredModelConnection): ModelConnectionSummary {
+function summarizeModelConnection(connection: ModelConnection): ModelConnectionSummary {
     return {
         profile_id: connection.profile_id,
         protocol: connection.protocol,

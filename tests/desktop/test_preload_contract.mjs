@@ -112,6 +112,7 @@ test('shared contracts expose public ASR model snapshots without private downloa
 test('model settings IPC and preload return the version-3 non-secret vision summary map', () => {
     const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
     const preload = read('desktop', 'src', 'preload', 'index.ts');
+    const settings = read('desktop', 'src', 'main', 'model-connection-settings.ts');
     const summary = contracts.match(
         /export interface SavedModelConnectionSettings\s*\{([\s\S]*?)\n\}/,
     )?.[1] ?? '';
@@ -123,6 +124,12 @@ test('model settings IPC and preload return the version-3 non-secret vision summ
     assert.doesNotMatch(savedConnection, /image|data/);
     assert.match(savedConnection, /vision_verified: boolean/);
     assert.doesNotMatch(savedConnection, /(?:^|\s)api_key\??:/m);
+    assert.match(
+        settings,
+        /export interface ModelConnection extends ModelConnectionCandidate\s*\{[\s\S]*?vision_verified: boolean;/,
+    );
+    assert.doesNotMatch(settings, /vision_verified\?: boolean/);
+    assert.doesNotMatch(settings, /saveConnection\s*\(/);
     assert.match(
         summary,
         /connections: Partial<Record<ModelProfileId, SavedModelConnection>>/,
