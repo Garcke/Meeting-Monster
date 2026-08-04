@@ -501,6 +501,14 @@ function reserveChatRequest(id: string, sender: WebContents): ActiveChatRequest 
     return request;
 }
 
+function isCurrentChatRequest(id: string, request: ActiveChatRequest): boolean {
+    return activeChatRequests.get(id) === request && !request.controller.signal.aborted;
+}
+
+function releaseChatRequest(id: string, request: ActiveChatRequest): void {
+    if (activeChatRequests.get(id) === request) activeChatRequests.delete(id);
+}
+
 function startChatRequest(args: {
     id: string;
     content: string;
@@ -508,14 +516,11 @@ function startChatRequest(args: {
     modelSelection?: ModelSelectionInput;
     image?: ChatImageInput;
     reserved?: ActiveChatRequest;
-}): void {
-    const active = args.reserved
-        && activeChatRequests.get(args.id) === args.reserved
-        && args.reserved.sender === args.sender
-        && args.reserved.phase === 'capturing'
-        && !args.reserved.controller.signal.aborted
-        ? args.reserved
-        : reserveChatRequest(args.id, args.sender);
+}): boolean {
+    if (args.reserved && (!isCurrentChatRequest(args.id, args.reserved)
+        || args.reserved.sender !== args.sender
+        || args.reserved.phase !== 'capturing')) return false;
+    const active = args.reserved ?? reserveChatRequest(args.id, args.sender);
     active.phase = 'streaming';
     const {controller} = active;
     void (async () => {
@@ -542,6 +547,7 @@ function startChatRequest(args: {
             if (activeChatRequests.get(args.id)?.controller === controller) activeChatRequests.delete(args.id);
         }
     })();
+    return true;
 }
 
 function sendChatEvent(sender: WebContents, event: ChatStreamEvent): void {
@@ -740,44 +746,70 @@ function registerIpcHandlers(): void {
         const id = requireText(requestId, 'Chat request id');
         const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
-        const modelSelection = await mergeSavedModelConnection(requestedSelection);
-        startChatRequest({id, content: question, sender: event.sender, modelSelection});
-        return {requestId: id};
+        const reserved = reserveChatRequest(id, event.sender);
+        try {
+            const modelSelection = await mergeSavedModelConnection(requestedSelection);
+            if (!isCurrentChatRequest(id, reserved)) {
+                releaseChatRequest(id, reserved);
+                return {requestId: id};
+            }
+            if (!startChatRequest({
+                id,
+                content: question,
+                sender: event.sender,
+                modelSelection,
+                reserved,
+            })) {
+                releaseChatRequest(id, reserved);
+            }
+            return {requestId: id};
+        } catch (error) {
+            releaseChatRequest(id, reserved);
+            throw error;
+        }
     });
     ipcMain.handle(IPC_CHANNELS.chat.assist, async (event, requestId: unknown, content: unknown, selection?: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized Assist request');
         const id = requireText(requestId, 'Chat request id');
         const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
-        const verified = await requireVerifiedSavedSelection(requestedSelection);
         const reserved = reserveChatRequest(id, event.sender);
-        let captured: Awaited<ReturnType<typeof captureCurrentDisplay>>;
         try {
-            captured = await captureCurrentDisplay({screen, desktopCapturer});
-        } catch {
-            const active = activeChatRequests.get(id);
-            if (reserved.controller.signal.aborted || active?.controller !== reserved.controller) {
-                if (active?.controller === reserved.controller) activeChatRequests.delete(id);
+            const verified = await requireVerifiedSavedSelection(requestedSelection);
+            if (!isCurrentChatRequest(id, reserved)) {
+                releaseChatRequest(id, reserved);
                 return {requestId: id};
             }
-            activeChatRequests.delete(id);
-            throw new Error('Unable to capture the current screen');
-        }
-        const active = activeChatRequests.get(id);
-        if (reserved.controller.signal.aborted || active?.controller !== reserved.controller) {
-            if (active?.controller === reserved.controller) activeChatRequests.delete(id);
+            let captured: Awaited<ReturnType<typeof captureCurrentDisplay>>;
+            try {
+                captured = await captureCurrentDisplay({screen, desktopCapturer});
+            } catch {
+                if (!isCurrentChatRequest(id, reserved)) {
+                    releaseChatRequest(id, reserved);
+                    return {requestId: id};
+                }
+                throw new Error('Unable to capture the current screen');
+            }
+            if (!isCurrentChatRequest(id, reserved)) {
+                releaseChatRequest(id, reserved);
+                return {requestId: id};
+            }
+            const image: ChatImageInput = {media_type: captured.mediaType, data: captured.data};
+            if (!startChatRequest({
+                id,
+                content: question,
+                sender: event.sender,
+                modelSelection: verified,
+                image,
+                reserved,
+            })) {
+                releaseChatRequest(id, reserved);
+            }
             return {requestId: id};
+        } catch (error) {
+            releaseChatRequest(id, reserved);
+            throw error;
         }
-        const image: ChatImageInput = {media_type: captured.mediaType, data: captured.data};
-        startChatRequest({
-            id,
-            content: question,
-            sender: event.sender,
-            modelSelection: verified,
-            image,
-            reserved,
-        });
-        return {requestId: id};
     });
     ipcMain.handle(IPC_CHANNELS.chat.cancel, (event, requestId: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');

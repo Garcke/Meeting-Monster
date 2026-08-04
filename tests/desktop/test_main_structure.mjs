@@ -184,15 +184,31 @@ test('main verifies saved model vision before persisting and owns Assist screen 
     assert.match(saveHandler, /testSelectedModel\(selection\)[\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/);
     assert.doesNotMatch(saveHandler, /saveConnection\(/);
     assert.match(assistHandler, /isAuthorizedSender\(event\)/);
-    assert.match(assistHandler, /requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?reserveChatRequest\(id, event\.sender\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
-    assert.match(assistHandler, /reserved\.controller\.signal\.aborted[\s\S]*?return \{requestId: id\}/);
-    assert.match(assistHandler, /captureCurrentDisplay[\s\S]*?activeChatRequests\.get\(id\)[\s\S]*?reserved\.controller\.signal\.aborted/);
+    assert.match(assistHandler, /reserveChatRequest\(id, event\.sender\)[\s\S]*?await requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
+    assert.match(assistHandler, /isCurrentChatRequest\(id, reserved\)[\s\S]*?return \{requestId: id\}/);
+    assert.match(assistHandler, /captureCurrentDisplay[\s\S]*?isCurrentChatRequest\(id, reserved\)/);
     assert.match(assistHandler, /media_type: captured\.mediaType, data: captured\.data/);
     assert.match(assistHandler, /startChatRequest\([\s\S]*?image[\s\S]*?reserved/);
     assert.match(assistHandler, /return \{requestId: id\}/);
     assert.doesNotMatch(assistHandler, /return[^;]*(?:captured|image|data)/);
     assert.match(source, /throw new Error\('Model image capability is not verified'\)/);
     assert.match(source, /throw new Error\('Unable to capture the current screen'\)/);
+});
+
+test('main protects deferred text and Assist handlers with reservation identity checks', () => {
+    const source = mainSource();
+    const sendHandler = source.match(
+        /ipcMain\.handle\(IPC_CHANNELS\.chat\.send,[\s\S]*?\n    \}\);/,
+    )?.[0] ?? '';
+    const assistHandler = source.match(
+        /ipcMain\.handle\(IPC_CHANNELS\.chat\.assist,[\s\S]*?\n    \}\);/,
+    )?.[0] ?? '';
+
+    assert.match(sendHandler, /const reserved = reserveChatRequest\(id, event\.sender\);[\s\S]*?await mergeSavedModelConnection[\s\S]*?isCurrentChatRequest\(id, reserved\)[\s\S]*?startChatRequest\([\s\S]*?reserved/);
+    assert.match(assistHandler, /const reserved = reserveChatRequest\(id, event\.sender\);[\s\S]*?await requireVerifiedSavedSelection[\s\S]*?isCurrentChatRequest\(id, reserved\)[\s\S]*?await captureCurrentDisplay[\s\S]*?isCurrentChatRequest\(id, reserved\)/);
+    assert.match(source, /function releaseChatRequest[\s\S]*?activeChatRequests\.get\(id\) === request/);
+    assert.match(source, /function startChatRequest[\s\S]*?if \(args\.reserved && \(!isCurrentChatRequest\(args\.id, args\.reserved\)/);
+    assert.match(source, /catch \(error\) \{[\s\S]*?releaseChatRequest\(id, reserved\);[\s\S]*?throw error;/);
 });
 
 test('main owns the single-instance lifecycle and authorizes the quit IPC', () => {
