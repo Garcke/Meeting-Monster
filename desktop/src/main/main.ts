@@ -53,7 +53,12 @@ let overlayController: OverlayWindowController | null = null;
 let privacyManager: WindowPrivacyManager | null = null;
 let modelConnectionStore: ModelConnectionStore | null = null;
 let ipcHandlersRegistered = false;
-const activeChatRequests = new Map<string, {controller: AbortController; sender: WebContents}>();
+type ActiveChatRequest = {
+    controller: AbortController;
+    sender: WebContents;
+    phase: 'capturing' | 'streaming';
+};
+const activeChatRequests = new Map<string, ActiveChatRequest>();
 let asrModelManager: AsrModelManager | null = null;
 let localAsrEngine: LocalAsrEngine | null = null;
 let asrSessionCoordinator: AsrSessionCoordinator | null = null;
@@ -485,6 +490,17 @@ async function requireVerifiedSavedSelection(
     return modelConnectionToSelection(saved);
 }
 
+function reserveChatRequest(id: string, sender: WebContents): ActiveChatRequest {
+    activeChatRequests.get(id)?.controller.abort();
+    const request: ActiveChatRequest = {
+        controller: new AbortController(),
+        sender,
+        phase: 'capturing',
+    };
+    activeChatRequests.set(id, request);
+    return request;
+}
+
 function startChatRequest(args: {
     id: string;
     content: string;
@@ -492,9 +508,15 @@ function startChatRequest(args: {
     modelSelection?: ModelSelectionInput;
     image?: ChatImageInput;
 }): void {
-    activeChatRequests.get(args.id)?.controller.abort();
-    const controller = new AbortController();
-    activeChatRequests.set(args.id, {controller, sender: args.sender});
+    const pending = activeChatRequests.get(args.id);
+    const active = pending
+        && pending.sender === args.sender
+        && pending.phase === 'capturing'
+        && !pending.controller.signal.aborted
+        ? pending
+        : reserveChatRequest(args.id, args.sender);
+    active.phase = 'streaming';
+    const {controller} = active;
     void (async () => {
         try {
             for await (const chatEvent of getRemoteApiClient().streamChat({
@@ -727,11 +749,23 @@ function registerIpcHandlers(): void {
         const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
         const verified = await requireVerifiedSavedSelection(requestedSelection);
-        let captured;
+        const reserved = reserveChatRequest(id, event.sender);
+        let captured: Awaited<ReturnType<typeof captureCurrentDisplay>>;
         try {
             captured = await captureCurrentDisplay({screen, desktopCapturer});
         } catch {
+            const active = activeChatRequests.get(id);
+            if (reserved.controller.signal.aborted || active?.controller !== reserved.controller) {
+                if (active?.controller === reserved.controller) activeChatRequests.delete(id);
+                return {requestId: id};
+            }
+            activeChatRequests.delete(id);
             throw new Error('Unable to capture the current screen');
+        }
+        const active = activeChatRequests.get(id);
+        if (reserved.controller.signal.aborted || active?.controller !== reserved.controller) {
+            if (active?.controller === reserved.controller) activeChatRequests.delete(id);
+            return {requestId: id};
         }
         const image: ChatImageInput = {media_type: captured.mediaType, data: captured.data};
         startChatRequest({id, content: question, sender: event.sender, modelSelection: verified, image});

@@ -184,7 +184,9 @@ test('main verifies saved model vision before persisting and owns Assist screen 
     assert.match(saveHandler, /testSelectedModel\(selection\)[\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/);
     assert.doesNotMatch(saveHandler, /saveConnection\(/);
     assert.match(assistHandler, /isAuthorizedSender\(event\)/);
-    assert.match(assistHandler, /requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
+    assert.match(assistHandler, /requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?reserveChatRequest\(id, event\.sender\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
+    assert.match(assistHandler, /reserved\.controller\.signal\.aborted[\s\S]*?return \{requestId: id\}/);
+    assert.match(assistHandler, /captureCurrentDisplay[\s\S]*?activeChatRequests\.get\(id\)[\s\S]*?reserved\.controller\.signal\.aborted/);
     assert.match(assistHandler, /media_type: captured\.mediaType, data: captured\.data/);
     assert.match(assistHandler, /startChatRequest\([\s\S]*?image/);
     assert.match(assistHandler, /return \{requestId: id\}/);
