@@ -348,20 +348,19 @@ test('settings normalizes macOS to microphone and disables unavailable audio sou
     expect(screen.getByText('系统音频当前仅支持 Windows；当前使用麦克风。')).toBeTruthy();
 });
 
-test('overlay keeps the prompt pill in the fixed panel header with a star', async () => {
+test('workspace header omits the prompt pill while retaining drag affordances', async () => {
     const {api} = fakeApi();
     window.meetingMonster = api;
     const {container} = render(<OverlayApp />);
 
     await waitFor(() => expect(container.querySelector('.panel-drag-handle')).toBeTruthy());
     const header = container.querySelector('.panel-drag-handle');
-    const prompt = container.querySelector('.panel-prompt');
+    const dragHint = container.querySelector('.panel-drag-hint');
     const transcript = container.querySelector('.workspace-transcript');
 
-    expect(prompt?.closest('.panel-drag-handle')).toBe(header);
-    expect(prompt?.classList.contains('panel-prompt')).toBe(true);
-    expect(prompt?.textContent).toContain('✦');
-    expect(prompt?.textContent).toContain('What should I say?');
+    expect(container.querySelector('.panel-prompt')).toBeNull();
+    expect(header).toBeTruthy();
+    expect(dragHint?.closest('.panel-drag-handle')).toBe(header);
     expect(transcript?.querySelector('.panel-prompt')).toBeNull();
 });
 

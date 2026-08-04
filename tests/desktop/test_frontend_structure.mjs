@@ -19,16 +19,16 @@ test('web client is removed while Electron entrypoints remain', () => {
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'src', 'main', 'main.ts')), true);
 });
 
-test('workspace keeps the compact starred prompt pill in the fixed panel header', () => {
+test('workspace header omits the What should I say prompt pill', () => {
     const panelApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'PanelApp.tsx'), 'utf8');
     const workspace = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'WorkspaceView.tsx'), 'utf8');
     const panelCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'panel.css'), 'utf8');
 
-    assert.match(panelApp, /visibleTarget === 'workspace'[\s\S]*className="panel-prompt" aria-label="What should I say\?"/);
-    assert.match(panelApp, /<span aria-hidden="true">✦<\/span> What should I say\?/);
-    assert.doesNotMatch(panelApp, /panel-title[^\n]*What should I say\?/);
-    assert.doesNotMatch(workspace, /workspace-prompt|What should I say/);
-    assert.match(panelCss, /\.panel-prompt\s*\{[^}]*display:\s*inline-flex[^}]*background:\s*#(?:2169db|286fe0)/s);
+    assert.doesNotMatch(panelApp, /panel-prompt|What should I say\?/);
+    assert.doesNotMatch(panelCss, /\.panel-prompt\s*\{/);
+    assert.match(panelApp, /className="panel-drag-handle"/);
+    assert.match(panelApp, /className="panel-drag-hint"/);
+    assert.match(panelApp, /visibleTarget === 'settings' && <span className="panel-title">连接与模型<\/span>/);
     assert.match(workspace, /className="answer-scroll no-drag"/);
     assert.match(panelCss, /\.workspace-content\s*\{[^}]*display:\s*grid/s);
     assert.doesNotMatch(workspace, /className="workspace-toolbar no-drag"/);
