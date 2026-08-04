@@ -275,6 +275,41 @@ test('streamChat sends a PNG attachment without adding base64 to redaction secre
     assert.equal(client.secrets.has(image.data), false);
 });
 
+test('streamChat redacts reflected PNG data from request-scoped HTTP and SSE errors without persisting it', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    const image = {media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB-request-scoped'};
+    const responses = [
+        new Response(JSON.stringify({detail: `invalid screenshot ${image.data}`}), {status: 422}),
+        sseResponse([
+            `event: error\ndata: {"detail":"provider reflected ${image.data}"}\n\n`,
+            'event: done\ndata: {}\n\n',
+        ]),
+    ];
+    let responseIndex = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => responses[responseIndex++],
+    });
+
+    await assert.rejects(async () => {
+        for await (const _event of client.streamChat({requestId: 'vision-http-error', content: 'Question', image})) {}
+    }, (error) => {
+        assert.doesNotMatch(String(error.message), new RegExp(image.data));
+        assert.match(String(error.message), /\[redacted\]/);
+        return true;
+    });
+    assert.equal(client.secrets.has(image.data), false);
+
+    const events = [];
+    for await (const event of client.streamChat({requestId: 'vision-sse-error', content: 'Question', image})) {
+        events.push(event);
+    }
+    assert.equal(events[0].type, 'error');
+    assert.doesNotMatch(events[0].text, new RegExp(image.data));
+    assert.match(events[0].text, /\[redacted\]/);
+    assert.equal(client.secrets.has(image.data), false);
+});
+
 test('streamChat rejects invalid image attachments before fetch', async () => {
     const {RemoteApiClient} = await loadClientModule();
     let fetchCalls = 0;

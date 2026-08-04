@@ -156,6 +156,7 @@ export class RemoteApiClient {
         const image = request.image === undefined
             ? undefined
             : validateChatImageInput(request.image);
+        const requestRedactionSecrets = image ? [image.data] : [];
         const body = {
             content: request.content.trim(),
             ...(image ? {image} : {}),
@@ -164,14 +165,16 @@ export class RemoteApiClient {
         const response = await this.fetchResponse('chat/', {
             ...this.jsonRequest('POST', body),
             signal: request.signal,
-        }, false, modelSelection);
+        }, false, modelSelection, requestRedactionSecrets);
         if (!response.body) throw new RemoteApiError('Remote chat stream is unavailable', response.status);
         for await (const parsed of parseSseChunks(readResponseBody(response.body), request.signal)) {
             if (request.signal?.aborted) return;
             const event: ChatStreamEvent = {
                 requestId: request.requestId,
                 type: parsed.type,
-                ...(parsed.text ? {text: redactSensitiveText(parsed.text, this.secrets)} : {}),
+                ...(parsed.text ? {
+                    text: redactSensitiveText(parsed.text, [...this.secrets, ...requestRedactionSecrets]),
+                } : {}),
             };
             yield event;
             await sink?.(event);
@@ -203,7 +206,13 @@ export class RemoteApiClient {
         }
     }
 
-    private async fetchResponse(path: string, init: RequestInit, management: boolean, secretBody?: unknown): Promise<Response> {
+    private async fetchResponse(
+        path: string,
+        init: RequestInit,
+        management: boolean,
+        secretBody?: unknown,
+        requestRedactionSecrets: Iterable<string> = [],
+    ): Promise<Response> {
         const headers = new Headers(init.headers);
         for (const secret of collectStringValues(secretBody)) this.secrets.add(secret);
         if (management) {
@@ -217,10 +226,10 @@ export class RemoteApiClient {
             throw new RemoteApiError('Remote request is unreachable');
         }
         if (response.ok) return response;
-        throw new RemoteApiError(await this.httpError(response), response.status);
+        throw new RemoteApiError(await this.httpError(response, requestRedactionSecrets), response.status);
     }
 
-    private async httpError(response: Response): Promise<string> {
+    private async httpError(response: Response, requestRedactionSecrets: Iterable<string> = []): Promise<string> {
         let detail = '';
         try {
             const payload: unknown = await response.json();
@@ -232,7 +241,9 @@ export class RemoteApiClient {
         } catch {
             // Server error bodies are optional and must never be surfaced raw.
         }
-        const suffix = detail ? `: ${redactSensitiveText(detail, this.secrets)}` : '';
+        const suffix = detail
+            ? `: ${redactSensitiveText(detail, [...this.secrets, ...requestRedactionSecrets])}`
+            : '';
         return `Remote request failed (${response.status})${suffix}`;
     }
 
