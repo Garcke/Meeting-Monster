@@ -448,3 +448,17 @@ test('model connection diagnostics preserve safe structured fields and redact le
         return true;
     });
 });
+
+test('model connection diagnostics reject inherited diagnostic codes', async () => {
+    const {RemoteApiError, formatModelConnectionError} = await loadClientModule();
+
+    for (const code of ['constructor', '__proto__']) {
+        const error = new RemoteApiError('provider-secret', undefined, code);
+
+        assert.equal(
+            formatModelConnectionError(error),
+            '模型连接失败：请稍后重试',
+            `${code} must fall back to the fixed unknown diagnostic`,
+        );
+    }
+});

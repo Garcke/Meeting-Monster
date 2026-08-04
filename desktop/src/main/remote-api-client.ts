@@ -584,7 +584,8 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function isModelDiagnosticCode(value: unknown): value is ModelDiagnosticCode {
-    return typeof value === 'string' && value in MODEL_DIAGNOSTIC_MESSAGES;
+    return typeof value === 'string'
+        && Object.prototype.hasOwnProperty.call(MODEL_DIAGNOSTIC_MESSAGES, value);
 }
 
 function asHttpStatus(value: unknown): number | undefined {

@@ -26,6 +26,10 @@ class NetworkConnectionError(Exception):
     pass
 
 
+class AuthenticationError(Exception):
+    pass
+
+
 class ModelDiagnosticsTests(unittest.TestCase):
     def assert_diagnostic(self, error, code, message, status):
         diagnostic = classify_model_error(error)
@@ -66,6 +70,27 @@ class ModelDiagnosticsTests(unittest.TestCase):
             "无法连接到模型服务：请检查网络或 Base URL",
             None,
         )
+
+    def test_classifies_statusless_authentication_errors_in_the_cause_chain(self):
+        wrapper = RuntimeError("provider-secret")
+        wrapper.__cause__ = AuthenticationError("provider-secret")
+
+        self.assert_diagnostic(
+            wrapper,
+            "authentication_failed",
+            "认证失败：请检查 API Key 或账号区域",
+            None,
+        )
+        exception = model_diagnostic_http_exception(wrapper)
+        self.assertEqual(exception.status_code, 503)
+        self.assertEqual(
+            exception.detail,
+            {
+                "code": "authentication_failed",
+                "message": "认证失败：请检查 API Key 或账号区域",
+            },
+        )
+        self.assertNotIn("provider-secret", repr(exception.detail))
 
     def test_builds_safe_http_exception_with_provider_status_or_vision_failure(self):
         unauthorized = model_diagnostic_http_exception(ProviderStatusError(401))

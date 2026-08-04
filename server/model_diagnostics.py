@@ -80,6 +80,8 @@ def classify_model_error(
         return _diagnostic("upstream_error", status)
 
     type_names = _type_names(error)
+    if type_names.intersection({"authenticationerror", "autherror", "unauthorizederror"}):
+        return _diagnostic("authentication_failed")
     if any("timeout" in name for name in type_names):
         return _diagnostic("timeout")
     if any(
