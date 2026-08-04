@@ -38,19 +38,26 @@ class ModelAPITests(unittest.TestCase):
         )
         self.provider = RecordingProvider()
         self.provider_profiles = []
+        self.vision_providers = []
 
-    def create_client(self, *, admin_token=admin_token, provider=None):
+    def create_client(self, *, admin_token=admin_token, provider=None, vision_verifier=None):
         from server.llm_api import create_app
 
         def provider_factory(profile):
             self.provider_profiles.append(profile)
             return provider or self.provider
 
+        if vision_verifier is None:
+            async def vision_verifier(current_provider):
+                self.vision_providers.append(current_provider)
+                return True
+
         return TestClient(
             create_app(
                 profile_store=self.store,
                 admin_token=admin_token,
                 provider_factory=provider_factory,
+                vision_verifier=vision_verifier,
             )
         )
 
@@ -149,7 +156,7 @@ class ModelAPITests(unittest.TestCase):
         self.assertNotIn("provider-secret", rendered_store)
         self.assertNotIn("replacement-secret", rendered_store)
 
-    def test_connectivity_test_uses_temporary_candidate_without_mutating_store(self):
+    def test_vision_test_uses_temporary_candidate_without_mutating_store(self):
         before = self.store.path.read_bytes() if self.store.path.exists() else None
         candidate = self.profile_payload(id="temporary", max_tokens=99, api_key="temporary-secret")
 
@@ -158,14 +165,15 @@ class ModelAPITests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["ok"], True)
+        self.assertIs(response.json()["vision"], True)
         self.assertEqual(response.json()["model"], "demo-model")
         self.assertIsInstance(response.json()["latency_ms"], int)
-        self.assertEqual(self.provider.messages, [[{"role": "user", "content": "Reply with OK."}]])
+        self.assertEqual(self.vision_providers, [self.provider])
         self.assertEqual(self.provider_profiles[-1].max_tokens, 8)
         self.assertEqual(self.store.path.read_bytes() if self.store.path.exists() else None, before)
         self.assertTrue(any(profile.active for profile in self.store.list_profiles()))
 
-    def test_connectivity_test_rejects_remote_plain_http_candidate(self):
+    def test_vision_test_rejects_remote_plain_http_candidate(self):
         candidate = self.profile_payload(
             id="temporary",
             base_url="http://provider.example/v1",
@@ -177,13 +185,18 @@ class ModelAPITests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    def test_connectivity_test_redacts_failure_and_does_not_mutate_active_profile(self):
+    def test_vision_test_redacts_failure_and_does_not_mutate_active_profile(self):
+        from server.vision_challenge import verify_provider_vision
+
         failing_provider = RecordingProvider(error=RuntimeError("temporary-secret rejected"))
         self.store.list_profiles()
         before = self.store.path.read_bytes()
         active_before = next(profile.id for profile in self.store.list_profiles() if profile.active)
 
-        with self.create_client(provider=failing_provider) as client:
+        with self.create_client(
+            provider=failing_provider,
+            vision_verifier=verify_provider_vision,
+        ) as client:
             response = client.post(
                 "/models/test",
                 headers=self.auth,
@@ -197,13 +210,18 @@ class ModelAPITests(unittest.TestCase):
         active_after = next(profile.id for profile in self.store.list_profiles() if profile.active)
         self.assertEqual(active_after, active_before)
 
-    def test_connectivity_test_rejects_an_empty_stream_without_mutating_the_store(self):
+    def test_vision_test_rejects_an_empty_stream_without_mutating_the_store(self):
+        from server.vision_challenge import verify_provider_vision
+
         empty_provider = RecordingProvider(chunks=[])
         self.store.list_profiles()
         before = self.store.path.read_bytes()
         active_before = next(profile.id for profile in self.store.list_profiles() if profile.active)
 
-        with self.create_client(provider=empty_provider) as client:
+        with self.create_client(
+            provider=empty_provider,
+            vision_verifier=verify_provider_vision,
+        ) as client:
             response = client.post(
                 "/models/test",
                 headers=self.auth,
@@ -211,13 +229,13 @@ class ModelAPITests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()["detail"], "Model connectivity test failed")
+        self.assertEqual(response.json()["detail"], "Model does not support image input")
         self.assertNotIn("temporary-secret", response.text)
         self.assertEqual(self.store.path.read_bytes(), before)
         active_after = next(profile.id for profile in self.store.list_profiles() if profile.active)
         self.assertEqual(active_after, active_before)
 
-    def test_connectivity_test_accepts_a_stored_profile_with_a_temporary_key_replacement(self):
+    def test_vision_test_accepts_a_stored_profile_with_a_temporary_key_replacement(self):
         from server.settings.profile_store import ModelProfileInput
 
         self.store.create_profile(ModelProfileInput(**self.profile_payload(api_key=None, max_tokens=99)))
@@ -231,9 +249,40 @@ class ModelAPITests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
+        self.assertIs(response.json()["vision"], True)
         self.assertEqual(self.provider_profiles[-1].max_tokens, 8)
         self.assertEqual(self.store.path.read_bytes(), before)
         self.assertNotIn("temporary-secret", json.dumps(response.json()))
+
+    def test_vision_test_rejects_false_or_failed_verifiers_generically(self):
+        async def vision_missing(_provider):
+            return False
+
+        async def vision_failure(_provider):
+            raise RuntimeError("private-provider-secret")
+
+        self.store.list_profiles()
+        before = self.store.path.read_bytes()
+        for verifier in (vision_missing, vision_failure):
+            with self.subTest(verifier=verifier.__name__):
+                with self.create_client(vision_verifier=verifier) as client:
+                    response = client.post(
+                        "/models/test",
+                        headers=self.auth,
+                        json=self.profile_payload(
+                            id="temporary",
+                            api_key="temporary-secret",
+                        ),
+                    )
+
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(
+                    response.json()["detail"],
+                    "Model does not support image input",
+                )
+                self.assertNotIn("private-provider-secret", response.text)
+                self.assertNotIn("temporary-secret", response.text)
+                self.assertEqual(self.store.path.read_bytes(), before)
 
 
 if __name__ == "__main__":

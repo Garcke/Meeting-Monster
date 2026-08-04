@@ -40,13 +40,18 @@ class FakeProvider:
             yield chunk
 
 
+async def vision_ok(_provider):
+    return True
+
+
 class LLMAPITests(unittest.TestCase):
-    def create_client(self, provider: FakeProvider, resolver=None):
+    def create_client(self, provider: FakeProvider, resolver=None, vision_verifier=vision_ok):
         from server.llm_api import create_app
 
         app = create_app(
             profile_resolver=resolver or (lambda: test_profile()),
             provider_factory=lambda profile: provider,
+            vision_verifier=vision_verifier,
         )
         return TestClient(app)
 
@@ -164,7 +169,13 @@ class LLMAPITests(unittest.TestCase):
                 seen_profiles.append(profile)
                 return provider
 
-            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    provider_factory=provider_factory,
+                    vision_verifier=vision_ok,
+                )
+            ) as client:
                 response = client.post(
                     "/chat/",
                     json={
@@ -310,7 +321,13 @@ class LLMAPITests(unittest.TestCase):
                 seen_profiles.append(profile)
                 return provider
 
-            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    provider_factory=provider_factory,
+                    vision_verifier=vision_ok,
+                )
+            ) as client:
                 options = client.get("/model-options/")
                 test_result = client.post("/model-test/", json={"profile_id": "alternate"})
                 response = client.post("/chat/", json={"content": "Question", "profile_id": "alternate"})
@@ -318,6 +335,7 @@ class LLMAPITests(unittest.TestCase):
 
         self.assertEqual(options.status_code, 200)
         self.assertEqual(test_result.status_code, 200)
+        self.assertIs(test_result.json()["vision"], True)
         self.assertEqual(test_result.json()["model"], "alternate-model")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(seen_profiles[-1].profile_id, "alternate")
@@ -341,7 +359,13 @@ class LLMAPITests(unittest.TestCase):
                 seen_profiles.append(profile)
                 return provider
 
-            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    provider_factory=provider_factory,
+                    vision_verifier=vision_ok,
+                )
+            ) as client:
                 response = client.post(
                     "/model-test/",
                     json={
@@ -356,11 +380,43 @@ class LLMAPITests(unittest.TestCase):
                 )
 
             self.assertEqual(response.status_code, 200)
+            self.assertIs(response.json()["vision"], True)
             self.assertEqual(seen_profiles[-1].protocol, "anthropic")
             self.assertEqual(seen_profiles[-1].base_url, "https://provider.example/anthropic")
             self.assertEqual(seen_profiles[-1].model, "custom-anthropic")
             self.assertEqual(seen_profiles[-1].api_key, "provider-secret")
             self.assertNotIn("provider-secret", response.text)
+
+    def test_model_test_rejects_unverified_or_failed_vision_checks_generically(self):
+        async def vision_missing(_provider):
+            return False
+
+        async def vision_failure(_provider):
+            raise RuntimeError("private-provider-secret")
+
+        for verifier in (vision_missing, vision_failure):
+            with self.subTest(verifier=verifier.__name__):
+                with self.create_client(
+                    FakeProvider(["connected"]),
+                    vision_verifier=verifier,
+                ) as client:
+                    response = client.post(
+                        "/model-test/",
+                        json={
+                            "profile_id": "generic_openai",
+                            "protocol": "openai",
+                            "base_url": "https://provider.example/v1",
+                            "model": "test-model",
+                            "api_key": "private-provider-secret",
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(
+                    response.json()["detail"],
+                    "Model does not support image input",
+                )
+                self.assertNotIn("private-provider-secret", response.text)
 
     def test_provider_failure_emits_error_and_done_events_without_hanging(self):
         provider = FakeProvider(error=RuntimeError("provider unavailable"))

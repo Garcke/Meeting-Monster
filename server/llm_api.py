@@ -29,6 +29,7 @@ from server.settings.profile_store import ProfileStore, SecretCipher
 from server.chat_service import ChatService, sanitize_provider_error
 from server.llm_providers import LLMProvider, ProviderCache, create_provider
 from server.model_api import create_router as create_model_router
+from server.vision_challenge import VisionVerifier, verify_provider_vision
 
 
 PROMPT_FILE = Path(__file__).resolve().parents[1] / "cache" / "prompt.txt"
@@ -114,6 +115,7 @@ def create_app(
     profile_store: ProfileStore | None = None,
     admin_token: str | None = None,
     environ: Mapping[str, str] | None = None,
+    vision_verifier: VisionVerifier = verify_provider_vision,
 ) -> FastAPI:
     environment = os.environ if environ is None else environ
     runtime_store = profile_store or create_runtime_profile_store(environment)
@@ -282,21 +284,22 @@ def create_app(
         )
         short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
         started = asyncio.get_running_loop().time()
-        received_text = False
         try:
-            stream = (await chat_service.get_provider(short_profile)).stream_text(
-                [{"role": "user", "content": "Reply with OK."}]
-            )
-            async for text in stream:
-                if text:
-                    received_text = True
-                    break
+            provider = await chat_service.get_provider(short_profile)
+            supports_vision = await vision_verifier(provider)
         except Exception as exc:
-            raise HTTPException(status_code=422, detail="Model connectivity test failed") from exc
-        if not received_text:
-            raise HTTPException(status_code=422, detail="Model connectivity test failed")
+            raise HTTPException(
+                status_code=422,
+                detail="Model does not support image input",
+            ) from exc
+        if not supports_vision:
+            raise HTTPException(
+                status_code=422,
+                detail="Model does not support image input",
+            )
         return {
             "ok": True,
+            "vision": True,
             "latency_ms": int((asyncio.get_running_loop().time() - started) * 1000),
             "model": short_profile.model,
         }
@@ -311,6 +314,7 @@ def create_app(
             admin_token=admin_token,
             provider_factory=chat_service.get_provider,
             environ=environment,
+            vision_verifier=vision_verifier,
         )
     )
 
