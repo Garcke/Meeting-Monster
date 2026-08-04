@@ -387,13 +387,29 @@ class LLMAPITests(unittest.TestCase):
             self.assertEqual(seen_profiles[-1].api_key, "provider-secret")
             self.assertNotIn("provider-secret", response.text)
 
-    def test_model_test_rejects_unverified_or_failed_vision_checks_generically(self):
+    def test_model_test_returns_safe_structured_diagnostics_for_vision_and_provider_failures(self):
         async def vision_missing(_provider):
             return False
 
         async def vision_failure(_provider):
             raise RuntimeError("private-provider-secret")
 
+        expected = {
+            "vision_missing": (
+                422,
+                {
+                    "code": "vision_verification_failed",
+                    "message": "图片能力验证未通过：请确认模型支持图片输入",
+                },
+            ),
+            "vision_failure": (
+                503,
+                {
+                    "code": "unknown",
+                    "message": "模型连接失败：请稍后重试",
+                },
+            ),
+        }
         for verifier in (vision_missing, vision_failure):
             with self.subTest(verifier=verifier.__name__):
                 with self.create_client(
@@ -411,12 +427,43 @@ class LLMAPITests(unittest.TestCase):
                         },
                     )
 
-                self.assertEqual(response.status_code, 422)
-                self.assertEqual(
-                    response.json()["detail"],
-                    "Model does not support image input",
-                )
+                status, detail = expected[verifier.__name__]
+                self.assertEqual(response.status_code, status)
+                self.assertEqual(response.json()["detail"], detail)
                 self.assertNotIn("private-provider-secret", response.text)
+
+    def test_model_test_preserves_a_provider_authentication_status_without_secret_text(self):
+        class ProviderAuthenticationError(Exception):
+            status_code = 401
+
+        async def vision_failure(_provider):
+            raise ProviderAuthenticationError("private-provider-secret")
+
+        with self.create_client(
+            FakeProvider(["connected"]),
+            vision_verifier=vision_failure,
+        ) as client:
+            response = client.post(
+                "/model-test/",
+                json={
+                    "profile_id": "generic_openai",
+                    "protocol": "openai",
+                    "base_url": "https://provider.example/v1",
+                    "model": "test-model",
+                    "api_key": "private-provider-secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json()["detail"],
+            {
+                "code": "authentication_failed",
+                "message": "认证失败：请检查 API Key 或账号区域",
+                "provider_status": 401,
+            },
+        )
+        self.assertNotIn("private-provider-secret", response.text)
 
     def test_model_test_probe_does_not_reuse_eight_token_provider_for_chat(self):
         from server.llm_api import create_app

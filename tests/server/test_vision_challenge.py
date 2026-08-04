@@ -5,6 +5,7 @@ from unittest.mock import patch
 from server.chat_images import PNG_SIGNATURE, ChatImage
 from server.vision_challenge import (
     VisionChallenge,
+    VisionVerificationError,
     create_vision_challenge,
     verify_provider_vision,
 )
@@ -68,11 +69,15 @@ class VisionChallengeTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_verifier_converts_provider_exceptions_to_false(self):
+    async def test_verifier_wraps_provider_exceptions_without_exposing_their_text(self):
         challenge = self.challenge()
         provider = FakeProvider(error=RuntimeError("private-provider-secret"))
 
-        self.assertFalse(await verify_provider_vision(provider, challenge))
+        with self.assertRaises(VisionVerificationError) as raised:
+            await verify_provider_vision(provider, challenge)
+
+        self.assertNotIn("private-provider-secret", str(raised.exception))
+        self.assertIsInstance(raised.exception.__cause__, RuntimeError)
 
 
 if __name__ == "__main__":

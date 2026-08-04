@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from server.llm_providers import LLMProvider
+from server.model_diagnostics import model_diagnostic_http_exception
 from server.settings.model_profiles import ModelConfigurationError, ResolvedModelProfile
 from server.settings.profile_store import ModelProfileInput, ProfileStore, PublicModelProfile
 from server.vision_challenge import VisionVerifier
@@ -200,15 +201,9 @@ def create_router(
             provider = await provider_factory(short_profile)
             supports_vision = await vision_verifier(provider)
         except Exception as exc:
-            raise HTTPException(
-                status_code=422,
-                detail="Model does not support image input",
-            ) from exc
+            raise model_diagnostic_http_exception(exc) from exc
         if not supports_vision:
-            raise HTTPException(
-                status_code=422,
-                detail="Model does not support image input",
-            )
+            raise model_diagnostic_http_exception(None, vision_failed=True)
         return {
             "ok": True,
             "vision": True,

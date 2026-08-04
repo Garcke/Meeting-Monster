@@ -66,6 +66,10 @@ class VisionChallenge:
 VisionVerifier = Callable[[LLMProvider], Awaitable[bool]]
 
 
+class VisionVerificationError(Exception):
+    """A provider request failed while checking image input support."""
+
+
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     checksum = binascii.crc32(kind + payload) & 0xFFFFFFFF
     return (
@@ -155,8 +159,8 @@ async def verify_provider_vision(
             answer += str(chunk)[:remaining]
             if len(answer) >= _MAX_ANSWER_CHARS:
                 break
-    except Exception:
-        return False
+    except Exception as exc:
+        raise VisionVerificationError from exc
 
     if not answer:
         return False

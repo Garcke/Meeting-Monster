@@ -28,6 +28,7 @@ from server.settings.model_profiles import (
 from server.settings.profile_store import ProfileStore, SecretCipher
 from server.chat_service import ChatService, sanitize_provider_error
 from server.llm_providers import LLMProvider, ProviderCache, create_provider
+from server.model_diagnostics import model_diagnostic_http_exception
 from server.model_api import create_router as create_model_router
 from server.vision_challenge import VisionVerifier, verify_provider_vision
 
@@ -288,15 +289,9 @@ def create_app(
             provider = await chat_service.get_provider(short_profile)
             supports_vision = await vision_verifier(provider)
         except Exception as exc:
-            raise HTTPException(
-                status_code=422,
-                detail="Model does not support image input",
-            ) from exc
+            raise model_diagnostic_http_exception(exc) from exc
         if not supports_vision:
-            raise HTTPException(
-                status_code=422,
-                detail="Model does not support image input",
-            )
+            raise model_diagnostic_http_exception(None, vision_failed=True)
         return {
             "ok": True,
             "vision": True,
