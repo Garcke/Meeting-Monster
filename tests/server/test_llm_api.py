@@ -372,6 +372,31 @@ class LLMAPITests(unittest.TestCase):
         self.assertIn("provider unavailable", response.text)
         self.assertIn("event: done", response.text)
 
+    def test_image_provider_failure_does_not_leak_screenshot_through_sse_or_history(self):
+        encoded = base64.b64encode(
+            b"\x89PNG\r\n\x1a\nprivate-screen-fixture"
+        ).decode("ascii")
+        provider = FakeProvider(
+            error=RuntimeError(f"provider rejected request body containing {encoded}")
+        )
+
+        with self.create_client(provider) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "image": {"media_type": "image/png", "data": encoded},
+                },
+            )
+            history = client.get("/history/").json()["history"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("event: error", response.text)
+        self.assertIn("Model request failed", response.text)
+        self.assertIn("event: done", response.text)
+        self.assertNotIn(encoded, response.text)
+        self.assertNotIn(encoded, repr(history))
+
     def test_invalid_server_configuration_returns_service_unavailable(self):
         def broken_resolver():
             raise ModelConfigurationError("missing MODEL_API_KEY")

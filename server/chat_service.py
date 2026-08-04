@@ -74,7 +74,12 @@ class ChatService:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                yield ("error", sanitize_provider_error(exc, profile))
+                safe_error = (
+                    "Model request failed"
+                    if image is not None
+                    else sanitize_provider_error(exc, profile)
+                )
+                yield ("error", safe_error)
             else:
                 if assistant_message:
                     self._history.append(

@@ -117,6 +117,31 @@ class ChatServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1], ("done", None))
         self.assertEqual(service.get_history(), [{"role": "user", "content": "Question"}])
 
+    async def test_image_provider_error_does_not_expose_screenshot_or_store_it(self):
+        from server.chat_service import ChatService
+
+        encoded = "encoded-png-private-screen"
+        image = ChatImage(media_type="image/png", data=encoded)
+        provider = FakeProvider(
+            error=RuntimeError(f"provider rejected request body containing {encoded}")
+        )
+        service = ChatService(ProviderCache(lambda _profile: provider))
+
+        events = [
+            event
+            async for event in service.stream_response(
+                "Question",
+                test_profile(),
+                provider,
+                image=image,
+            )
+        ]
+
+        self.assertEqual(events[0], ("error", "Model request failed"))
+        self.assertNotIn(encoded, repr(events))
+        self.assertEqual(service.get_history(), [{"role": "user", "content": "Question"}])
+        self.assertNotIn(encoded, repr(service.get_history()))
+
     async def test_prompt_and_reset_preserve_public_history_shape(self):
         from server.chat_service import ChatService
 
