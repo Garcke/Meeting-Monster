@@ -11,7 +11,7 @@ import {
 } from '../shared/services/audio-input-mode';
 import {canStartRecording, canStopRecording, PcmAudioRecorder, type RecordingPhase} from '../shared/services/audio-recorder';
 import {stripAssistantThinking} from '../shared/services/assistant-markdown';
-import {findInitialProfile, loadModelSettings} from '../shared/services/model-settings-service';
+import {MODEL_SETTINGS_CHANGED_EVENT, findInitialProfile, loadModelSettings} from '../shared/services/model-settings-service';
 import {QuestionStore} from '../shared/services/question-store';
 
 function isPermissionDenied(error: unknown): boolean {
@@ -62,9 +62,10 @@ export function WorkspaceView({active}: {active: boolean}) {
     const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>('microphone');
     const [audioError, setAudioError] = useState<string | null>(null);
     const [remoteModelLabel, setRemoteModelLabel] = useState('通用 OpenAI Compatible');
-    const [chatBusy, setChatBusy] = useState(false);
+    const [visionVerified, setVisionVerified] = useState(false);
+    const [requestPhase, setRequestPhase] = useState<'idle' | 'capturing' | 'generating'>('idle');
     const [action, setAction] = useState<'assist' | 'followup' | 'recap'>('assist');
-    const activeRequest = useRef<{id: string; questionId: string} | null>(null);
+    const activeRequest = useRef<{id: string; questionId: string | null} | null>(null);
 
     const refresh = () => setQuestions([...storeRef.current.getQuestions()]);
     const updateRecordingPhase = (phase: RecordingPhase) => {
@@ -77,20 +78,34 @@ export function WorkspaceView({active}: {active: boolean}) {
         const unsubscribeResult = api.asr.onResult((event) => {
             if (event.type === 'partial') setPartial(event.text);
             if (event.type === 'final') {
-                const question = storeRef.current.addQuestion(event.text, 'asr');
+                storeRef.current.addQuestion(event.text, 'asr');
                 setPartial('');
                 refresh();
-                if (question) void ask();
             }
             if (event.type === 'error') setAsr({state: 'error', message: event.text});
         });
         const unsubscribeChat = api.chat.onEvent(handleChatEvent);
         const unsubscribeModels = api.asrModels.onStatus((next) => setAsrReady(isAsrModelReady(next, next.currentModelId)));
         void api.asrModels.list().then((next) => setAsrReady(isAsrModelReady(next, next.currentModelId))).catch(() => setAsrReady(false));
-        void loadModelSettings(api).then(({options, saved}) => {
-            setRemoteModelLabel(findInitialProfile(options, saved).label);
-        });
+        let modelSettingsDisposed = false;
+        let modelSettingsRevision = 0;
+        const refreshModelSettings = () => {
+            const revision = ++modelSettingsRevision;
+            void loadModelSettings(api).then(({options, saved}) => {
+                if (modelSettingsDisposed || revision !== modelSettingsRevision) return;
+                setRemoteModelLabel(findInitialProfile(options, saved).label);
+                const activeConnection = saved?.connections[saved.active_profile];
+                setVisionVerified(activeConnection?.vision_verified === true);
+            }).catch(() => {
+                if (!modelSettingsDisposed && revision === modelSettingsRevision) setVisionVerified(false);
+            });
+        };
+        window.addEventListener(MODEL_SETTINGS_CHANGED_EVENT, refreshModelSettings);
+        refreshModelSettings();
         return () => {
+            modelSettingsDisposed = true;
+            modelSettingsRevision += 1;
+            window.removeEventListener(MODEL_SETTINGS_CHANGED_EVENT, refreshModelSettings);
             unsubscribeStatus();
             unsubscribeResult();
             unsubscribeChat();
@@ -198,11 +213,11 @@ export function WorkspaceView({active}: {active: boolean}) {
         const request = activeRequest.current;
         if (!request) return;
         activeRequest.current = null;
-        setChatBusy(false);
+        setRequestPhase('idle');
         void api.chat.cancel(request.id).catch(() => undefined);
     }
 
-    async function ask(requestedAction = action) {
+    async function sendText(requestedAction: 'direct' | 'followup' | 'recap') {
         const selectedQuestions = storeRef.current.getSelectedQuestions();
         const question = selectedQuestions[selectedQuestions.length - 1];
         if (!question) return;
@@ -213,7 +228,7 @@ export function WorkspaceView({active}: {active: boolean}) {
         const requestId = crypto.randomUUID();
         activeRequest.current = {id: requestId, questionId: question.id};
         setAnswer('');
-        setChatBusy(true);
+        setRequestPhase('generating');
         const selectedText = selectedQuestions.map((item) => item.text).join('\n');
         const prompt = requestedAction === 'followup'
             ? `请基于以下面试内容给出一个有深度且自然的追问：\n${selectedText}`
@@ -224,8 +239,27 @@ export function WorkspaceView({active}: {active: boolean}) {
             if (activeRequest.current?.id === requestId) {
                 storeRef.current.setAnswerStatus(question.id, 'error', error instanceof Error ? error.message : '回答失败');
                 activeRequest.current = null;
-                setChatBusy(false);
+                setRequestPhase('idle');
                 refresh();
+            }
+        }
+    }
+
+    async function assistWithScreenshot() {
+        if (!visionVerified || requestPhase !== 'idle') return;
+        if (activeRequest.current) await api.chat.cancel(activeRequest.current.id).catch(() => undefined);
+        const requestId = crypto.randomUUID();
+        activeRequest.current = {id: requestId, questionId: null};
+        setAnswer('');
+        setRequestPhase('capturing');
+        try {
+            await api.chat.assist(requestId);
+            if (activeRequest.current?.id === requestId) setRequestPhase('generating');
+        } catch (error) {
+            if (activeRequest.current?.id === requestId) {
+                setAnswer(error instanceof Error ? error.message : '回答失败');
+                activeRequest.current = null;
+                setRequestPhase('idle');
             }
         }
     }
@@ -236,30 +270,38 @@ export function WorkspaceView({active}: {active: boolean}) {
         if (event.type === 'chunk') {
             const text = event.text || '';
             setAnswer((current) => current + text);
-            storeRef.current.appendAnswer(request.questionId, text);
-            refresh();
+            if (request.questionId !== null) {
+                storeRef.current.appendAnswer(request.questionId, text);
+                refresh();
+            }
         } else if (event.type === 'done') {
-            storeRef.current.setAnswerStatus(request.questionId, 'complete');
+            if (request.questionId !== null) {
+                storeRef.current.setAnswerStatus(request.questionId, 'complete');
+                refresh();
+            }
             activeRequest.current = null;
-            setChatBusy(false);
-            refresh();
+            setRequestPhase('idle');
         } else {
-            storeRef.current.setAnswerStatus(request.questionId, 'error', event.text || '回答失败');
+            if (request.questionId !== null) {
+                storeRef.current.setAnswerStatus(request.questionId, 'error', event.text || '回答失败');
+                refresh();
+            } else {
+                setAnswer(event.text || '回答失败');
+            }
             activeRequest.current = null;
-            setChatBusy(false);
-            refresh();
+            setRequestPhase('idle');
         }
     }
 
     function submit(event: FormEvent) {
         event.preventDefault();
         const text = input.trim();
-        if (!text) { if (storeRef.current.getSelectedQuestions().length > 0) void ask('assist'); return; }
+        if (!text) { if (storeRef.current.getSelectedQuestions().length > 0) void sendText('direct'); return; }
         const question = storeRef.current.addQuestion(text, 'manual');
         setInput('');
         setAnswer('');
         refresh();
-        if (question) void ask('assist');
+        if (question) void sendText('direct');
     }
 
     const selectedQuestions = storeRef.current.getSelectedQuestions();
@@ -267,14 +309,13 @@ export function WorkspaceView({active}: {active: boolean}) {
     const current = selectedQuestions[selectedQuestions.length - 1] ?? null;
     const displayedAnswer = answer || current?.answer || '';
     const visibleAnswer = stripAssistantThinking(displayedAnswer);
-    const fallbackAnswer = current ? '选择 Assist 生成回答' : '选择一个问题后，点击 Assist 生成回答';
+    const fallbackAnswer = '点击 Assist 截图并生成回答';
     return (
             <div
                 className={`workspace-content ${active ? '' : 'is-inactive'}`}
                 data-audio-input-mode={audioInputMode}
             >
             <div className="workspace-transcript no-drag">
-                {questions.length === 0 && !partial && <p className="empty-copy">开始转写后，当前问题会显示在这里</p>}
                 {questions.map((question) => (
                     <button key={question.id} className={`question-row ${selectedIds.has(question.id) ? 'is-selected' : ''}`} type="button" aria-pressed={selectedIds.has(question.id)} onClick={() => { cancelActiveRequest(); storeRef.current.toggleQuestion(question.id); setAnswer(''); refresh(); }}>
                         {question.text}
@@ -283,7 +324,7 @@ export function WorkspaceView({active}: {active: boolean}) {
                 {partial && <p className="partial-row">{partial}</p>}
             </div>
             <div className="workspace-answer no-drag">
-                <div className="answer-heading"><span>AI REPLY</span><em>{chatBusy ? '等待生成' : current?.answerStatus === 'error' ? '失败' : `当前：${remoteModelLabel}`}</em></div>
+                <div className="answer-heading"><span>AI REPLY</span><em>{requestPhase === 'capturing' ? '正在截图' : requestPhase === 'generating' ? '等待生成' : current?.answerStatus === 'error' ? '失败' : `当前：${remoteModelLabel}`}</em></div>
                 <div className="answer-scroll no-drag">
                     {visibleAnswer ? (
                         <div className="answer-markdown">
@@ -298,15 +339,16 @@ export function WorkspaceView({active}: {active: boolean}) {
             </div>
             <form className="workspace-composer no-drag" onSubmit={submit}>
                 <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入问题后发送" aria-label="输入问题" />
+                {!visionVerified && <p className="assist-hint">请在设置中验证图片能力</p>}
                 {audioError && <p className="audio-error" role="alert">{audioError}</p>}
                 <div className="composer-actions">
                     <button type="button" className="record-action is-recording" onClick={() => void startRecording()} disabled={!canStartRecording(asrReady, recordingPhase)}>● 开始转写</button>
                     <button type="button" className="record-action" onClick={() => void stopRecording()} disabled={!canStopRecording(recordingPhase)}>停止</button>
                     <button type="button" className="record-action" onClick={() => { cancelActiveRequest(); void stopRecording(); storeRef.current.clear(); setPartial(''); setAnswer(''); refresh(); }}>清空</button>
                     <span className="composer-divider" aria-hidden="true" />
-                    <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || chatBusy} onClick={() => { setAction('assist'); void ask('assist'); }}>✦ Assist</button>
-                    <button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || chatBusy} onClick={() => { setAction('followup'); void ask('followup'); }}>↗ 追问</button>
-                    <button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || chatBusy} onClick={() => { setAction('recap'); void ask('recap'); }}>↻ 重述</button>
+                    <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={!visionVerified || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</button>
+                    <button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('followup'); void sendText('followup'); }}>↗ 追问</button>
+                    <button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('recap'); void sendText('recap'); }}>↻ 重述</button>
                     <span className="question-count">{selectedQuestions.length}/{questions.length} 段</span>
                     <span className="composer-hint">Ctrl + Enter</span>
                     <button className="send-button" type="submit" aria-label="发送">➜</button>

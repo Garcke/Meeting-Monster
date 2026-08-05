@@ -1,3 +1,5 @@
+import type {ChatImageInput, ModelDiagnosticCode, ModelTestResult} from '../shared/contracts';
+
 export type RemoteFetch = (input: string, init?: RequestInit) => Promise<Response>;
 export type ConnectionTestStatus = 'connected' | 'unauthorized' | 'unreachable';
 
@@ -23,6 +25,7 @@ export interface ModelSelectionInput {
 export interface ChatRequest {
     requestId: string;
     content: string;
+    image?: ChatImageInput;
     modelSelection?: ModelSelectionInput;
     signal?: AbortSignal;
 }
@@ -67,10 +70,38 @@ interface ParsedSseEvent {
 }
 
 export class RemoteApiError extends Error {
-    public constructor(message: string, public readonly status?: number) {
+    public constructor(
+        message: string,
+        public readonly status?: number,
+        public readonly code?: ModelDiagnosticCode,
+        public readonly providerStatus?: number,
+    ) {
         super(message);
         this.name = 'RemoteApiError';
     }
+}
+
+const MODEL_DIAGNOSTIC_MESSAGES: Record<ModelDiagnosticCode, {label: string; guidance: string}> = {
+    authentication_failed: {label: '认证失败', guidance: '请检查 API Key 或账号区域'},
+    model_not_found: {label: '模型不存在', guidance: '请检查 Model ID'},
+    invalid_request: {label: '请求无效', guidance: '请检查模型连接配置'},
+    rate_limited: {label: '请求过于频繁', guidance: '请稍后重试'},
+    timeout: {label: '连接超时', guidance: '请稍后重试'},
+    unreachable: {label: '无法连接到模型服务', guidance: '请检查网络或 Base URL'},
+    upstream_error: {label: '模型服务暂时不可用', guidance: '请稍后重试'},
+    vision_verification_failed: {label: '图片能力验证未通过', guidance: '请确认模型支持图片输入'},
+    unknown: {label: '模型连接失败', guidance: '请稍后重试'},
+};
+
+export function formatModelConnectionError(error: unknown): string {
+    const candidate = asRecord(error);
+    const code = isModelDiagnosticCode(candidate?.code) ? candidate.code : undefined;
+    const providerStatus = asHttpStatus(candidate?.providerStatus) ?? asHttpStatus(candidate?.provider_status);
+    const status = asHttpStatus(candidate?.status);
+    if (code) return formatDiagnostic(code, providerStatus ?? status);
+
+    const knownMessage = findSafeDiagnosticMessage(candidate?.message);
+    return knownMessage ?? formatDiagnostic('unknown', providerStatus ?? status);
 }
 
 export class RemoteApiClient {
@@ -89,7 +120,7 @@ export class RemoteApiClient {
         return this.requestJson('model-options/', {method: 'GET'}, false, undefined, parseSelectableModelList);
     }
 
-    public testSelectedModel(selection: ModelSelectionInput): Promise<{ok: boolean; latency_ms: number; model: string}> {
+    public testSelectedModel(selection: ModelSelectionInput): Promise<ModelTestResult> {
         const validated = validateModelSelectionInput(selection);
         return this.requestJson('model-test/', this.jsonRequest('POST', validated), false, validated, parseModelTest);
     }
@@ -116,7 +147,7 @@ export class RemoteApiClient {
         return this.requestJson(`models/${encodeURIComponent(profileId)}/activate`, {method: 'POST'}, true, undefined, parseActivation);
     }
 
-    public testModel(profile: ModelProfileInput): Promise<{ok: boolean; latency_ms: number; model: string}> {
+    public testModel(profile: ModelProfileInput): Promise<ModelTestResult> {
         const validated = validateModelProfileInput(profile);
         return this.requestJson('models/test', this.jsonRequest('POST', validated), true, validated, parseModelTest);
     }
@@ -147,21 +178,31 @@ export class RemoteApiClient {
 
     public async *streamChat(request: ChatRequest, sink?: ChatEventSink): AsyncGenerator<ChatStreamEvent> {
         if (!request.requestId.trim() || !request.content.trim() || request.signal?.aborted) return;
+        const modelSelection = request.modelSelection
+            ? validateModelSelectionInput(request.modelSelection)
+            : undefined;
+        const image = request.image === undefined
+            ? undefined
+            : validateChatImageInput(request.image);
+        const requestRedactionSecrets = image ? [image.data] : [];
         const body = {
             content: request.content.trim(),
-            ...(request.modelSelection ? validateModelSelectionInput(request.modelSelection) : {}),
+            ...(image ? {image} : {}),
+            ...(modelSelection ?? {}),
         };
         const response = await this.fetchResponse('chat/', {
             ...this.jsonRequest('POST', body),
             signal: request.signal,
-        }, false, body);
+        }, false, modelSelection, requestRedactionSecrets);
         if (!response.body) throw new RemoteApiError('Remote chat stream is unavailable', response.status);
         for await (const parsed of parseSseChunks(readResponseBody(response.body), request.signal)) {
             if (request.signal?.aborted) return;
             const event: ChatStreamEvent = {
                 requestId: request.requestId,
                 type: parsed.type,
-                ...(parsed.text ? {text: redactSensitiveText(parsed.text, this.secrets)} : {}),
+                ...(parsed.text ? {
+                    text: redactSensitiveText(parsed.text, [...this.secrets, ...requestRedactionSecrets]),
+                } : {}),
             };
             yield event;
             await sink?.(event);
@@ -193,7 +234,13 @@ export class RemoteApiClient {
         }
     }
 
-    private async fetchResponse(path: string, init: RequestInit, management: boolean, secretBody?: unknown): Promise<Response> {
+    private async fetchResponse(
+        path: string,
+        init: RequestInit,
+        management: boolean,
+        secretBody?: unknown,
+        requestRedactionSecrets: Iterable<string> = [],
+    ): Promise<Response> {
         const headers = new Headers(init.headers);
         for (const secret of collectStringValues(secretBody)) this.secrets.add(secret);
         if (management) {
@@ -207,23 +254,31 @@ export class RemoteApiClient {
             throw new RemoteApiError('Remote request is unreachable');
         }
         if (response.ok) return response;
-        throw new RemoteApiError(await this.httpError(response), response.status);
+        throw await this.httpError(response);
     }
 
-    private async httpError(response: Response): Promise<string> {
-        let detail = '';
+    private async httpError(response: Response): Promise<RemoteApiError> {
+        let code: ModelDiagnosticCode | undefined;
+        let providerStatus: number | undefined;
         try {
             const payload: unknown = await response.json();
             if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
                 const candidate = payload as Record<string, unknown>;
-                if (typeof candidate.detail === 'string') detail = candidate.detail;
-                else if (typeof candidate.message === 'string') detail = candidate.message;
+                const detail = asRecord(candidate.detail);
+                if (isModelDiagnosticCode(detail?.code)) {
+                    code = detail.code;
+                    providerStatus = asHttpStatus(detail.provider_status);
+                }
             }
         } catch {
-            // Server error bodies are optional and must never be surfaced raw.
+            // Error response bodies are intentionally never surfaced.
         }
-        const suffix = detail ? `: ${redactSensitiveText(detail, this.secrets)}` : '';
-        return `Remote request failed (${response.status})${suffix}`;
+        return new RemoteApiError(
+            formatDiagnostic(code ?? 'unknown', providerStatus ?? response.status),
+            response.status,
+            code,
+            providerStatus,
+        );
     }
 
     private managementHeaders(): Headers {
@@ -411,6 +466,17 @@ export function validateModelSelectionInput(value: unknown): ModelSelectionInput
     };
 }
 
+function validateChatImageInput(value: unknown): ChatImageInput {
+    const input = requireObject(value, 'Chat image input');
+    if (Object.keys(input).some((key) => key !== 'media_type' && key !== 'data')) {
+        throw new TypeError('Chat image input contains an unsupported field');
+    }
+    if (input.media_type !== 'image/png' || typeof input.data !== 'string' || !input.data) {
+        throw new TypeError('Chat image input is invalid');
+    }
+    return {media_type: 'image/png', data: input.data};
+}
+
 function normalizeProviderBaseUrl(value: unknown): string {
     if (typeof value !== 'string' || !value.trim()) {
         throw new TypeError('Model selection field is invalid: base_url');
@@ -452,12 +518,13 @@ function parseActivation(value: unknown): {active_profile: string; profile: Publ
     return {active_profile: payload.active_profile, profile: parsePublicModelProfile(payload.profile)};
 }
 
-function parseModelTest(value: unknown): {ok: boolean; latency_ms: number; model: string} {
+function parseModelTest(value: unknown): ModelTestResult {
     const payload = requireObject(value, 'Model test response');
-    if (typeof payload.ok !== 'boolean' || !Number.isInteger(payload.latency_ms) || (payload.latency_ms as number) < 0 || typeof payload.model !== 'string') {
+    if (payload.ok !== true || payload.vision !== true || !Number.isInteger(payload.latency_ms)
+        || (payload.latency_ms as number) < 0 || typeof payload.model !== 'string') {
         throw new TypeError('Model test response is invalid');
     }
-    return {ok: payload.ok, latency_ms: payload.latency_ms as number, model: payload.model};
+    return {ok: true, vision: true, latency_ms: payload.latency_ms as number, model: payload.model};
 }
 
 function parseNoContent(value: unknown): void {
@@ -508,4 +575,42 @@ function parseSelectableModelProfile(value: unknown): SelectableModelProfile {
 function requireObject(value: unknown, label: string): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} is invalid`);
     return value as Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
+}
+
+function isModelDiagnosticCode(value: unknown): value is ModelDiagnosticCode {
+    return typeof value === 'string'
+        && Object.prototype.hasOwnProperty.call(MODEL_DIAGNOSTIC_MESSAGES, value);
+}
+
+function asHttpStatus(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+        ? value
+        : undefined;
+}
+
+function formatDiagnostic(code: ModelDiagnosticCode, status?: number): string {
+    const {label, guidance} = MODEL_DIAGNOSTIC_MESSAGES[code];
+    return `${label}${status === undefined ? '' : `（HTTP ${status}）`}：${guidance}`;
+}
+
+function findSafeDiagnosticMessage(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    for (const code of Object.keys(MODEL_DIAGNOSTIC_MESSAGES) as ModelDiagnosticCode[]) {
+        const message = formatDiagnostic(code);
+        if (value.includes(message)) return message;
+    }
+    const statusMatch = value.match(/（HTTP (\d{3})）/);
+    const status = asHttpStatus(statusMatch?.[1] === undefined ? undefined : Number(statusMatch[1]));
+    if (status === undefined) return undefined;
+    for (const code of Object.keys(MODEL_DIAGNOSTIC_MESSAGES) as ModelDiagnosticCode[]) {
+        const message = formatDiagnostic(code, status);
+        if (value.includes(message)) return message;
+    }
+    return undefined;
 }

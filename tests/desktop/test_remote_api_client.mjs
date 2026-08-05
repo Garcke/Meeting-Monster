@@ -77,7 +77,7 @@ test('management CRUD uses safe API paths, methods, JSON bodies, and bearer auth
     let responseIndex = 0;
     const responses = [
         {active_profile: 'demo', profiles: [publicProfile]}, publicProfile, publicProfile, null,
-        {active_profile: 'demo', profile: publicProfile}, {ok: true, latency_ms: 5, model: 'demo-model'},
+        {active_profile: 'demo', profile: publicProfile}, {ok: true, vision: true, latency_ms: 5, model: 'demo-model'},
     ];
     const fetch = async (url, options = {}) => {
         calls.push({url: String(url), options});
@@ -124,7 +124,7 @@ test('successful management responses only return public allowlisted DTO fields'
         reflected,
         reflected,
         {active_profile: 'demo', profile: reflected, authorization: 'Bearer desktop-admin-token'},
-        {ok: true, latency_ms: 7, model: 'demo-model', api_key: 'provider-secret'},
+        {ok: true, vision: true, latency_ms: 7, model: 'demo-model', api_key: 'provider-secret'},
     ];
     let index = 0;
     const client = new RemoteApiClient({
@@ -142,7 +142,7 @@ test('successful management responses only return public allowlisted DTO fields'
 
     assert.deepEqual(results, [
         {active_profile: 'demo', profiles: [publicProfile]}, publicProfile, publicProfile,
-        {active_profile: 'demo', profile: publicProfile}, {ok: true, latency_ms: 7, model: 'demo-model'},
+        {active_profile: 'demo', profile: publicProfile}, {ok: true, vision: true, latency_ms: 7, model: 'demo-model'},
     ]);
     assert.doesNotMatch(JSON.stringify(results), /provider-secret|desktop-admin-token|encrypted_api_key|api_key_env|authorization|nested/i);
 });
@@ -255,6 +255,108 @@ test('streamChat parses fragmented CRLF SSE chunks and never sends management au
     assert.equal(seenOptions.body, JSON.stringify({content: 'What is private?'}));
 });
 
+test('streamChat sends a PNG attachment without adding base64 to redaction secrets', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    const image = {media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'};
+    let seenOptions;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async (_url, options = {}) => {
+            seenOptions = options;
+            return sseResponse(['event: done\ndata: {}\n\n']);
+        },
+    });
+
+    for await (const event of client.streamChat({requestId: 'vision-1', content: 'Question', image})) {
+        assert.equal(event.type, 'done');
+    }
+
+    assert.equal(seenOptions.body, JSON.stringify({content: 'Question', image}));
+    assert.equal(client.secrets.has(image.data), false);
+});
+
+test('streamChat redacts reflected PNG data from request-scoped HTTP and SSE errors without persisting it', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    const image = {media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB-request-scoped'};
+    const responses = [
+        new Response(JSON.stringify({detail: `invalid screenshot ${image.data}`}), {status: 422}),
+        sseResponse([
+            `event: error\ndata: {"detail":"provider reflected ${image.data}"}\n\n`,
+            'event: done\ndata: {}\n\n',
+        ]),
+    ];
+    let responseIndex = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => responses[responseIndex++],
+    });
+
+    await assert.rejects(async () => {
+        for await (const _event of client.streamChat({requestId: 'vision-http-error', content: 'Question', image})) {}
+    }, (error) => {
+        assert.doesNotMatch(String(error.message), new RegExp(image.data));
+        assert.equal(String(error.message), '模型连接失败（HTTP 422）：请稍后重试');
+        return true;
+    });
+    assert.equal(client.secrets.has(image.data), false);
+
+    const events = [];
+    for await (const event of client.streamChat({requestId: 'vision-sse-error', content: 'Question', image})) {
+        events.push(event);
+    }
+    assert.equal(events[0].type, 'error');
+    assert.doesNotMatch(events[0].text, new RegExp(image.data));
+    assert.match(events[0].text, /\[redacted\]/);
+    assert.equal(client.secrets.has(image.data), false);
+});
+
+test('streamChat rejects invalid image attachments before fetch', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    let fetchCalls = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => {
+            fetchCalls += 1;
+            return sseResponse(['event: done\ndata: {}\n\n']);
+        },
+    });
+    const invalidImages = [
+        {media_type: 'image/jpeg', data: 'encoded'},
+        {media_type: 'image/png', data: ''},
+        {media_type: 'image/png', data: 'encoded', filename: 'screen.png'},
+    ];
+
+    for (const image of invalidImages) {
+        await assert.rejects(async () => {
+            for await (const _event of client.streamChat({requestId: 'vision-invalid', content: 'Question', image})) {}
+        }, /chat image|unsupported field/i);
+    }
+    assert.equal(fetchCalls, 0);
+});
+
+test('model tests require verified vision results and discard extra response fields', async () => {
+    const {RemoteApiClient} = await loadClientModule();
+    const validSelection = {
+        profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://provider.example/v1', model: 'demo-model',
+    };
+    const responses = [
+        {ok: true, vision: true, latency_ms: 4, model: 'demo-model', api_key: 'reflected-secret'},
+        {ok: true, latency_ms: 4, model: 'demo-model'},
+        {ok: true, vision: false, latency_ms: 4, model: 'demo-model'},
+    ];
+    let index = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => new Response(JSON.stringify(responses[index++]), {status: 200}),
+    });
+
+    assert.deepEqual(await client.testSelectedModel(validSelection), {
+        ok: true, vision: true, latency_ms: 4, model: 'demo-model',
+    });
+    await assert.rejects(client.testSelectedModel(validSelection), /invalid management response/i);
+    await assert.rejects(client.testSelectedModel(validSelection), /invalid management response/i);
+});
+
 test('streamChat forwards sanitized SSE errors and stops on AbortSignal cancellation', async () => {
     const {RemoteApiClient} = await loadClientModule();
     const controller = new AbortController();
@@ -302,7 +404,61 @@ test('HTTP errors redact known and structured secrets from errors', async () => 
 
     await assert.rejects(client.createModel(modelInput), (error) => {
         assert.doesNotMatch(String(error.message), /desktop-admin-token|provider-secret|authorization|api_key/i);
-        assert.match(String(error.message), /request failed/i);
+        assert.equal(String(error.message), '模型连接失败（HTTP 403）：请稍后重试');
         return true;
     });
+});
+
+test('model connection diagnostics preserve safe structured fields and redact legacy provider details', async () => {
+    const {RemoteApiClient, RemoteApiError, formatModelConnectionError} = await loadClientModule();
+    const selection = {
+        profile_id: 'generic_anthropic', protocol: 'anthropic', base_url: 'https://provider.example/v1', model: 'vision-model',
+    };
+    const responses = [
+        new Response(JSON.stringify({
+            detail: {
+                code: 'authentication_failed',
+                message: 'provider body must never be displayed',
+                provider_status: 401,
+            },
+        }), {status: 422}),
+        new Response(JSON.stringify({
+            detail: 'provider legacy body with api_key=provider-secret',
+        }), {status: 422}),
+    ];
+    let index = 0;
+    const client = new RemoteApiClient({
+        baseUrl: 'https://server.example.com',
+        fetch: async () => responses[index++],
+    });
+
+    await assert.rejects(client.testSelectedModel(selection), (error) => {
+        assert.ok(error instanceof RemoteApiError);
+        assert.equal(error.code, 'authentication_failed');
+        assert.equal(error.providerStatus, 401);
+        assert.equal(error.status, 422);
+        assert.equal(formatModelConnectionError(error), '认证失败（HTTP 401）：请检查 API Key 或账号区域');
+        assert.doesNotMatch(error.message, /provider body/i);
+        return true;
+    });
+    await assert.rejects(client.testSelectedModel(selection), (error) => {
+        assert.equal(error.code, undefined);
+        assert.equal(formatModelConnectionError(error), '模型连接失败（HTTP 422）：请稍后重试');
+        assert.doesNotMatch(error.message, /provider-secret|legacy body|api_key/i);
+        return true;
+    });
+});
+
+test('model connection diagnostics reject inherited diagnostic codes', async () => {
+    const {RemoteApiError, formatModelConnectionError} = await loadClientModule();
+
+    for (const code of ['constructor', '__proto__']) {
+        const error = new RemoteApiError('provider-secret', undefined, code);
+
+        assert.equal(
+            formatModelConnectionError(error),
+            '模型连接失败：请稍后重试',
+            `${code} must fall back to the fixed unknown diagnostic`,
+        );
+    }
 });

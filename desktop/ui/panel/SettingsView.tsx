@@ -1,10 +1,12 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {AsrModelId, AsrModelSnapshot, ModelOptions, ModelProfileId, SavedModelConnectionSettings, SelectableModelProfile} from '../../src/shared/contracts';
+import type {AsrModelId, AsrModelSnapshot, ModelOptions, ModelProfileId, ModelTestProgress, SavedModelConnectionSettings, SelectableModelProfile} from '../../src/shared/contracts';
 import {createAsrModelActions, describeAsrModel, formatAsrModelStatus} from '../shared/services/asr-model-service';
-import {BUILT_IN_MODEL_PROFILES, buildModelSelection, createModelFormValues, findInitialProfile, getSavedModelConnection, loadModelSettings, saveModelConnection, testModelConnection, type ModelFormValues} from '../shared/services/model-settings-service';
+import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection, createModelFormValues, findInitialProfile, getSavedModelConnection, loadModelSettings, saveModelConnection, testModelConnection, type ModelFormValues} from '../shared/services/model-settings-service';
 import {AUDIO_INPUT_MODE_EVENT, readAudioInputMode, writeAudioInputMode, type AudioInputMode} from '../shared/services/audio-input-mode';
+import {formatModelConnectionError} from '../../src/main/remote-api-client';
 
 const defaultValues: ModelFormValues = {baseUrl: '', model: '', apiKey: '', maxTokens: '4096', temperature: '0.3'};
+const initialModelTestProgress: ModelTestProgress = {phase: 'connecting', attempt: 0, maxAttempts: 3};
 
 export function SettingsView({active}: {active: boolean}) {
     const api = window.meetingMonster;
@@ -16,6 +18,8 @@ export function SettingsView({active}: {active: boolean}) {
         generic_anthropic: defaultValues,
     });
     const [remoteStatus, setRemoteStatus] = useState('');
+    const [modelAction, setModelAction] = useState<'idle' | 'testing' | 'saving'>('idle');
+    const [modelTestProgress, setModelTestProgress] = useState<ModelTestProgress>(initialModelTestProgress);
     const [asrSnapshot, setAsrSnapshot] = useState<AsrModelSnapshot | null>(null);
     const [asrId, setAsrId] = useState<AsrModelId | null>(null);
     const [asrOperation, setAsrOperation] = useState<string | null>(null);
@@ -52,6 +56,11 @@ export function SettingsView({active}: {active: boolean}) {
         return () => { mounted = false; unsubscribe(); };
     }, [api]);
 
+    useEffect(() => {
+        const unsubscribe = api.models.onTestProgress?.((progress) => setModelTestProgress(progress));
+        return () => { unsubscribe?.(); };
+    }, [api]);
+
     const profiles = BUILT_IN_MODEL_PROFILES;
     const profileId = profile.id as ModelProfileId;
     const values = formSnapshots[profileId] ?? defaultValues;
@@ -59,6 +68,14 @@ export function SettingsView({active}: {active: boolean}) {
     const selectedAsr = asrSnapshot?.models.find((model) => model.id === (asrId ?? asrSnapshot.currentModelId));
     const asrStatus = formatAsrModelStatus(asrSnapshot, asrId, asrOperation);
     const isBusy = asrOperation !== null || selectedAsr?.installedState === 'downloading' || selectedAsr?.installedState === 'verifying';
+    const modelActionsBusy = modelAction !== 'idle';
+
+    function modelActionLabel(action: 'testing' | 'saving') {
+        if (modelAction !== action) return action === 'testing' ? '测试连接' : '保存连接';
+        return modelTestProgress.phase === 'vision'
+            ? `验证图片 ${modelTestProgress.attempt}/${modelTestProgress.maxAttempts}`
+            : '连接模型…';
+    }
 
     function selectProfile(id: string) {
         const next = profiles.find((item) => item.id === id);
@@ -69,12 +86,30 @@ export function SettingsView({active}: {active: boolean}) {
         setRemoteStatus(`已选择：${next.label}`);
     }
     async function save() {
-        try { setSaved(await saveModelConnection(api, profile, values)); setRemoteStatus('连接已保存到本机安全存储'); }
-        catch (error) { setRemoteStatus(error instanceof Error ? `保存失败：${error.message}` : '保存失败'); }
+        if (modelActionsBusy) return;
+        setModelAction('saving');
+        setModelTestProgress(initialModelTestProgress);
+        try {
+            setSaved(await saveModelConnection(api, profile, values));
+            setRemoteStatus('多模态能力验证成功');
+            window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT));
+        }
+        catch (error) { setRemoteStatus(formatModelConnectionError(error)); }
+        finally {
+            setModelAction('idle');
+            setModelTestProgress(initialModelTestProgress);
+        }
     }
     async function test() {
-        try { const result = await testModelConnection(api, profile, values); setRemoteStatus(result.ok ? `连接成功 · ${result.model} · ${result.latency_ms}ms` : '连接失败'); }
-        catch (error) { setRemoteStatus(error instanceof Error ? `连接失败：${error.message}` : '连接失败'); }
+        if (modelActionsBusy) return;
+        setModelAction('testing');
+        setModelTestProgress(initialModelTestProgress);
+        try { const result = await testModelConnection(api, profile, values); setRemoteStatus(result.ok ? `多模态能力验证成功 · ${result.model} · ${result.latency_ms}ms` : '模型不支持图片输入或连接失败'); }
+        catch (error) { setRemoteStatus(formatModelConnectionError(error)); }
+        finally {
+            setModelAction('idle');
+            setModelTestProgress(initialModelTestProgress);
+        }
     }
     function updateValue(field: keyof ModelFormValues, value: string) {
         setFormSnapshots((current) => ({...current, [profileId]: {...current[profileId], [field]: value}}));
@@ -131,8 +166,15 @@ export function SettingsView({active}: {active: boolean}) {
                         <label><span className="field-label">最大 Token</span><input className="settings-control" value={values.maxTokens} onChange={(event) => updateValue('maxTokens', event.target.value)} /></label>
                         <label><span className="field-label">温度</span><input className="settings-control" value={values.temperature} onChange={(event) => updateValue('temperature', event.target.value)} /></label>
                     </div>
-                    <div className="settings-actions"><button type="button" onClick={() => void save()}>保存连接</button><button type="button" className="primary" onClick={() => void test()}>测试连接</button></div>
-                    <p className="settings-status">{remoteStatus || (getSavedModelConnection(saved, profileId) ? `已保存：${profile.label}` : `已选择：${profile.label}`)}</p>
+                    <div className="settings-actions">
+                        <button type="button" className={modelAction === 'saving' ? 'is-busy' : ''} disabled={modelActionsBusy} aria-busy={modelAction === 'saving' || undefined} onClick={() => void save()}>
+                            {modelAction === 'saving' && <span className="model-action-spinner" aria-hidden="true" />}{modelActionLabel('saving')}
+                        </button>
+                        <button type="button" className={`primary${modelAction === 'testing' ? ' is-busy' : ''}`} disabled={modelActionsBusy} aria-busy={modelAction === 'testing' || undefined} onClick={() => void test()}>
+                            {modelAction === 'testing' && <span className="model-action-spinner" aria-hidden="true" />}{modelActionLabel('testing')}
+                        </button>
+                    </div>
+                    <p className="settings-status" aria-live="polite">{remoteStatus || (getSavedModelConnection(saved, profileId) ? `已保存：${profile.label}` : `已选择：${profile.label}`)}</p>
                 </div>
                 <div className="settings-section">
                     <p className="section-kicker">LOCAL SPEECH RECOGNITION</p>

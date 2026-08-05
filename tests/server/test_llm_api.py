@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import tempfile
 import unittest
@@ -39,13 +40,18 @@ class FakeProvider:
             yield chunk
 
 
+async def vision_ok(_provider):
+    return True
+
+
 class LLMAPITests(unittest.TestCase):
-    def create_client(self, provider: FakeProvider, resolver=None):
+    def create_client(self, provider: FakeProvider, resolver=None, vision_verifier=vision_ok):
         from server.llm_api import create_app
 
         app = create_app(
             profile_resolver=resolver or (lambda: test_profile()),
             provider_factory=lambda profile: provider,
+            vision_verifier=vision_verifier,
         )
         return TestClient(app)
 
@@ -74,6 +80,71 @@ class LLMAPITests(unittest.TestCase):
                 {"role": "assistant", "content": "first second"},
             )
 
+    def test_chat_accepts_a_png_attachment_and_keeps_public_history_text_only(self):
+        from server.chat_images import ChatImage
+
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nfixture").decode("ascii")
+        provider = FakeProvider(["answer"])
+
+        with self.create_client(provider) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "image": {"media_type": "image/png", "data": encoded},
+                },
+            )
+            history = client.get("/history/").json()["history"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(provider.messages[-1]["image"], ChatImage("image/png", encoded))
+        self.assertEqual(history[0], {"role": "user", "content": "Question"})
+        self.assertNotIn(encoded, repr(history))
+
+    def test_chat_rejects_invalid_screenshot_payloads_with_generic_detail(self):
+        payloads = [
+            {"media_type": "image/png", "data": "%%not-base64%%"},
+            {
+                "media_type": "image/png",
+                "data": base64.b64encode(b"not-png").decode("ascii"),
+            },
+            {
+                "media_type": "image/png",
+                "data": base64.b64encode(
+                    b"\x89PNG\r\n\x1a\n" + b"x" * (8 * 1024 * 1024 + 1 - 8)
+                ).decode("ascii"),
+            },
+        ]
+
+        with self.create_client(FakeProvider(["answer"])) as client:
+            responses = [
+                client.post("/chat/", json={"content": "Question", "image": payload})
+                for payload in payloads
+            ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, 422)
+            self.assertEqual(response.json(), {"detail": "Invalid screenshot image"})
+            self.assertNotIn("not-base64", response.text)
+
+    def test_chat_image_schema_rejects_unknown_fields(self):
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nfixture").decode("ascii")
+
+        with self.create_client(FakeProvider(["answer"])) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "image": {
+                        "media_type": "image/png",
+                        "data": encoded,
+                        "file_path": "C:/secret.png",
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+
     def test_request_rejects_browser_supplied_model_credentials(self):
         with self.create_client(FakeProvider(["answer"])) as client:
             response = client.post(
@@ -98,7 +169,13 @@ class LLMAPITests(unittest.TestCase):
                 seen_profiles.append(profile)
                 return provider
 
-            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    provider_factory=provider_factory,
+                    vision_verifier=vision_ok,
+                )
+            ) as client:
                 response = client.post(
                     "/chat/",
                     json={
@@ -244,7 +321,13 @@ class LLMAPITests(unittest.TestCase):
                 seen_profiles.append(profile)
                 return provider
 
-            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    provider_factory=provider_factory,
+                    vision_verifier=vision_ok,
+                )
+            ) as client:
                 options = client.get("/model-options/")
                 test_result = client.post("/model-test/", json={"profile_id": "alternate"})
                 response = client.post("/chat/", json={"content": "Question", "profile_id": "alternate"})
@@ -252,6 +335,7 @@ class LLMAPITests(unittest.TestCase):
 
         self.assertEqual(options.status_code, 200)
         self.assertEqual(test_result.status_code, 200)
+        self.assertIs(test_result.json()["vision"], True)
         self.assertEqual(test_result.json()["model"], "alternate-model")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(seen_profiles[-1].profile_id, "alternate")
@@ -275,7 +359,13 @@ class LLMAPITests(unittest.TestCase):
                 seen_profiles.append(profile)
                 return provider
 
-            with TestClient(create_app(profile_store=store, provider_factory=provider_factory)) as client:
+            with TestClient(
+                create_app(
+                    profile_store=store,
+                    provider_factory=provider_factory,
+                    vision_verifier=vision_ok,
+                )
+            ) as client:
                 response = client.post(
                     "/model-test/",
                     json={
@@ -290,11 +380,132 @@ class LLMAPITests(unittest.TestCase):
                 )
 
             self.assertEqual(response.status_code, 200)
+            self.assertIs(response.json()["vision"], True)
             self.assertEqual(seen_profiles[-1].protocol, "anthropic")
             self.assertEqual(seen_profiles[-1].base_url, "https://provider.example/anthropic")
             self.assertEqual(seen_profiles[-1].model, "custom-anthropic")
             self.assertEqual(seen_profiles[-1].api_key, "provider-secret")
             self.assertNotIn("provider-secret", response.text)
+
+    def test_model_test_returns_safe_structured_diagnostics_for_vision_and_provider_failures(self):
+        async def vision_missing(_provider):
+            return False
+
+        async def vision_failure(_provider):
+            raise RuntimeError("private-provider-secret")
+
+        expected = {
+            "vision_missing": (
+                422,
+                {
+                    "code": "vision_verification_failed",
+                    "message": "图片能力验证未通过：请确认模型支持图片输入",
+                },
+            ),
+            "vision_failure": (
+                503,
+                {
+                    "code": "unknown",
+                    "message": "模型连接失败：请稍后重试",
+                },
+            ),
+        }
+        for verifier in (vision_missing, vision_failure):
+            with self.subTest(verifier=verifier.__name__):
+                with self.create_client(
+                    FakeProvider(["connected"]),
+                    vision_verifier=verifier,
+                ) as client:
+                    response = client.post(
+                        "/model-test/",
+                        json={
+                            "profile_id": "generic_openai",
+                            "protocol": "openai",
+                            "base_url": "https://provider.example/v1",
+                            "model": "test-model",
+                            "api_key": "private-provider-secret",
+                        },
+                    )
+
+                status, detail = expected[verifier.__name__]
+                self.assertEqual(response.status_code, status)
+                self.assertEqual(response.json()["detail"], detail)
+                self.assertNotIn("private-provider-secret", response.text)
+
+    def test_model_test_preserves_a_provider_authentication_status_without_secret_text(self):
+        class ProviderAuthenticationError(Exception):
+            status_code = 401
+
+        async def vision_failure(_provider):
+            raise ProviderAuthenticationError("private-provider-secret")
+
+        with self.create_client(
+            FakeProvider(["connected"]),
+            vision_verifier=vision_failure,
+        ) as client:
+            response = client.post(
+                "/model-test/",
+                json={
+                    "profile_id": "generic_openai",
+                    "protocol": "openai",
+                    "base_url": "https://provider.example/v1",
+                    "model": "test-model",
+                    "api_key": "private-provider-secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json()["detail"],
+            {
+                "code": "authentication_failed",
+                "message": "认证失败：请检查 API Key 或账号区域",
+                "provider_status": 401,
+            },
+        )
+        self.assertNotIn("private-provider-secret", response.text)
+
+    def test_model_test_uses_deterministic_probe_parameters_without_changing_chat_profile(self):
+        from server.llm_api import create_app
+
+        created_profiles = []
+        created_providers = []
+
+        def provider_factory(profile):
+            created_profiles.append(profile)
+            provider = FakeProvider(["answer"])
+            created_providers.append(provider)
+            return provider
+
+        async def vision_probe(provider):
+            async for _ in provider.stream_text([{"role": "user", "content": "probe"}]):
+                return True
+            return False
+
+        connection = {
+            "profile_id": "generic_openai",
+            "protocol": "openai",
+            "base_url": "https://provider.example/v1",
+            "model": "custom-model",
+            "api_key": "provider-secret",
+            "max_tokens": 1024,
+            "temperature": 0.2,
+        }
+        with TestClient(
+            create_app(
+                profile_resolver=lambda: test_profile(),
+                provider_factory=provider_factory,
+                vision_verifier=vision_probe,
+            )
+        ) as client:
+            probe = client.post("/model-test/", json=connection)
+            chat = client.post("/chat/", json={"content": "Question", **connection})
+
+        self.assertEqual(probe.status_code, 200)
+        self.assertEqual(chat.status_code, 200)
+        self.assertEqual([profile.max_tokens for profile in created_profiles], [32, 1024])
+        self.assertEqual([profile.temperature for profile in created_profiles], [0, 0.2])
+        self.assertIsNot(created_providers[0], created_providers[1])
 
     def test_provider_failure_emits_error_and_done_events_without_hanging(self):
         provider = FakeProvider(error=RuntimeError("provider unavailable"))
@@ -305,6 +516,31 @@ class LLMAPITests(unittest.TestCase):
         self.assertIn("event: error", response.text)
         self.assertIn("provider unavailable", response.text)
         self.assertIn("event: done", response.text)
+
+    def test_image_provider_failure_does_not_leak_screenshot_through_sse_or_history(self):
+        encoded = base64.b64encode(
+            b"\x89PNG\r\n\x1a\nprivate-screen-fixture"
+        ).decode("ascii")
+        provider = FakeProvider(
+            error=RuntimeError(f"provider rejected request body containing {encoded}")
+        )
+
+        with self.create_client(provider) as client:
+            response = client.post(
+                "/chat/",
+                json={
+                    "content": "Question",
+                    "image": {"media_type": "image/png", "data": encoded},
+                },
+            )
+            history = client.get("/history/").json()["history"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("event: error", response.text)
+        self.assertIn("Model request failed", response.text)
+        self.assertIn("event: done", response.text)
+        self.assertNotIn(encoded, response.text)
+        self.assertNotIn(encoded, repr(history))
 
     def test_invalid_server_configuration_returns_service_unavailable(self):
         def broken_resolver():

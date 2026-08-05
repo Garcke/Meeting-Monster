@@ -61,9 +61,8 @@ export function PanelApp() {
     return (
         <main className={`${className} ${snapshot.target === 'closed' && snapshot.phase === 'hidden' ? 'is-hidden' : ''}`} data-target={visibleTarget} aria-label="Meeting-Monster 面板">
             <header className="panel-drag-handle" data-drag-handle>
-                {visibleTarget === 'workspace'
-                    ? <div className="panel-prompt" aria-label="What should I say?"><span aria-hidden="true">✦</span> What should I say?</div>
-                    : <span className="panel-title">连接与模型</span>}
+                {visibleTarget === 'workspace' && <span className="panel-kicker">TRANSCRIPT</span>}
+                {visibleTarget === 'settings' && <span className="panel-title">连接与模型</span>}
                 <span className="panel-drag-hint">拖动面板</span>
             </header>
             {error && <div className="panel-error no-drag" role="alert">{error}</div>}

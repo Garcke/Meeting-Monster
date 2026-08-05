@@ -9,7 +9,8 @@ import {
     readAudioInputMode,
     writeAudioInputMode,
 } from '../../desktop/ui/shared/services/audio-input-mode';
-import {BUILT_IN_MODEL_PROFILES, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
+import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
+import type {MeetingMonsterApi, ModelTestResult} from '../../desktop/src/shared/contracts';
 import {stripAssistantThinking} from '../../desktop/ui/shared/services/assistant-markdown';
 
 class FakeTrack {
@@ -129,6 +130,10 @@ it('exposes exactly the two fixed protocol profiles', () => {
     ]);
 });
 
+it('uses one stable renderer event for saved model capability changes', () => {
+    expect(MODEL_SETTINGS_CHANGED_EVENT).toBe('meeting-monster:model-settings-changed');
+});
+
 it('builds a complete typed model selection from form values', () => {
     const profile = BUILT_IN_MODEL_PROFILES[0];
     expect(buildModelSelection(profile, {
@@ -138,6 +143,22 @@ it('builds a complete typed model selection from form values', () => {
         profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://provider.example/v1',
         model: 'demo-model', api_key: 'secret', max_tokens: 2048, temperature: 0.4,
     });
+});
+
+it('preserves the verified vision result returned by the model settings service', async () => {
+    const expected: ModelTestResult = {ok: true, vision: true, latency_ms: 8, model: 'demo-model'};
+    const api = {
+        models: {test: vi.fn().mockResolvedValue(expected)},
+    } as unknown as MeetingMonsterApi;
+    const {testModelConnection} = await import('../../desktop/ui/shared/services/model-settings-service');
+
+    await expect(testModelConnection(api, BUILT_IN_MODEL_PROFILES[0], {
+        baseUrl: 'https://provider.example/v1',
+        model: 'demo-model',
+        apiKey: '',
+        maxTokens: '2048',
+        temperature: '0.4',
+    })).resolves.toEqual(expected);
 });
 
 it('rejects invalid numeric model settings instead of silently omitting them', () => {

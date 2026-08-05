@@ -14,12 +14,13 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from server.llm_providers import LLMProvider
+from server.model_diagnostics import model_diagnostic_http_exception
 from server.settings.model_profiles import ModelConfigurationError, ResolvedModelProfile
 from server.settings.profile_store import ModelProfileInput, ProfileStore, PublicModelProfile
+from server.vision_challenge import VisionVerifier
 
 
 ProviderFactory = Callable[[ResolvedModelProfile], Awaitable[LLMProvider]]
-CONNECTIVITY_PROMPT = "Reply with OK."
 
 
 class StoredProfileTestRequest(BaseModel):
@@ -42,6 +43,7 @@ def create_router(
     admin_token: str | None,
     provider_factory: ProviderFactory,
     environ: Mapping[str, str],
+    vision_verifier: VisionVerifier,
 ) -> APIRouter:
     """Build management endpoints with explicit dependencies for local use and tests."""
 
@@ -193,23 +195,18 @@ def create_router(
             if "profile_id" in payload
             else resolve_candidate_profile(payload)
         )
-        short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
+        short_profile = replace(profile, max_tokens=32, temperature=0)
         started = time.perf_counter()
-        received_text = False
         try:
-            stream = (await provider_factory(short_profile)).stream_text(
-                [{"role": "user", "content": CONNECTIVITY_PROMPT}]
-            )
-            async for text in stream:
-                if text:
-                    received_text = True
-                    break
+            provider = await provider_factory(short_profile)
+            supports_vision = await vision_verifier(provider)
         except Exception as exc:
-            raise HTTPException(status_code=422, detail="Model connectivity test failed") from exc
-        if not received_text:
-            raise HTTPException(status_code=422, detail="Model connectivity test failed")
+            raise model_diagnostic_http_exception(exc) from exc
+        if not supports_vision:
+            raise model_diagnostic_http_exception(None, vision_failed=True)
         return {
             "ok": True,
+            "vision": True,
             "latency_ms": int((time.perf_counter() - started) * 1000),
             "model": short_profile.model,
         }

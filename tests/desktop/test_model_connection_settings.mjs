@@ -50,7 +50,91 @@ function anthropicConnection(overrides = {}) {
     };
 }
 
-test('version-2 store retains OpenAI and Anthropic connections independently', async () => {
+function writeEncryptedSettings(file, version, settings) {
+    const encryptedConnection = Buffer.from(
+        `encrypted:${JSON.stringify(settings)}`,
+        'utf8',
+    ).toString('base64');
+    fs.writeFileSync(file, JSON.stringify({version, encryptedConnection}));
+}
+
+test('version-2 settings load as unverified without rewriting the encrypted file', async () => {
+    const {ModelConnectionStore} = await import(SETTINGS_MODULE);
+    const temporary = temporarySettingsPath();
+    const legacySettings = {
+        active_profile: 'generic_openai',
+        connections: {generic_openai: openAiConnection()},
+    };
+    writeEncryptedSettings(temporary.file, 2, legacySettings);
+    const before = fs.readFileSync(temporary.file);
+    const store = new ModelConnectionStore({
+        safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
+    });
+
+    assert.deepEqual(await store.loadSummary(), {
+        active_profile: 'generic_openai',
+        connections: {
+            generic_openai: {
+                profile_id: 'generic_openai',
+                protocol: 'openai',
+                base_url: 'https://api.openai.example/v1',
+                model: 'gpt-example',
+                has_api_key: true,
+                max_tokens: 2048,
+                temperature: 0.4,
+                vision_verified: false,
+            },
+        },
+    });
+    assert.equal(
+        (await store.loadSettings()).connections.generic_openai.vision_verified,
+        false,
+    );
+    assert.deepEqual(fs.readFileSync(temporary.file), before);
+    assert.equal(JSON.parse(fs.readFileSync(temporary.file, 'utf8')).version, 2);
+    fs.rmSync(temporary.directory, {recursive: true, force: true});
+});
+
+test('trusted save writes version 3 and persists only an internally assigned verified flag', async () => {
+    const {ModelConnectionStore} = await import(SETTINGS_MODULE);
+    const temporary = temporarySettingsPath();
+    const safeStorage = fakeSafeStorage();
+    const store = new ModelConnectionStore({safeStorage, settingsPath: temporary.file});
+
+    const summary = await store.saveVerifiedConnection(openAiConnection());
+    assert.equal(summary.connections.generic_openai.vision_verified, true);
+    const envelope = JSON.parse(fs.readFileSync(temporary.file, 'utf8'));
+    assert.equal(envelope.version, 3);
+    const plaintext = safeStorage.decryptString(Buffer.from(envelope.encryptedConnection, 'base64'));
+    assert.equal(JSON.parse(plaintext).connections.generic_openai.vision_verified, true);
+    fs.rmSync(temporary.directory, {recursive: true, force: true});
+});
+
+test('model connection store exposes only the trusted save API', async () => {
+    const {ModelConnectionStore} = await import(SETTINGS_MODULE);
+    assert.equal('saveVerifiedConnection' in ModelConnectionStore.prototype, true);
+    assert.equal('saveConnection' in ModelConnectionStore.prototype, false);
+});
+
+test('version-3 settings require a boolean vision capability', async () => {
+    const {ModelConnectionStore} = await import(SETTINGS_MODULE);
+    const temporary = temporarySettingsPath();
+    writeEncryptedSettings(temporary.file, 3, {
+        active_profile: 'generic_openai',
+        connections: {
+            generic_openai: {...openAiConnection(), vision_verified: 'yes'},
+        },
+    });
+    const store = new ModelConnectionStore({
+        safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
+    });
+
+    await assert.rejects(store.loadSettings(), /could not be decrypted/i);
+    assert.equal(fs.existsSync(temporary.file), false);
+    fs.rmSync(temporary.directory, {recursive: true, force: true});
+});
+
+test('version-3 store retains verified OpenAI and Anthropic connections independently', async () => {
     const {ModelConnectionStore} = await import(SETTINGS_MODULE);
     const temporary = temporarySettingsPath();
     const store = new ModelConnectionStore({
@@ -61,8 +145,8 @@ test('version-2 store retains OpenAI and Anthropic connections independently', a
         active_profile: 'generic_openai',
         connections: {},
     });
-    await store.saveConnection(openAiConnection());
-    const summary = await store.saveConnection(anthropicConnection());
+    await store.saveVerifiedConnection(openAiConnection());
+    const summary = await store.saveVerifiedConnection(anthropicConnection());
 
     assert.deepEqual(summary, {
         active_profile: 'generic_anthropic',
@@ -75,6 +159,7 @@ test('version-2 store retains OpenAI and Anthropic connections independently', a
                 has_api_key: true,
                 max_tokens: 2048,
                 temperature: 0.4,
+                vision_verified: true,
             },
             generic_anthropic: {
                 profile_id: 'generic_anthropic',
@@ -84,19 +169,20 @@ test('version-2 store retains OpenAI and Anthropic connections independently', a
                 has_api_key: true,
                 max_tokens: 4096,
                 temperature: 0.2,
+                vision_verified: true,
             },
         },
     });
     assert.deepEqual(await store.loadSettings(), {
         active_profile: 'generic_anthropic',
         connections: {
-            generic_openai: openAiConnection(),
-            generic_anthropic: anthropicConnection(),
+            generic_openai: {...openAiConnection(), vision_verified: true},
+            generic_anthropic: {...anthropicConnection(), vision_verified: true},
         },
     });
 
     const raw = fs.readFileSync(temporary.file, 'utf8');
-    assert.equal(JSON.parse(raw).version, 2);
+    assert.equal(JSON.parse(raw).version, 3);
     assert.deepEqual(Object.keys(JSON.parse(raw)).sort(), ['encryptedConnection', 'version']);
     assert.doesNotMatch(
         raw,
@@ -111,10 +197,10 @@ test('saving one protocol updates it without overwriting the other protocol', as
     const store = new ModelConnectionStore({
         safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
     });
-    await store.saveConnection(openAiConnection());
-    await store.saveConnection(anthropicConnection());
+    await store.saveVerifiedConnection(openAiConnection());
+    await store.saveVerifiedConnection(anthropicConnection());
 
-    await store.saveConnection(openAiConnection({
+    await store.saveVerifiedConnection(openAiConnection({
         model: 'gpt-updated',
         api_key: 'updated-openai-secret',
         max_tokens: 8192,
@@ -123,12 +209,12 @@ test('saving one protocol updates it without overwriting the other protocol', as
     assert.deepEqual(await store.loadSettings(), {
         active_profile: 'generic_openai',
         connections: {
-            generic_openai: openAiConnection({
+            generic_openai: {...openAiConnection({
                 model: 'gpt-updated',
                 api_key: 'updated-openai-secret',
                 max_tokens: 8192,
-            }),
-            generic_anthropic: anthropicConnection(),
+            }), vision_verified: true},
+            generic_anthropic: {...anthropicConnection(), vision_verified: true},
         },
     });
     fs.rmSync(temporary.directory, {recursive: true, force: true});
@@ -140,15 +226,15 @@ test('empty API key is retained only for an identical connection identity', asyn
     const store = new ModelConnectionStore({
         safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
     });
-    await store.saveConnection(openAiConnection());
+    await store.saveVerifiedConnection(openAiConnection());
 
-    await store.saveConnection(openAiConnection({api_key: '', max_tokens: 1024}));
+    await store.saveVerifiedConnection(openAiConnection({api_key: '', max_tokens: 1024}));
     assert.equal(
         (await store.loadSettings()).connections.generic_openai.api_key,
         'openai-secret',
     );
 
-    await store.saveConnection(openAiConnection({
+    await store.saveVerifiedConnection(openAiConnection({
         base_url: 'https://other-openai.example/v1',
         api_key: '',
     }));
@@ -157,15 +243,15 @@ test('empty API key is retained only for an identical connection identity', asyn
         undefined,
     );
 
-    await store.saveConnection(openAiConnection({api_key: 'replacement-secret'}));
-    await store.saveConnection(openAiConnection({model: 'gpt-other', api_key: ''}));
+    await store.saveVerifiedConnection(openAiConnection({api_key: 'replacement-secret'}));
+    await store.saveVerifiedConnection(openAiConnection({model: 'gpt-other', api_key: ''}));
     assert.equal(
         (await store.loadSettings()).connections.generic_openai.api_key,
         undefined,
     );
 
-    await store.saveConnection(openAiConnection({api_key: 'openai-again'}));
-    await store.saveConnection(anthropicConnection({api_key: ''}));
+    await store.saveVerifiedConnection(openAiConnection({api_key: 'openai-again'}));
+    await store.saveVerifiedConnection(anthropicConnection({api_key: ''}));
     assert.equal(
         (await store.loadSettings()).connections.generic_anthropic.api_key,
         undefined,
@@ -195,7 +281,7 @@ test('version-1 settings are stale and are cleared without decrypting or reusing
     assert.equal(fs.existsSync(temporary.file), false);
     assert.equal(fs.existsSync(`${temporary.file}.tmp`), false);
 
-    const saved = await store.saveConnection(openAiConnection({api_key: ''}));
+    const saved = await store.saveVerifiedConnection(openAiConnection({api_key: ''}));
     assert.equal(saved.connections.generic_openai.has_api_key, false);
     fs.rmSync(temporary.directory, {recursive: true, force: true});
 });
@@ -217,6 +303,7 @@ test('connection validation rejects mismatches, malformed values, and unknown fi
         ['fractional Token count', openAiConnection({max_tokens: 1.5})],
         ['low temperature', openAiConnection({temperature: -0.01})],
         ['high temperature', openAiConnection({temperature: 2.01})],
+        ['renderer capability claim', openAiConnection({vision_verified: true})],
         ['unknown field', openAiConnection({settings_path: 'C:\\secret', access_token: 'leak'})],
     ];
 
@@ -234,10 +321,10 @@ test('summary exposes required connection metadata and no secret-bearing fields'
         safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
     });
 
-    const summary = await store.saveConnection(openAiConnection());
+    const summary = await store.saveVerifiedConnection(openAiConnection());
     assert.deepEqual(
         Object.keys(summary.connections.generic_openai).sort(),
-        ['base_url', 'has_api_key', 'max_tokens', 'model', 'profile_id', 'protocol', 'temperature'],
+        ['base_url', 'has_api_key', 'max_tokens', 'model', 'profile_id', 'protocol', 'temperature', 'vision_verified'],
     );
     const serialized = JSON.stringify(summary);
     assert.doesNotMatch(serialized, /openai-secret|["']api_key["']|encryptedConnection|settingsPath|\.tmp/i);
@@ -266,7 +353,7 @@ test('store keeps atomic writes and refuses plaintext fallback without safeStora
         safeStorage: fakeSafeStorage(), settingsPath: temporary.file, fileSystem,
     });
 
-    await store.saveConnection(openAiConnection());
+    await store.saveVerifiedConnection(openAiConnection());
     assert.deepEqual(writes, [`${temporary.file}.tmp`]);
     assert.deepEqual(renames, [[`${temporary.file}.tmp`, temporary.file]]);
 
@@ -275,7 +362,7 @@ test('store keeps atomic writes and refuses plaintext fallback without safeStora
         safeStorage: fakeSafeStorage({available: false}), settingsPath: unavailablePath,
     });
     await assert.rejects(
-        unavailableStore.saveConnection(openAiConnection()),
+        unavailableStore.saveVerifiedConnection(openAiConnection()),
         /encryption/i,
     );
     assert.equal(fs.existsSync(unavailablePath), false);
@@ -288,13 +375,50 @@ test('temporary safeStorage unavailability does not delete an existing encrypted
     const availableStore = new ModelConnectionStore({
         safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
     });
-    await availableStore.saveConnection(openAiConnection());
+    await availableStore.saveVerifiedConnection(openAiConnection());
     const before = fs.readFileSync(temporary.file);
 
     const unavailableStore = new ModelConnectionStore({
         safeStorage: fakeSafeStorage({available: false}), settingsPath: temporary.file,
     });
-    await assert.rejects(unavailableStore.saveConnection(anthropicConnection()), /encryption/i);
+    await assert.rejects(unavailableStore.saveVerifiedConnection(anthropicConnection()), /encryption/i);
     assert.deepEqual(fs.readFileSync(temporary.file), before);
     fs.rmSync(temporary.directory, {recursive: true, force: true});
+});
+
+test('failed trusted save preserves the previous version-2 or version-3 envelope', async (t) => {
+    const {ModelConnectionStore} = await import(SETTINGS_MODULE);
+    for (const version of [2, 3]) {
+        await t.test(`version ${version}`, async () => {
+            const temporary = temporarySettingsPath();
+            writeEncryptedSettings(temporary.file, version, {
+                active_profile: 'generic_openai',
+                connections: {
+                    generic_openai: {
+                        ...openAiConnection(),
+                        ...(version === 3 ? {vision_verified: true} : {}),
+                    },
+                },
+            });
+            const before = fs.readFileSync(temporary.file);
+            const fileSystem = {
+                readFile: fs.promises.readFile,
+                mkdir: fs.promises.mkdir,
+                writeFile: fs.promises.writeFile,
+                unlink: fs.promises.unlink,
+                rename: async () => { throw new Error('simulated rename failure'); },
+            };
+            const store = new ModelConnectionStore({
+                safeStorage: fakeSafeStorage(), settingsPath: temporary.file, fileSystem,
+            });
+
+            await assert.rejects(
+                store.saveVerifiedConnection(anthropicConnection()),
+                /persist encrypted model connections/i,
+            );
+            assert.deepEqual(fs.readFileSync(temporary.file), before);
+            assert.equal(fs.existsSync(`${temporary.file}.tmp`), false);
+            fs.rmSync(temporary.directory, {recursive: true, force: true});
+        });
+    }
 });

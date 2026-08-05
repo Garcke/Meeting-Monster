@@ -54,6 +54,11 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     }
     assert.match(source, /export type IpcChannel/);
     assert.match(source, /export interface MeetingMonsterApi/);
+    assert.match(source, /export interface ChatImageInput\s*\{[\s\S]*?media_type: 'image\/png';[\s\S]*?data: string;/);
+    assert.match(source, /export interface ModelTestResult\s*\{[\s\S]*?vision: true;/);
+    assert.match(source, /chat:\s*\{[\s\S]*?assist: 'chat:assist'/);
+    assert.match(source, /assist\(requestId: string, selection\?: ModelSelectionInput\): Promise<\{requestId: string\}>/);
+    assert.doesNotMatch(source, /assist\(requestId: string, content:/);
     assert.match(source, /quit\(\): Promise<void>/);
     for (const typeName of ['OverlayTarget', 'OverlayPhase', 'OverlaySnapshot', 'OverlayIntent']) {
         assert.match(source, new RegExp(`export (?:type|interface) ${typeName}\\b`));
@@ -62,6 +67,17 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     assert.match(source, /getSnapshot\(\): Promise<OverlaySnapshot>/);
     assert.match(source, /onSnapshot\(callback: \(snapshot: OverlaySnapshot\) => void\): Unsubscribe/);
     assert.match(source, /onWindowError\(callback: \(error: string\) => void\): Unsubscribe/);
+});
+
+test('preload exposes a narrow Assist request without accepting screenshot bytes', () => {
+    const source = read('desktop', 'src', 'preload', 'index.ts');
+
+    assert.match(
+        source,
+        /assist: \(requestId, selection\) => ipcRenderer\.invoke\(IPC_CHANNELS\.chat\.assist, requestId, selection\)/,
+    );
+    assert.doesNotMatch(source, /IPC_CHANNELS\.chat\.assist, requestId, content/);
+    assert.doesNotMatch(source, /assist:\s*\([^)]*(?:image|screenshot|data)/i);
 });
 
 test('shared contracts expose public ASR model snapshots without private download or filesystem data', () => {
@@ -95,14 +111,27 @@ test('shared contracts expose public ASR model snapshots without private downloa
     assert.match(source, /onStatus\(callback: \(snapshot: AsrModelSnapshot\) => void\): Unsubscribe/);
 });
 
-test('model settings IPC and preload return the version-2 non-secret summary map', () => {
+test('model settings IPC and preload return the version-3 non-secret vision summary map', () => {
     const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
     const preload = read('desktop', 'src', 'preload', 'index.ts');
+    const settings = read('desktop', 'src', 'main', 'model-connection-settings.ts');
     const summary = contracts.match(
         /export interface SavedModelConnectionSettings\s*\{([\s\S]*?)\n\}/,
     )?.[1] ?? '';
+    const savedConnection = contracts.match(
+        /export interface SavedModelConnection\s*\{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
 
     assert.match(summary, /active_profile: ModelProfileId/);
+    assert.doesNotMatch(savedConnection, /image|data/);
+    assert.match(savedConnection, /vision_verified: boolean/);
+    assert.doesNotMatch(savedConnection, /(?:^|\s)api_key\??:/m);
+    assert.match(
+        settings,
+        /export interface ModelConnection extends ModelConnectionCandidate\s*\{[\s\S]*?vision_verified: boolean;/,
+    );
+    assert.doesNotMatch(settings, /vision_verified\?: boolean/);
+    assert.doesNotMatch(settings, /saveConnection\s*\(/);
     assert.match(
         summary,
         /connections: Partial<Record<ModelProfileId, SavedModelConnection>>/,
@@ -123,5 +152,29 @@ test('model settings IPC and preload return the version-2 non-secret summary map
     assert.match(
         preload,
         /save: \(connection: ModelConnectionInput\) =>[\s\S]*?as Promise<SavedModelConnectionSettings>/,
+    );
+});
+
+test('model-test progress is a narrow typed preload subscription with safe cleanup', () => {
+    const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
+    const preload = read('desktop', 'src', 'preload', 'index.ts');
+
+    assert.match(contracts, /progress: 'models:progress'/);
+    assert.match(
+        contracts,
+        /export type ModelTestProgress = \{[\s\S]*?phase: 'connecting' \| 'vision';[\s\S]*?attempt: number;[\s\S]*?maxAttempts: typeof MAX_MODEL_TEST_ATTEMPTS;[\s\S]*?\};/,
+    );
+    assert.match(
+        contracts,
+        /onTestProgress\(callback: \(progress: ModelTestProgress\) => void\): Unsubscribe/,
+    );
+    assert.match(preload, /type ModelTestProgress/);
+    assert.match(
+        preload,
+        /onTestProgress: \(callback: \(progress: ModelTestProgress\) => void\) => subscribe\(IPC_CHANNELS\.models\.progress, callback\)/,
+    );
+    assert.match(
+        preload,
+        /ipcRenderer\.removeListener\(channel, listener\)/,
     );
 });

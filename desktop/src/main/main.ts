@@ -3,7 +3,11 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {AsrModelManager} from './asr-model-manager';
 import {getAsrModel, getAsrModelCatalog, toPublicAsrModelDescriptor} from './asr-model-catalog';
-import {ModelConnectionStore, type ModelConnection} from './model-connection-settings';
+import {
+    ModelConnectionStore,
+    type ModelConnection,
+    type ModelConnectionCandidate,
+} from './model-connection-settings';
 import {WindowPrivacyManager} from './privacy-manager';
 import {
     RemoteApiClient,
@@ -13,6 +17,8 @@ import {
 } from './remote-api-client';
 import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordinator';
 import {LocalAsrEngine, type SherpaBinding} from './local-asr-engine';
+import {captureCurrentDisplay} from './screen-capture';
+import {runModelTestWithVisionRetries} from './model-test-coordinator';
 import {
     createOverlayWindowController,
     CAPSULE_BOUNDS,
@@ -21,6 +27,7 @@ import {
 } from './overlay-window-controller';
 import {
     IPC_CHANNELS,
+    type ChatImageInput,
     type AsrModelId,
     type AsrModelSnapshot,
     type AsrModelState,
@@ -35,6 +42,7 @@ import {
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 const LOCAL_ASR_ERROR = 'Local ASR failed';
 const ASR_MODEL_ERROR = 'ASR model operation failed';
+const ASSIST_SCREENSHOT_PROMPT = '请分析这张截图，并直接回答截图中显示的问题；如果有多个问题，请按顺序回答。';
 
 // Some Windows environments cannot start Chromium's out-of-process GPU DLL.
 // Keep the transparent overlay on the software/in-process rendering path so
@@ -47,7 +55,12 @@ let overlayController: OverlayWindowController | null = null;
 let privacyManager: WindowPrivacyManager | null = null;
 let modelConnectionStore: ModelConnectionStore | null = null;
 let ipcHandlersRegistered = false;
-const activeChatRequests = new Map<string, {controller: AbortController; sender: WebContents}>();
+type ActiveChatRequest = {
+    controller: AbortController;
+    sender: WebContents;
+    phase: 'capturing' | 'streaming';
+};
+const activeChatRequests = new Map<string, ActiveChatRequest>();
 let asrModelManager: AsrModelManager | null = null;
 let localAsrEngine: LocalAsrEngine | null = null;
 let asrSessionCoordinator: AsrSessionCoordinator | null = null;
@@ -441,7 +454,7 @@ function modelConnectionToSelection(connection: ModelConnection): ModelSelection
     };
 }
 
-function modelSelectionToConnection(selection: ModelSelectionInput): ModelConnection {
+function modelSelectionToConnection(selection: ModelSelectionInput): ModelConnectionCandidate {
     return {
         profile_id: selection.profile_id,
         protocol: selection.protocol,
@@ -451,6 +464,92 @@ function modelSelectionToConnection(selection: ModelSelectionInput): ModelConnec
         max_tokens: selection.max_tokens ?? 4096,
         ...(selection.temperature === undefined ? {} : {temperature: selection.temperature}),
     };
+}
+
+async function requireVerifiedSavedSelection(
+    selection: ModelSelectionInput | undefined,
+): Promise<ModelSelectionInput> {
+    let settings: Awaited<ReturnType<ModelConnectionStore['loadSettings']>>;
+    try {
+        settings = await getModelConnectionStore().loadSettings();
+    } catch {
+        throw new Error('Model image capability is not verified');
+    }
+    if (!settings) throw new Error('Model image capability is not verified');
+    const saved = selection
+        ? settings.connections[selection.profile_id]
+        : settings.connections[settings.active_profile];
+    const sameIdentity = Boolean(saved
+        && (!selection || (
+            saved.profile_id === selection.profile_id
+            && saved.protocol === selection.protocol
+            && saved.base_url === selection.base_url
+            && saved.model === selection.model
+        )));
+    if (!saved || !sameIdentity || saved.vision_verified !== true) {
+        throw new Error('Model image capability is not verified');
+    }
+    return modelConnectionToSelection(saved);
+}
+
+function reserveChatRequest(id: string, sender: WebContents): ActiveChatRequest {
+    activeChatRequests.get(id)?.controller.abort();
+    const request: ActiveChatRequest = {
+        controller: new AbortController(),
+        sender,
+        phase: 'capturing',
+    };
+    activeChatRequests.set(id, request);
+    return request;
+}
+
+function isCurrentChatRequest(id: string, request: ActiveChatRequest): boolean {
+    return activeChatRequests.get(id) === request && !request.controller.signal.aborted;
+}
+
+function releaseChatRequest(id: string, request: ActiveChatRequest): void {
+    if (activeChatRequests.get(id) === request) activeChatRequests.delete(id);
+}
+
+function startChatRequest(args: {
+    id: string;
+    content: string;
+    sender: WebContents;
+    modelSelection?: ModelSelectionInput;
+    image?: ChatImageInput;
+    reserved?: ActiveChatRequest;
+}): boolean {
+    if (args.reserved && (!isCurrentChatRequest(args.id, args.reserved)
+        || args.reserved.sender !== args.sender
+        || args.reserved.phase !== 'capturing')) return false;
+    const active = args.reserved ?? reserveChatRequest(args.id, args.sender);
+    active.phase = 'streaming';
+    const {controller} = active;
+    void (async () => {
+        try {
+            for await (const chatEvent of getRemoteApiClient().streamChat({
+                requestId: args.id,
+                content: args.content,
+                modelSelection: args.modelSelection,
+                ...(args.image ? {image: args.image} : {}),
+                signal: controller.signal,
+            })) {
+                if (activeChatRequests.get(args.id)?.controller !== controller) return;
+                sendChatEvent(args.sender, chatEvent);
+            }
+        } catch {
+            if (!controller.signal.aborted && activeChatRequests.get(args.id)?.controller === controller) {
+                sendChatEvent(args.sender, {
+                    requestId: args.id,
+                    type: 'error',
+                    text: 'Remote chat request failed',
+                });
+            }
+        } finally {
+            if (activeChatRequests.get(args.id)?.controller === controller) activeChatRequests.delete(args.id);
+        }
+    })();
+    return true;
 }
 
 function sendChatEvent(sender: WebContents, event: ChatStreamEvent): void {
@@ -536,7 +635,7 @@ function registerIpcHandlers(): void {
     const handledChannels = [
         ...Object.values(IPC_CHANNELS.window).filter((channel) => channel !== IPC_CHANNELS.window.state),
         ...Object.values(IPC_CHANNELS.privacy).filter((channel) => channel !== IPC_CHANNELS.privacy.status),
-        ...Object.values(IPC_CHANNELS.models),
+        ...Object.values(IPC_CHANNELS.models).filter((channel) => channel !== IPC_CHANNELS.models.progress),
         ...Object.values(IPC_CHANNELS.chat).filter((channel) => channel !== IPC_CHANNELS.chat.event),
         ...Object.values(IPC_CHANNELS.asrModels).filter((channel) => channel !== IPC_CHANNELS.asrModels.status),
         ...Object.values(IPC_CHANNELS.asr).filter((channel) => (
@@ -631,42 +730,95 @@ function registerIpcHandlers(): void {
     });
     ipcMain.handle(IPC_CHANNELS.models.save, async (event, connection: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
-        const selection = requireModelSelection(connection);
-        return getModelConnectionStore().saveConnection(modelSelectionToConnection(selection));
+        const requested = requireModelSelection(connection);
+        const selection = await mergeSavedModelConnection(requested);
+        if (!selection) throw new Error('Model selection is required');
+        const tested = await runModelTestWithVisionRetries(
+            getRemoteApiClient(),
+            selection,
+            (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
+        );
+        if (!tested.vision) throw new Error('Model does not support image input');
+        return getModelConnectionStore().saveVerifiedConnection(modelSelectionToConnection(selection));
     });
     ipcMain.handle(IPC_CHANNELS.models.test, async (event, selection: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
         const modelSelection = await mergeSavedModelConnection(requireModelSelection(selection));
         if (!modelSelection) throw new Error('Model selection is required');
-        return (await getRemoteApiClient()).testSelectedModel(modelSelection);
+        return runModelTestWithVisionRetries(
+            getRemoteApiClient(),
+            modelSelection,
+            (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
+        );
     });
     ipcMain.handle(IPC_CHANNELS.chat.send, async (event, requestId: unknown, content: unknown, selection?: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');
         const id = requireText(requestId, 'Chat request id');
         const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
-        const modelSelection = await mergeSavedModelConnection(requestedSelection);
-        activeChatRequests.get(id)?.controller.abort();
-        const controller = new AbortController();
-        const sender = event.sender;
-        activeChatRequests.set(id, {controller, sender});
-        void (async () => {
-            try {
-                for await (const chatEvent of (await getRemoteApiClient()).streamChat({
-                    requestId: id, content: question, modelSelection, signal: controller.signal,
-                })) {
-                    if (activeChatRequests.get(id)?.controller !== controller) return;
-                    sendChatEvent(sender, chatEvent);
-                }
-            } catch {
-                if (!controller.signal.aborted && activeChatRequests.get(id)?.controller === controller) {
-                    sendChatEvent(sender, {requestId: id, type: 'error', text: 'Remote chat request failed'});
-                }
-            } finally {
-                if (activeChatRequests.get(id)?.controller === controller) activeChatRequests.delete(id);
+        const reserved = reserveChatRequest(id, event.sender);
+        try {
+            const modelSelection = await mergeSavedModelConnection(requestedSelection);
+            if (!isCurrentChatRequest(id, reserved)) {
+                releaseChatRequest(id, reserved);
+                return {requestId: id};
             }
-        })();
-        return {requestId: id};
+            if (!startChatRequest({
+                id,
+                content: question,
+                sender: event.sender,
+                modelSelection,
+                reserved,
+            })) {
+                releaseChatRequest(id, reserved);
+            }
+            return {requestId: id};
+        } catch (error) {
+            releaseChatRequest(id, reserved);
+            throw error;
+        }
+    });
+    ipcMain.handle(IPC_CHANNELS.chat.assist, async (event, requestId: unknown, selection?: unknown) => {
+        if (!isAuthorizedSender(event)) throw new Error('Unauthorized Assist request');
+        const id = requireText(requestId, 'Chat request id');
+        const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
+        const reserved = reserveChatRequest(id, event.sender);
+        try {
+            const verified = await requireVerifiedSavedSelection(requestedSelection);
+            if (!isCurrentChatRequest(id, reserved)) {
+                releaseChatRequest(id, reserved);
+                return {requestId: id};
+            }
+            let captured: Awaited<ReturnType<typeof captureCurrentDisplay>>;
+            try {
+                captured = await captureCurrentDisplay({screen, desktopCapturer});
+            } catch {
+                if (!isCurrentChatRequest(id, reserved)) {
+                    releaseChatRequest(id, reserved);
+                    return {requestId: id};
+                }
+                throw new Error('Unable to capture the current screen');
+            }
+            if (!isCurrentChatRequest(id, reserved)) {
+                releaseChatRequest(id, reserved);
+                return {requestId: id};
+            }
+            const image: ChatImageInput = {media_type: captured.mediaType, data: captured.data};
+            if (!startChatRequest({
+                id,
+                content: ASSIST_SCREENSHOT_PROMPT,
+                sender: event.sender,
+                modelSelection: verified,
+                image,
+                reserved,
+            })) {
+                releaseChatRequest(id, reserved);
+            }
+            return {requestId: id};
+        } catch (error) {
+            releaseChatRequest(id, reserved);
+            throw error;
+        }
     });
     ipcMain.handle(IPC_CHANNELS.chat.cancel, (event, requestId: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');

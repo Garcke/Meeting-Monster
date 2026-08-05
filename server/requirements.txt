@@ -23,6 +23,7 @@ httpx==0.28.1
 idna==3.10
 jiter==0.8.2
 multidict==6.1.0
+Pillow==11.1.0
 openai==1.63.2
 propcache==0.2.1
 pydantic==2.10.6

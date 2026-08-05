@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from server.chat_images import parse_chat_image
 from server.settings.model_profiles import (
     DEFAULT_PROFILE_STORE_PATH,
     ModelConfigurationError,
@@ -27,7 +28,9 @@ from server.settings.model_profiles import (
 from server.settings.profile_store import ProfileStore, SecretCipher
 from server.chat_service import ChatService, sanitize_provider_error
 from server.llm_providers import LLMProvider, ProviderCache, create_provider
+from server.model_diagnostics import model_diagnostic_http_exception
 from server.model_api import create_router as create_model_router
+from server.vision_challenge import VisionVerifier, verify_provider_vision
 
 
 PROMPT_FILE = Path(__file__).resolve().parents[1] / "cache" / "prompt.txt"
@@ -44,6 +47,14 @@ class UserMessage(BaseModel):
     api_key: str | None = None
     max_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    image: object | None = None
+
+
+class ChatImageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    media_type: str
+    data: str
 
 
 class ModelTestRequest(BaseModel):
@@ -105,6 +116,7 @@ def create_app(
     profile_store: ProfileStore | None = None,
     admin_token: str | None = None,
     environ: Mapping[str, str] | None = None,
+    vision_verifier: VisionVerifier = verify_provider_vision,
 ) -> FastAPI:
     environment = os.environ if environ is None else environ
     runtime_store = profile_store or create_runtime_profile_store(environment)
@@ -182,6 +194,16 @@ def create_app(
 
     @app.post("/chat/")
     async def chat(user_message: UserMessage):
+        image = None
+        if user_message.image is not None:
+            try:
+                image_request = ChatImageRequest.model_validate(user_message.image)
+                image = parse_chat_image(image_request.media_type, image_request.data)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid screenshot image",
+                ) from exc
         connection = parse_temporary_connection(user_message)
         profile = resolve_profile(
             user_message.profile_id if connection is None else None,
@@ -202,6 +224,7 @@ def create_app(
                 user_message.content,
                 profile,
                 provider,
+                image=image,
             ):
                 if kind == "chunk":
                     payload = json.dumps({"response": value}, ensure_ascii=False)
@@ -260,23 +283,18 @@ def create_app(
             request.temperature,
             connection,
         )
-        short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
+        short_profile = replace(profile, max_tokens=32, temperature=0)
         started = asyncio.get_running_loop().time()
-        received_text = False
         try:
-            stream = (await chat_service.get_provider(short_profile)).stream_text(
-                [{"role": "user", "content": "Reply with OK."}]
-            )
-            async for text in stream:
-                if text:
-                    received_text = True
-                    break
+            provider = await chat_service.get_provider(short_profile)
+            supports_vision = await vision_verifier(provider)
         except Exception as exc:
-            raise HTTPException(status_code=422, detail="Model connectivity test failed") from exc
-        if not received_text:
-            raise HTTPException(status_code=422, detail="Model connectivity test failed")
+            raise model_diagnostic_http_exception(exc) from exc
+        if not supports_vision:
+            raise model_diagnostic_http_exception(None, vision_failed=True)
         return {
             "ok": True,
+            "vision": True,
             "latency_ms": int((asyncio.get_running_loop().time() - started) * 1000),
             "model": short_profile.model,
         }
@@ -291,6 +309,7 @@ def create_app(
             admin_token=admin_token,
             provider_factory=chat_service.get_provider,
             environ=environment,
+            vision_verifier=vision_verifier,
         )
     )
 
