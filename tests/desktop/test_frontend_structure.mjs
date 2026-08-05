@@ -28,12 +28,16 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.doesNotMatch(panelCss, /\.panel-prompt\s*\{/);
     assert.match(panelApp, /className="panel-drag-handle"/);
     assert.match(panelApp, /className="panel-drag-hint"/);
+    assert.match(panelApp, /visibleTarget === 'workspace' && <span className="panel-kicker">TRANSCRIPT<\/span>/);
     assert.match(panelApp, /visibleTarget === 'settings' && <span className="panel-title">连接与模型<\/span>/);
+    assert.doesNotMatch(workspace, /\u5f00\u59cb\u8f6c\u5199\u540e\uff0c\u5f53\u524d\u95ee\u9898\u4f1a\u663e\u793a\u5728\u8fd9\u91cc/);
     assert.match(workspace, /className="answer-scroll no-drag"/);
     assert.match(panelCss, /\.workspace-content\s*\{[^}]*display:\s*grid/s);
     assert.doesNotMatch(workspace, /className="workspace-toolbar no-drag"/);
     assert.match(workspace, /className="composer-actions"[\s\S]*Assist[\s\S]*\u8ffd\u95ee[\s\S]*\u91cd\u8ff0/);
     assert.match(workspace, /async function assistWithScreenshot\(\)[\s\S]*api\.chat\.assist/);
+    assert.match(workspace, /api\.chat\.assist\(requestId\)/);
+    assert.doesNotMatch(workspace, /api\.chat\.assist\(requestId,\s*selectedText/);
     assert.match(workspace, /async function sendText\(requestedAction:[\s\S]*api\.chat\.send/);
     assert.match(workspace, /onClick=\{\(\) => \{ setAction\('assist'\); void assistWithScreenshot\(\); \}\}/);
     assert.match(workspace, /onClick=\{\(\) => \{ setAction\('followup'\); void sendText\('followup'\); \}\}/);

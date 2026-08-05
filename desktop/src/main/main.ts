@@ -18,6 +18,7 @@ import {
 import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordinator';
 import {LocalAsrEngine, type SherpaBinding} from './local-asr-engine';
 import {captureCurrentDisplay} from './screen-capture';
+import {runModelTestWithVisionRetries} from './model-test-coordinator';
 import {
     createOverlayWindowController,
     CAPSULE_BOUNDS,
@@ -41,6 +42,7 @@ import {
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 const LOCAL_ASR_ERROR = 'Local ASR failed';
 const ASR_MODEL_ERROR = 'ASR model operation failed';
+const ASSIST_SCREENSHOT_PROMPT = '请分析这张截图，并直接回答截图中显示的问题；如果有多个问题，请按顺序回答。';
 
 // Some Windows environments cannot start Chromium's out-of-process GPU DLL.
 // Keep the transparent overlay on the software/in-process rendering path so
@@ -633,7 +635,7 @@ function registerIpcHandlers(): void {
     const handledChannels = [
         ...Object.values(IPC_CHANNELS.window).filter((channel) => channel !== IPC_CHANNELS.window.state),
         ...Object.values(IPC_CHANNELS.privacy).filter((channel) => channel !== IPC_CHANNELS.privacy.status),
-        ...Object.values(IPC_CHANNELS.models),
+        ...Object.values(IPC_CHANNELS.models).filter((channel) => channel !== IPC_CHANNELS.models.progress),
         ...Object.values(IPC_CHANNELS.chat).filter((channel) => channel !== IPC_CHANNELS.chat.event),
         ...Object.values(IPC_CHANNELS.asrModels).filter((channel) => channel !== IPC_CHANNELS.asrModels.status),
         ...Object.values(IPC_CHANNELS.asr).filter((channel) => (
@@ -731,7 +733,11 @@ function registerIpcHandlers(): void {
         const requested = requireModelSelection(connection);
         const selection = await mergeSavedModelConnection(requested);
         if (!selection) throw new Error('Model selection is required');
-        const tested = await getRemoteApiClient().testSelectedModel(selection);
+        const tested = await runModelTestWithVisionRetries(
+            getRemoteApiClient(),
+            selection,
+            (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
+        );
         if (!tested.vision) throw new Error('Model does not support image input');
         return getModelConnectionStore().saveVerifiedConnection(modelSelectionToConnection(selection));
     });
@@ -739,7 +745,11 @@ function registerIpcHandlers(): void {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
         const modelSelection = await mergeSavedModelConnection(requireModelSelection(selection));
         if (!modelSelection) throw new Error('Model selection is required');
-        return (await getRemoteApiClient()).testSelectedModel(modelSelection);
+        return runModelTestWithVisionRetries(
+            getRemoteApiClient(),
+            modelSelection,
+            (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
+        );
     });
     ipcMain.handle(IPC_CHANNELS.chat.send, async (event, requestId: unknown, content: unknown, selection?: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');
@@ -768,10 +778,9 @@ function registerIpcHandlers(): void {
             throw error;
         }
     });
-    ipcMain.handle(IPC_CHANNELS.chat.assist, async (event, requestId: unknown, content: unknown, selection?: unknown) => {
+    ipcMain.handle(IPC_CHANNELS.chat.assist, async (event, requestId: unknown, selection?: unknown) => {
         if (!isAuthorizedSender(event)) throw new Error('Unauthorized Assist request');
         const id = requireText(requestId, 'Chat request id');
-        const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
         const reserved = reserveChatRequest(id, event.sender);
         try {
@@ -797,7 +806,7 @@ function registerIpcHandlers(): void {
             const image: ChatImageInput = {media_type: captured.mediaType, data: captured.data};
             if (!startChatRequest({
                 id,
-                content: question,
+                content: ASSIST_SCREENSHOT_PROMPT,
                 sender: event.sender,
                 modelSelection: verified,
                 image,

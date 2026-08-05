@@ -93,7 +93,7 @@ test('preload exposes fixed ASR model commands separately from remote AI model c
     assert.deepEqual(received, snapshot);
 });
 
-test('preload Assist invokes only the request id, text, and optional model selection', async () => {
+test('preload Assist invokes only the request id and optional model selection', async () => {
     const preload = loadPreload();
     const selection = {
         profile_id: 'generic_openai',
@@ -102,12 +102,12 @@ test('preload Assist invokes only the request id, text, and optional model selec
         model: 'gpt-vision',
     };
 
-    await preload.api.chat.assist('request-1', 'Question', selection);
-    await preload.api.chat.assist('request-2', 'Another question');
+    await preload.api.chat.assist('request-1', selection);
+    await preload.api.chat.assist('request-2');
 
     assert.deepEqual(preload.invocations, [
-        ['chat:assist', 'request-1', 'Question', selection],
-        ['chat:assist', 'request-2', 'Another question', undefined],
+        ['chat:assist', 'request-1', selection],
+        ['chat:assist', 'request-2', undefined],
     ]);
     assert.deepEqual(Object.keys(preload.api.chat).sort(), ['assist', 'cancel', 'onEvent', 'send']);
     assert.equal(JSON.stringify(preload.invocations).includes('image/png'), false);

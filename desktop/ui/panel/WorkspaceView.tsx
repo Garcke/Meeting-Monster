@@ -65,7 +65,7 @@ export function WorkspaceView({active}: {active: boolean}) {
     const [visionVerified, setVisionVerified] = useState(false);
     const [requestPhase, setRequestPhase] = useState<'idle' | 'capturing' | 'generating'>('idle');
     const [action, setAction] = useState<'assist' | 'followup' | 'recap'>('assist');
-    const activeRequest = useRef<{id: string; questionId: string} | null>(null);
+    const activeRequest = useRef<{id: string; questionId: string | null} | null>(null);
 
     const refresh = () => setQuestions([...storeRef.current.getQuestions()]);
     const updateRecordingPhase = (phase: RecordingPhase) => {
@@ -78,10 +78,9 @@ export function WorkspaceView({active}: {active: boolean}) {
         const unsubscribeResult = api.asr.onResult((event) => {
             if (event.type === 'partial') setPartial(event.text);
             if (event.type === 'final') {
-                const question = storeRef.current.addQuestion(event.text, 'asr');
+                storeRef.current.addQuestion(event.text, 'asr');
                 setPartial('');
                 refresh();
-                if (question) void sendText('direct');
             }
             if (event.type === 'error') setAsr({state: 'error', message: event.text});
         });
@@ -247,27 +246,20 @@ export function WorkspaceView({active}: {active: boolean}) {
     }
 
     async function assistWithScreenshot() {
-        const selectedQuestions = storeRef.current.getSelectedQuestions();
-        const question = selectedQuestions[selectedQuestions.length - 1];
-        if (!visionVerified || !question || requestPhase !== 'idle') return;
+        if (!visionVerified || requestPhase !== 'idle') return;
         if (activeRequest.current) await api.chat.cancel(activeRequest.current.id).catch(() => undefined);
-        storeRef.current.resetAnswer(question.id);
-        storeRef.current.setAnswerStatus(question.id, 'loading');
-        refresh();
         const requestId = crypto.randomUUID();
-        activeRequest.current = {id: requestId, questionId: question.id};
+        activeRequest.current = {id: requestId, questionId: null};
         setAnswer('');
         setRequestPhase('capturing');
-        const selectedText = selectedQuestions.map((item) => item.text).join('\n');
         try {
-            await api.chat.assist(requestId, selectedText);
+            await api.chat.assist(requestId);
             if (activeRequest.current?.id === requestId) setRequestPhase('generating');
         } catch (error) {
             if (activeRequest.current?.id === requestId) {
-                storeRef.current.setAnswerStatus(question.id, 'error', error instanceof Error ? error.message : '回答失败');
+                setAnswer(error instanceof Error ? error.message : '回答失败');
                 activeRequest.current = null;
                 setRequestPhase('idle');
-                refresh();
             }
         }
     }
@@ -278,18 +270,26 @@ export function WorkspaceView({active}: {active: boolean}) {
         if (event.type === 'chunk') {
             const text = event.text || '';
             setAnswer((current) => current + text);
-            storeRef.current.appendAnswer(request.questionId, text);
-            refresh();
+            if (request.questionId !== null) {
+                storeRef.current.appendAnswer(request.questionId, text);
+                refresh();
+            }
         } else if (event.type === 'done') {
-            storeRef.current.setAnswerStatus(request.questionId, 'complete');
+            if (request.questionId !== null) {
+                storeRef.current.setAnswerStatus(request.questionId, 'complete');
+                refresh();
+            }
             activeRequest.current = null;
             setRequestPhase('idle');
-            refresh();
         } else {
-            storeRef.current.setAnswerStatus(request.questionId, 'error', event.text || '回答失败');
+            if (request.questionId !== null) {
+                storeRef.current.setAnswerStatus(request.questionId, 'error', event.text || '回答失败');
+                refresh();
+            } else {
+                setAnswer(event.text || '回答失败');
+            }
             activeRequest.current = null;
             setRequestPhase('idle');
-            refresh();
         }
     }
 
@@ -309,14 +309,13 @@ export function WorkspaceView({active}: {active: boolean}) {
     const current = selectedQuestions[selectedQuestions.length - 1] ?? null;
     const displayedAnswer = answer || current?.answer || '';
     const visibleAnswer = stripAssistantThinking(displayedAnswer);
-    const fallbackAnswer = current ? '选择 Assist 生成回答' : '选择一个问题后，点击 Assist 生成回答';
+    const fallbackAnswer = '点击 Assist 截图并生成回答';
     return (
             <div
                 className={`workspace-content ${active ? '' : 'is-inactive'}`}
                 data-audio-input-mode={audioInputMode}
             >
             <div className="workspace-transcript no-drag">
-                {questions.length === 0 && !partial && <p className="empty-copy">开始转写后，当前问题会显示在这里</p>}
                 {questions.map((question) => (
                     <button key={question.id} className={`question-row ${selectedIds.has(question.id) ? 'is-selected' : ''}`} type="button" aria-pressed={selectedIds.has(question.id)} onClick={() => { cancelActiveRequest(); storeRef.current.toggleQuestion(question.id); setAnswer(''); refresh(); }}>
                         {question.text}
@@ -347,7 +346,7 @@ export function WorkspaceView({active}: {active: boolean}) {
                     <button type="button" className="record-action" onClick={() => void stopRecording()} disabled={!canStopRecording(recordingPhase)}>停止</button>
                     <button type="button" className="record-action" onClick={() => { cancelActiveRequest(); void stopRecording(); storeRef.current.clear(); setPartial(''); setAnswer(''); refresh(); }}>清空</button>
                     <span className="composer-divider" aria-hidden="true" />
-                    <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={!visionVerified || selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</button>
+                    <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={!visionVerified || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</button>
                     <button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('followup'); void sendText('followup'); }}>↗ 追问</button>
                     <button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('recap'); void sendText('recap'); }}>↻ 重述</button>
                     <span className="question-count">{selectedQuestions.length}/{questions.length} 段</span>

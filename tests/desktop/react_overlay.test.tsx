@@ -5,7 +5,7 @@ import {CapsuleApp} from '../../desktop/ui/capsule/main';
 import {SettingsView} from '../../desktop/ui/panel/SettingsView';
 import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
-import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
+import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
 import {AUDIO_INPUT_MODE_EVENT, AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
 import {MODEL_SETTINGS_CHANGED_EVENT} from '../../desktop/ui/shared/services/model-settings-service';
 
@@ -24,7 +24,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
     const chatSends: Array<{requestId: string; prompt: string}> = [];
-    const assistSends: Array<{requestId: string; prompt: string}> = [];
+    const assistSends: Array<{requestId: string; selection?: ModelSelectionInput}> = [];
     const verifiedConnection = {
         profile_id: 'generic_openai' as const,
         protocol: 'openai' as const,
@@ -74,7 +74,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         chat: {
             onEvent: vi.fn((listener: (event: ChatStreamEvent) => void) => { chatListeners.add(listener); return () => chatListeners.delete(listener); }),
             send: vi.fn(async (requestId: string, prompt: string) => { chatSends.push({requestId, prompt}); }),
-            assist: vi.fn(async (requestId: string, prompt: string) => { assistSends.push({requestId, prompt}); return {requestId}; }),
+            assist: vi.fn(async (requestId: string, selection?: ModelSelectionInput) => { assistSends.push({requestId, selection}); return {requestId}; }),
             cancel: vi.fn(async () => undefined),
         },
         window: {hide: vi.fn(), show: vi.fn(), getState: vi.fn(), setExpanded: vi.fn(), toggleExpanded: vi.fn(), onState: vi.fn()},
@@ -407,14 +407,20 @@ test('workspace header omits the prompt pill while retaining drag affordances', 
     const header = container.querySelector('.panel-drag-handle');
     const dragHint = container.querySelector('.panel-drag-hint');
     const transcript = container.querySelector('.workspace-transcript');
+    const title = container.querySelector('.panel-kicker');
 
     expect(container.querySelector('.panel-prompt')).toBeNull();
     expect(header).toBeTruthy();
+    expect(title?.textContent).toBe('TRANSCRIPT');
+    expect(title?.className).toBe('panel-kicker');
+    expect(title?.closest('.panel-drag-handle')).toBe(header);
     expect(dragHint?.closest('.panel-drag-handle')).toBe(header);
     expect(transcript?.querySelector('.panel-prompt')).toBeNull();
+    expect(transcript?.querySelector('.empty-copy')).toBeNull();
+    expect(transcript?.textContent).not.toContain('\u5f00\u59cb\u8f6c\u5199\u540e\uff0c\u5f53\u524d\u95ee\u9898\u4f1a\u663e\u793a\u5728\u8fd9\u91cc');
 });
 
-test('workspace automatically selects ASR fragments and sends the selected text together', async () => {
+test('workspace automatically selects ASR fragments and waits for manual submission', async () => {
     const {api, chatSends, assistSends, emitAsrResult} = fakeApi();
     window.meetingMonster = api;
     const {container} = render(<WorkspaceView active />);
@@ -428,24 +434,69 @@ test('workspace automatically selects ASR fragments and sends the selected text 
     await waitFor(() => expect(container.querySelectorAll('.question-row')).toHaveLength(2));
     const rows = Array.from(container.querySelectorAll<HTMLButtonElement>('.question-row'));
     expect(rows.map((row) => row.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
-    await waitFor(() => expect(chatSends.length).toBe(2));
-    expect(chatSends[1]?.prompt).toContain('第一段问题');
-    expect(chatSends[1]?.prompt).toContain('第二段补充');
+    expect(chatSends).toHaveLength(0);
     expect(assistSends).toHaveLength(0);
+
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+    expect(chatSends[0]?.prompt.indexOf('第一段问题')).toBeLessThan(chatSends[0]?.prompt.indexOf('第二段补充') ?? -1);
 
     fireEvent.click(rows[0]!);
     await waitFor(() => expect(rows[0]?.getAttribute('aria-pressed')).toBe('false'));
 });
 
-test('workspace keeps Assist disabled without a selected question even for a verified model', async () => {
-    const {api} = fakeApi();
+test('workspace runs screenshot Assist without transcript content', async () => {
+    const {api, chatSends, assistSends, emitChatEvent} = fakeApi();
     window.meetingMonster = api;
-    render(<WorkspaceView active />);
+    const {container} = render(<WorkspaceView active />);
 
     const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
     await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.queryByText('请在设置中验证图片能力')).toBeNull());
-    expect(assist.disabled).toBe(true);
+    await waitFor(() => expect(assist.disabled).toBe(false));
+    expect(container.querySelectorAll('.question-row')).toHaveLength(0);
+
+    fireEvent.click(assist);
+    await waitFor(() => expect(assistSends).toHaveLength(1));
+    expect(assistSends[0]).toEqual({requestId: expect.any(String), selection: undefined});
+    expect(chatSends).toHaveLength(0);
+
+    act(() => emitChatEvent({
+        type: 'chunk',
+        requestId: assistSends[0]!.requestId,
+        text: 'Screenshot answer',
+    }));
+    expect(await screen.findByText('Screenshot answer')).toBeTruthy();
+    expect(container.querySelectorAll('.question-row')).toHaveLength(0);
+    act(() => emitChatEvent({type: 'done', requestId: assistSends[0]!.requestId}));
+});
+
+test('workspace keeps screenshot Assist separate from a selected transcript answer', async () => {
+    const {api, chatSends, assistSends, emitAsrResult, emitChatEvent} = fakeApi();
+    window.meetingMonster = api;
+    const {container} = render(<WorkspaceView active />);
+
+    act(() => emitAsrResult({type: 'final', text: 'Transcript question'}));
+    await waitFor(() => expect(container.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+    act(() => emitChatEvent({type: 'chunk', requestId: chatSends[0]!.requestId, text: 'Transcript answer'}));
+    act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
+    expect(await screen.findByText('Transcript answer')).toBeTruthy();
+
+    const assist = screen.getByRole('button', {name: '✦ Assist'});
+    await waitFor(() => expect((assist as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(assist);
+    await waitFor(() => expect(assistSends).toHaveLength(1));
+    expect(assistSends[0]).toEqual({requestId: expect.any(String), selection: undefined});
+    act(() => emitChatEvent({type: 'chunk', requestId: assistSends[0]!.requestId, text: 'Screenshot answer'}));
+    act(() => emitChatEvent({type: 'done', requestId: assistSends[0]!.requestId}));
+    expect(await screen.findByText('Screenshot answer')).toBeTruthy();
+
+    const row = container.querySelector<HTMLButtonElement>('.question-row')!;
+    fireEvent.click(row);
+    fireEvent.click(row);
+    expect(await screen.findByText('Transcript answer')).toBeTruthy();
 });
 
 test('workspace places AI actions after recording controls in the composer row', async () => {
@@ -455,6 +506,7 @@ test('workspace places AI actions after recording controls in the composer row',
 
     act(() => emitAsrResult({type: 'final', text: 'Question'}));
     await waitFor(() => expect(container.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(chatSends).toHaveLength(1));
     act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
 
@@ -469,7 +521,7 @@ test('workspace places AI actions after recording controls in the composer row',
 
     fireEvent.click(aiButtons[0]!);
     await waitFor(() => expect(assistSends).toHaveLength(1));
-    expect(assistSends[0]?.prompt).toBe('Question');
+    expect(assistSends[0]).toEqual({requestId: expect.any(String), selection: undefined});
     expect(chatSends).toHaveLength(1);
     act(() => emitChatEvent({type: 'done', requestId: assistSends[0]!.requestId}));
 
@@ -508,13 +560,15 @@ test('workspace disables Assist until a verified model and a selected question e
 test('workspace shows capture then generation status for screenshot Assist', async () => {
     let resolveAssist!: (value: {requestId: string}) => void;
     const {api, chatSends, assistSends, emitAsrResult, emitChatEvent} = fakeApi();
-    api.chat.assist = vi.fn((requestId: string, prompt: string) => {
-        assistSends.push({requestId, prompt});
+    api.chat.assist = vi.fn((requestId: string) => {
+        assistSends.push({requestId});
         return new Promise<{requestId: string}>((resolve) => { resolveAssist = resolve; });
     });
     window.meetingMonster = api;
     render(<WorkspaceView active />);
     act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(document.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(document.querySelector('form')!);
     await waitFor(() => expect(chatSends).toHaveLength(1));
     act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
     await waitFor(() => expect((screen.getByRole('button', {name: '✦ Assist'}) as HTMLButtonElement).disabled).toBe(false));
@@ -544,6 +598,8 @@ test('workspace reloads verified model capability after settings changes', async
     window.meetingMonster = api;
     render(<WorkspaceView active />);
     act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(document.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(document.querySelector('form')!);
     await waitFor(() => expect(chatSends).toHaveLength(1));
     act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
     const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
@@ -599,6 +655,8 @@ test('workspace renders streamed answers as safe GFM Markdown and hides thinking
     const {container} = render(<WorkspaceView active />);
 
     act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(container.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(chatSends.length).toBe(1));
 
     act(() => emitChatEvent({
@@ -623,6 +681,8 @@ test('workspace keeps incomplete reasoning hidden and does not execute raw HTML'
     window.meetingMonster = api;
     const {container} = render(<WorkspaceView active />);
     act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(container.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(chatSends.length).toBe(1));
 
     act(() => emitChatEvent({

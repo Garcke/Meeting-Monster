@@ -195,7 +195,7 @@ def create_router(
             if "profile_id" in payload
             else resolve_candidate_profile(payload)
         )
-        short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
+        short_profile = replace(profile, max_tokens=32, temperature=0)
         started = time.perf_counter()
         try:
             provider = await provider_factory(short_profile)

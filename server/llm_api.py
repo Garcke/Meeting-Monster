@@ -283,7 +283,7 @@ def create_app(
             request.temperature,
             connection,
         )
-        short_profile = replace(profile, max_tokens=min(profile.max_tokens, 8))
+        short_profile = replace(profile, max_tokens=32, temperature=0)
         started = asyncio.get_running_loop().time()
         try:
             provider = await chat_service.get_provider(short_profile)

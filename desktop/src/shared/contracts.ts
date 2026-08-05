@@ -14,7 +14,13 @@ export const IPC_CHANNELS = {
         setCaptureProtection: 'privacy:set-capture-protection',
         status: 'privacy:status',
     },
-    models: {list: 'models:list', getSaved: 'models:get-saved', save: 'models:save', test: 'models:test'},
+    models: {
+        list: 'models:list',
+        getSaved: 'models:get-saved',
+        save: 'models:save',
+        test: 'models:test',
+        progress: 'models:progress',
+    },
     chat: {send: 'chat:send', assist: 'chat:assist', cancel: 'chat:cancel', event: 'chat:event'},
     asrModels: {
         list: 'asr-models:list',
@@ -171,6 +177,13 @@ export interface ModelTestResult {
     model: string;
 }
 
+export const MAX_MODEL_TEST_ATTEMPTS = 3 as const;
+export type ModelTestProgress = {
+    phase: 'connecting' | 'vision';
+    attempt: number;
+    maxAttempts: typeof MAX_MODEL_TEST_ATTEMPTS;
+};
+
 export interface ChatImageInput {
     media_type: 'image/png';
     data: string;
@@ -227,10 +240,11 @@ export interface MeetingMonsterApi {
         getSaved(): Promise<SavedModelConnectionSettings>;
         save(connection: ModelConnectionInput): Promise<SavedModelConnectionSettings>;
         test(selection: ModelSelectionInput): Promise<ModelTestResult>;
+        onTestProgress(callback: (progress: ModelTestProgress) => void): Unsubscribe;
     };
     chat: {
         send(requestId: string, content: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
-        assist(requestId: string, content: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
+        assist(requestId: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
         cancel(requestId: string): Promise<{cancelled: boolean}>;
         onEvent(callback: (event: ChatStreamEvent) => void): Unsubscribe;
     };

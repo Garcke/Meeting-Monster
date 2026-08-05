@@ -465,7 +465,7 @@ class LLMAPITests(unittest.TestCase):
         )
         self.assertNotIn("private-provider-secret", response.text)
 
-    def test_model_test_probe_does_not_reuse_eight_token_provider_for_chat(self):
+    def test_model_test_uses_deterministic_probe_parameters_without_changing_chat_profile(self):
         from server.llm_api import create_app
 
         created_profiles = []
@@ -503,7 +503,8 @@ class LLMAPITests(unittest.TestCase):
 
         self.assertEqual(probe.status_code, 200)
         self.assertEqual(chat.status_code, 200)
-        self.assertEqual([profile.max_tokens for profile in created_profiles], [8, 1024])
+        self.assertEqual([profile.max_tokens for profile in created_profiles], [32, 1024])
+        self.assertEqual([profile.temperature for profile in created_profiles], [0, 0.2])
         self.assertIsNot(created_providers[0], created_providers[1])
 
     def test_provider_failure_emits_error_and_done_events_without_hanging(self):

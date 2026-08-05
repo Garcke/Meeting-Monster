@@ -3,57 +3,31 @@
 from __future__ import annotations
 
 import base64
-import binascii
+import io
+import json
+import re
 import secrets
-import struct
-import zlib
+import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 
-from server.chat_images import PNG_SIGNATURE, ChatImage
+from PIL import Image, ImageDraw, ImageFont
+
+from server.chat_images import ChatImage
 from server.llm_providers import LLMProvider
 
 
-_GLYPHS: dict[str, tuple[str, ...]] = {
-    "M": (
-        "10001",
-        "11011",
-        "10101",
-        "10101",
-        "10001",
-        "10001",
-        "10001",
-    ),
-    "-": (
-        "00000",
-        "00000",
-        "00000",
-        "11111",
-        "00000",
-        "00000",
-        "00000",
-    ),
-    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
-    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
-    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
-    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
-    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
-    "5": ("11111", "10000", "10000", "11110", "00001", "00001", "11110"),
-    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
-    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
-    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
-    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
-}
-
-_GLYPH_WIDTH = 5
-_GLYPH_HEIGHT = 7
-_GLYPH_SCALE = 8
-_GLYPH_GAP = 1
-_MARGIN = 2
+_IMAGE_SIZE = (360, 88)
+_FONT_PATH = Path(__file__).parent / "assets" / "fonts" / "DejaVuSansMono-Bold.ttf"
+_FONT_SIZE = 52
 _MAX_ANSWER_CHARS = 128
+_ASCII_ALNUM = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+VISION_CODE_ALPHABET = "0123456789"
 _VISION_PROMPT = (
-    "Read the verification code shown in the attached image. "
-    "Reply with the code only."
+    "Read the four digits in the image. "
+    'Return only JSON in this format: {"code":"1234"} '
+    "Do not include explanations or other fields."
 )
 
 
@@ -70,68 +44,58 @@ class VisionVerificationError(Exception):
     """A provider request failed while checking image input support."""
 
 
-def _png_chunk(kind: bytes, payload: bytes) -> bytes:
-    checksum = binascii.crc32(kind + payload) & 0xFFFFFFFF
-    return (
-        struct.pack(">I", len(payload))
-        + kind
-        + payload
-        + struct.pack(">I", checksum)
+def _render_code(code: str) -> bytes:
+    image = Image.new("RGB", _IMAGE_SIZE, (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(str(_FONT_PATH), _FONT_SIZE)
+    left, top, right, bottom = draw.textbbox((0, 0), code, font=font)
+    text_width = right - left
+    text_height = bottom - top
+    position = (
+        (_IMAGE_SIZE[0] - text_width) // 2 - left,
+        (_IMAGE_SIZE[1] - text_height) // 2 - top,
     )
+    draw.text(position, code, fill=(24, 28, 36), font=font)
+
+    encoded = io.BytesIO()
+    image.save(encoded, format="PNG", optimize=True)
+    return encoded.getvalue()
 
 
-def _encode_png(width: int, height: int, rgb: bytes) -> bytes:
-    rows = b"".join(
-        b"\x00" + rgb[y * width * 3 : (y + 1) * width * 3]
-        for y in range(height)
-    )
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return (
-        PNG_SIGNATURE
-        + _png_chunk(b"IHDR", header)
-        + _png_chunk(b"IDAT", zlib.compress(rows))
-        + _png_chunk(b"IEND", b"")
-    )
+def _extract_code(answer: str) -> str | None:
+    """Extract exactly four digits from a model answer without fuzzy matching."""
 
+    normalized = unicodedata.normalize("NFKC", answer).strip()
+    if not normalized:
+        return None
 
-def _render_code(code: str) -> tuple[int, int, bytes]:
-    width_cells = (
-        _MARGIN * 2
-        + len(code) * _GLYPH_WIDTH
-        + (len(code) - 1) * _GLYPH_GAP
-    )
-    height_cells = _MARGIN * 2 + _GLYPH_HEIGHT
-    width = width_cells * _GLYPH_SCALE
-    height = height_cells * _GLYPH_SCALE
-    rgb = bytearray(width * height * 3)
+    json_candidate = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", normalized, flags=re.IGNORECASE)
+    try:
+        parsed = json.loads(json_candidate)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, dict):
+        value = parsed.get("code")
+        if isinstance(value, str) and re.fullmatch(r"[0-9]{4}", value):
+            return value
 
-    for character_index, character in enumerate(code):
-        glyph = _GLYPHS[character]
-        left_cell = _MARGIN + character_index * (_GLYPH_WIDTH + _GLYPH_GAP)
-        for glyph_y, row in enumerate(glyph):
-            for glyph_x, cell in enumerate(row):
-                if cell != "1":
-                    continue
-                left = (left_cell + glyph_x) * _GLYPH_SCALE
-                top = (_MARGIN + glyph_y) * _GLYPH_SCALE
-                for y in range(top, top + _GLYPH_SCALE):
-                    row_start = y * width * 3
-                    for x in range(left, left + _GLYPH_SCALE):
-                        offset = row_start + x * 3
-                        rgb[offset : offset + 3] = b"\xff\xff\xff"
+    digits = [character for character in normalized if character in VISION_CODE_ALPHABET]
+    if len(digits) != 4:
+        return None
 
-    return width, height, bytes(rgb)
+    first_digit = normalized.find(digits[0])
+    last_digit = normalized.rfind(digits[-1])
+    if first_digit > 0 and normalized[first_digit - 1] in _ASCII_ALNUM:
+        return None
+    if last_digit + 1 < len(normalized) and normalized[last_digit + 1] in _ASCII_ALNUM:
+        return None
+    return "".join(digits)
 
 
 def create_vision_challenge() -> VisionChallenge:
-    code = f"MM-{secrets.randbelow(10_000):04d}"
-    width, height, rgb = _render_code(code)
-    encoded = base64.b64encode(_encode_png(width, height, rgb)).decode("ascii")
+    code = "".join(secrets.choice(VISION_CODE_ALPHABET) for _ in range(4))
+    encoded = base64.b64encode(_render_code(code)).decode("ascii")
     return VisionChallenge(code=code, image=ChatImage(media_type="image/png", data=encoded))
-
-
-def _normalize_answer(value: str) -> str:
-    return "".join(character for character in value.upper() if character.isalnum())
 
 
 async def verify_provider_vision(
@@ -162,6 +126,5 @@ async def verify_provider_vision(
     except Exception as exc:
         raise VisionVerificationError from exc
 
-    if not answer:
-        return False
-    return _normalize_answer(current.code) in _normalize_answer(answer)
+    extracted = _extract_code(answer)
+    return extracted == current.code

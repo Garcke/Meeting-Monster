@@ -169,7 +169,8 @@ class ModelAPITests(unittest.TestCase):
         self.assertEqual(response.json()["model"], "demo-model")
         self.assertIsInstance(response.json()["latency_ms"], int)
         self.assertEqual(self.vision_providers, [self.provider])
-        self.assertEqual(self.provider_profiles[-1].max_tokens, 8)
+        self.assertEqual(self.provider_profiles[-1].max_tokens, 32)
+        self.assertEqual(self.provider_profiles[-1].temperature, 0)
         self.assertEqual(self.store.path.read_bytes() if self.store.path.exists() else None, before)
         self.assertTrue(any(profile.active for profile in self.store.list_profiles()))
 
@@ -263,7 +264,8 @@ class ModelAPITests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.json()["vision"], True)
-        self.assertEqual(self.provider_profiles[-1].max_tokens, 8)
+        self.assertEqual(self.provider_profiles[-1].max_tokens, 32)
+        self.assertEqual(self.provider_profiles[-1].temperature, 0)
         self.assertEqual(self.store.path.read_bytes(), before)
         self.assertNotIn("temporary-secret", json.dumps(response.json()))
 

@@ -102,7 +102,10 @@ select.settings-control option { color: #17202c; background: #fff; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .settings-actions button { min-height: 30px; padding: 5px 9px; color: #f2f6ff; font-size: 11.5px; background: rgba(69, 83, 108, 0.78); border: 1px solid rgba(255,255,255,0.15); border-radius: 7px; cursor: pointer; }
+.settings-actions button.is-busy { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .settings-actions button.primary { background: #286fe0; border-color: #4a8bf0; }
 .settings-actions button:disabled { cursor: not-allowed; opacity: 0.45; }
+.model-action-spinner { width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.38); border-top-color: #fff; border-radius: 50%; animation: model-action-spin 0.7s linear infinite; }
+@keyframes model-action-spin { to { transform: rotate(360deg); } }
 .settings-status, .asr-status { min-height: 16px; margin: 6px 0 0; color: rgba(214, 224, 239, 0.67); font-size: 11px; }
 progress { width: 100%; height: 5px; margin-top: 7px; accent-color: #3f8cf4; }
