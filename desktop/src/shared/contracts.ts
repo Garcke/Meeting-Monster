@@ -1,3 +1,7 @@
+import type {OverlayIntent, OverlaySnapshot} from './overlay-state';
+
+export type {OverlayIntent, OverlayPhase, OverlaySnapshot, OverlayTarget} from './overlay-state';
+
 export const IPC_CHANNELS = {
     window: {
         getState: 'window:get-state',
@@ -53,19 +57,6 @@ type ValueOf<T> = T[keyof T];
 export type IpcChannel = ValueOf<ValueOf<typeof IPC_CHANNELS>>;
 export type WindowMode = 'capsule' | 'expanded';
 export type CaptureProtection = 'protected' | 'disabled' | 'failed' | 'unsupported';
-export type OverlayTarget = 'closed' | 'workspace' | 'settings';
-export type OverlayPhase = 'hidden' | 'opening' | 'visible' | 'closing';
-
-export interface OverlaySnapshot {
-    target: OverlayTarget;
-    phase: OverlayPhase;
-    revision: number;
-}
-
-export type OverlayIntent =
-    | {type: 'toggle-workspace'}
-    | {type: 'toggle-settings'};
-
 export type AsrModelId =
     | 'streaming-paraformer-bilingual-zh-en'
     | 'streaming-zipformer-zh-int8-2025-06-30';

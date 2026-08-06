@@ -569,8 +569,8 @@ function broadcastOverlaySnapshot(snapshot?: OverlaySnapshot): void {
 function requireOverlayIntent(value: unknown): OverlayIntent {
     if (!value || typeof value !== 'object' || !('type' in value)) throw new TypeError('Invalid overlay intent');
     const type = (value as {type?: unknown}).type;
-    if (type !== 'toggle-workspace' && type !== 'toggle-settings') throw new TypeError('Invalid overlay intent');
-    return {type};
+    if (type !== 'toggle-workspace') throw new TypeError('Invalid overlay intent');
+    return {type: 'toggle-workspace'};
 }
 
 async function dispatchOverlayIntent(intent: OverlayIntent): Promise<OverlaySnapshot> {
@@ -616,8 +616,6 @@ async function setLegacyExpanded(expanded: boolean): Promise<WindowState> {
         if (target !== 'workspace') await dispatchOverlayIntent({type: 'toggle-workspace'});
     } else if (target === 'workspace') {
         await dispatchOverlayIntent({type: 'toggle-workspace'});
-    } else if (target === 'settings') {
-        await dispatchOverlayIntent({type: 'toggle-settings'});
     }
     return getWindowState();
 }

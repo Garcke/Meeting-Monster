@@ -37,9 +37,9 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     };
     const api = {
         overlay: {
-            intent: vi.fn(async ({type}: {type: 'toggle-workspace' | 'toggle-settings'}) => {
+            intent: vi.fn(async ({type}: {type: 'toggle-workspace'}) => {
                 intents.push({type});
-                return {target: type === 'toggle-settings' ? 'settings' : 'workspace', phase: 'opening', revision: intents.length} as OverlaySnapshot;
+                return {target: 'workspace', phase: 'opening', revision: intents.length} as OverlaySnapshot;
             }),
             getSnapshot: vi.fn(async () => snapshot),
             onSnapshot: vi.fn(() => () => {}),
@@ -205,15 +205,13 @@ afterEach(() => {
     window.localStorage.clear();
 });
 
-test('capsule keeps settings and workspace as independent intents, including rapid clicks', async () => {
+test('capsule sends only the workspace overlay intent', async () => {
     const {api, intents} = fakeApi();
     window.meetingMonster = api;
     render(<CapsuleApp />);
-    await waitFor(() => expect(screen.getByRole('button', {name: '设置'})).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', {name: '设置'}));
-    fireEvent.click(screen.getByRole('button', {name: '设置'}));
-    expect(intents.map((item) => item.type)).toEqual(['toggle-settings', 'toggle-settings']);
-    expect(intents.some((item) => item.type === 'toggle-workspace')).toBe(false);
+    fireEvent.click(await screen.findByRole('button', {name: /展开/}));
+    expect(intents).toEqual([{type: 'toggle-workspace'}]);
+    expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
 });
 
 test('capsule exit control quits the app instead of hiding it', async () => {

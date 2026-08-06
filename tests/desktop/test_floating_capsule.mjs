@@ -13,17 +13,18 @@ test('main uses a fixed single-window overlay without legacy resizing', () => {
     assert.match(source, /createOverlayWindowController\(/);
     assert.match(source, /rendererRoot:\s*path\.join\(__dirname, '\.\.', 'renderer'\)/);
     assert.doesNotMatch(source, /width:\s*720,\s*height:\s*520|setWindowMode\(|EXPANDED_BOUNDS/);
-    assert.match(controller, /CAPSULE_BOUNDS = \{width: 360, height: 56\}/);
+    assert.match(controller, /CAPSULE_BOUNDS = \{width: 276, height: 56\}/);
     assert.match(controller, /OVERLAY_BOUNDS = \{width: 648, height: 520\}/);
-    assert.match(controller, /PANEL_OFFSET = \{x: -144, y: 70\}/);
+    assert.match(controller, /PANEL_OFFSET = \{x: -186, y: 70\}/);
+    assert.doesNotMatch(controller, /toggle-settings|settings/);
 });
 
-test('capsule buttons use independent overlay intents and a drag-safe shell', () => {
+test('capsule sends only the workspace overlay intent and keeps a drag-safe shell', () => {
     const source = read('desktop', 'ui', 'capsule', 'CapsuleApp.tsx');
     const styles = read('desktop', 'ui', 'capsule', 'capsule.css');
-    assert.match(source, /overlay\.intent\(\{type\}\)/);
-    assert.match(source, /toggle-settings/);
+    assert.match(source, /overlay\.intent\(\{type: 'toggle-workspace'\}\)/);
     assert.match(source, /toggle-workspace/);
+    assert.doesNotMatch(source, /toggle-settings|settings/);
     assert.doesNotMatch(source, /window\.setExpanded/);
     assert.match(styles, /-webkit-app-region:\s*drag/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);

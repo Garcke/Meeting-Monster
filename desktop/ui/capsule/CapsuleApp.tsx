@@ -25,9 +25,9 @@ export function CapsuleApp() {
         };
     }, []);
 
-    const sendIntent = async (type: 'toggle-workspace' | 'toggle-settings') => {
+    const sendIntent = async () => {
         try {
-            setSnapshot(await window.meetingMonster.overlay.intent({type}));
+            setSnapshot(await window.meetingMonster.overlay.intent({type: 'toggle-workspace'}));
         } catch {
             // The next main-process snapshot remains authoritative.
         }
@@ -63,16 +63,8 @@ export function CapsuleApp() {
             <button
                 className="capsule-button"
                 type="button"
-                aria-expanded={snapshot.target === 'settings'}
-                onClick={() => void sendIntent('toggle-settings')}
-            >
-                {snapshot.target === 'settings' ? '关闭' : '设置'}
-            </button>
-            <button
-                className="capsule-button"
-                type="button"
                 aria-expanded={snapshot.target === 'workspace'}
-                onClick={() => void sendIntent('toggle-workspace')}
+                onClick={() => void sendIntent()}
             >
                 {snapshot.target === 'workspace' ? '收起' : '展开'} <span aria-hidden="true">⌄</span>
             </button>

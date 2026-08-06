@@ -1,6 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
 import type {OverlaySnapshot} from '../../src/shared/contracts';
-import {SettingsView} from './SettingsView';
 import {WorkspaceView} from './WorkspaceView';
 import './panel.css';
 
@@ -9,18 +8,15 @@ const initialSnapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', rev
 export function PanelApp() {
     const api = window.meetingMonster;
     const [snapshot, setSnapshot] = useState<OverlaySnapshot>(initialSnapshot);
-    const [lastTarget, setLastTarget] = useState<'workspace' | 'settings'>('workspace');
     const [error, setError] = useState('');
 
     useEffect(() => {
         const unsubscribe = api.overlay.onSnapshot((next) => {
             setSnapshot(next);
-            if (next.target !== 'closed') setLastTarget(next.target);
         });
         const unsubscribeError = api.overlay.onWindowError(setError);
         void api.overlay.getSnapshot().then((next) => {
             setSnapshot(next);
-            if (next.target !== 'closed') setLastTarget(next.target);
         }).catch(() => setError('面板状态不可用'));
         return () => { unsubscribe(); unsubscribeError(); };
     }, [api]);
@@ -50,7 +46,6 @@ export function PanelApp() {
     }, [api, snapshot.phase, snapshot.revision, snapshot.target]);
 
     const isClosing = snapshot.target === 'closed' && snapshot.phase === 'closing';
-    const visibleTarget = snapshot.target === 'closed' ? lastTarget : snapshot.target;
     const className = [
         'panel-shell',
         snapshot.phase === 'opening' ? 'panel-enter' : '',
@@ -59,18 +54,14 @@ export function PanelApp() {
     ].filter(Boolean).join(' ');
 
     return (
-        <main className={`${className} ${snapshot.target === 'closed' && snapshot.phase === 'hidden' ? 'is-hidden' : ''}`} data-target={visibleTarget} aria-label="Meeting-Monster 面板">
+        <main className={`${className} ${snapshot.target === 'closed' && snapshot.phase === 'hidden' ? 'is-hidden' : ''}`} data-target={snapshot.target} aria-label="Meeting-Monster 面板">
             <header className="panel-drag-handle" data-drag-handle>
-                {visibleTarget === 'workspace' && <span className="panel-kicker">TRANSCRIPT</span>}
-                {visibleTarget === 'settings' && <span className="panel-title">连接与模型</span>}
+                <span className="panel-kicker">TRANSCRIPT</span>
                 <span className="panel-drag-hint">拖动面板</span>
             </header>
             {error && <div className="panel-error no-drag" role="alert">{error}</div>}
-            <section className={`panel-view ${visibleTarget === 'workspace' ? 'is-active' : ''}`} aria-hidden={visibleTarget !== 'workspace'}>
-                <WorkspaceView active={visibleTarget === 'workspace'} />
-            </section>
-            <section className={`panel-view ${visibleTarget === 'settings' ? 'is-active' : ''}`} aria-hidden={visibleTarget !== 'settings'}>
-                <SettingsView active={visibleTarget === 'settings'} />
+            <section className={`panel-view ${snapshot.target === 'workspace' ? 'is-active' : ''}`} aria-hidden={snapshot.target !== 'workspace'}>
+                <WorkspaceView active={snapshot.target === 'workspace'} />
             </section>
         </main>
     );

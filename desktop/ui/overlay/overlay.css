@@ -23,8 +23,8 @@ body,
     position: absolute;
     z-index: 2;
     top: 0;
-    left: calc((100vw - 360px) / 2);
-    width: 360px;
+    left: calc((100vw - 276px) / 2);
+    width: 276px;
     height: 56px;
 }
 
