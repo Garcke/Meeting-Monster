@@ -6,7 +6,6 @@ import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
 import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
 import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
-import {MODEL_SETTINGS_CHANGED_EVENT} from '../../desktop/ui/shared/services/model-settings-service';
 
 const snapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', revision: 0};
 const privacy: PrivacyStatus = {captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 1};
@@ -24,6 +23,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
     const audioInputListeners = new Set<(mode: 'system' | 'microphone' | 'mixed') => void>();
+    const modelListeners = new Set<() => void>();
     const chatSends: Array<{requestId: string; prompt: string}> = [];
     const assistSends: Array<{requestId: string; selection?: ModelSelectionInput}> = [];
     const verifiedConnection = {
@@ -74,12 +74,10 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         asrModels: {
             list: vi.fn(async () => asrModels),
             onStatus: vi.fn(() => () => {}),
-            select: vi.fn(async () => asrModels), download: vi.fn(async () => asrModels),
-            cancel: vi.fn(async () => ({cancelled: true})), delete: vi.fn(async () => asrModels),
         },
         models: {
-            list: vi.fn(async () => ({active_profile: 'generic_openai', profiles: []})),
-            getSaved: vi.fn(async () => ({active_profile: 'generic_openai' as const, connections: {generic_openai: verifiedConnection}})), save: vi.fn(), test: vi.fn(),
+            getSaved: vi.fn(async () => ({active_profile: 'generic_openai' as const, connections: {generic_openai: verifiedConnection}})),
+            onChanged: vi.fn((listener: () => void) => { modelListeners.add(listener); return () => modelListeners.delete(listener); }),
         },
         chat: {
             onEvent: vi.fn((listener: (event: ChatStreamEvent) => void) => { chatListeners.add(listener); return () => chatListeners.delete(listener); }),
@@ -97,6 +95,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         emitAsrResult: (event: {type: string; text: string}) => { for (const listener of asrListeners) listener(event); },
         emitChatEvent: (event: ChatStreamEvent) => { for (const listener of chatListeners) listener(event); },
         emitAudioInputChanged: (mode: 'system' | 'microphone' | 'mixed') => { for (const listener of audioInputListeners) listener(mode); },
+        emitModelChanged: () => { for (const listener of modelListeners) listener(); },
         emitPrivacy: (status: PrivacyStatus) => { for (const listener of privacyListeners) listener(status); },
     };
 }
@@ -467,29 +466,28 @@ test('workspace shows capture then generation status for screenshot Assist', asy
     expect((screen.getByRole('button', {name: '✦ Assist'}) as HTMLButtonElement).disabled).toBe(false);
 });
 
-test('workspace reloads verified model capability after settings changes', async () => {
-    const {api, chatSends, emitAsrResult, emitChatEvent} = fakeApi();
-    const unverified = {
-        profile_id: 'generic_openai' as const, protocol: 'openai' as const, base_url: 'https://openai.example/v1',
-        model: 'vision-model', has_api_key: true, max_tokens: 2048, temperature: 0.3, vision_verified: false,
-    };
-    const verified = {...unverified, vision_verified: true};
-    api.models.getSaved = vi.fn()
-        .mockResolvedValueOnce({active_profile: 'generic_openai', connections: {generic_openai: unverified}})
-        .mockResolvedValue({active_profile: 'generic_openai', connections: {generic_openai: verified}});
+test('workspace reloads verified model capability after main-process model change', async () => {
+    const {api, emitModelChanged} = fakeApi();
     window.meetingMonster = api;
     render(<WorkspaceView active />);
-    act(() => emitAsrResult({type: 'final', text: 'Question'}));
-    await waitFor(() => expect(document.querySelector('.question-row')).toBeTruthy());
-    fireEvent.submit(document.querySelector('form')!);
-    await waitFor(() => expect(chatSends).toHaveLength(1));
-    act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
-    const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
-    await waitFor(() => expect(assist.disabled).toBe(true));
-
-    act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
-    await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(assist.disabled).toBe(false));
+    await screen.findByText(/当前：/);
+    api.models.getSaved = vi.fn(async () => ({
+        active_profile: 'generic_anthropic' as const,
+        connections: {
+            generic_anthropic: {
+                profile_id: 'generic_anthropic' as const,
+                protocol: 'anthropic' as const,
+                base_url: 'https://provider.example/v1',
+                model: 'test-model',
+                has_api_key: false,
+                max_tokens: 2048,
+                temperature: 0.3,
+                vision_verified: true,
+            },
+        },
+    }));
+    act(() => emitModelChanged());
+    await waitFor(() => expect(screen.getByText(/Anthropic Compatible/)).toBeTruthy());
 });
 
 test('workspace ignores an older model settings refresh that resolves after the latest one', async () => {
@@ -497,7 +495,7 @@ test('workspace ignores an older model settings refresh that resolves after the 
     let resolveLatest!: (value: SavedModelConnectionSettings) => void;
     const older = new Promise<SavedModelConnectionSettings>((resolve) => { resolveOlder = resolve; });
     const latest = new Promise<SavedModelConnectionSettings>((resolve) => { resolveLatest = resolve; });
-    const {api} = fakeApi();
+    const {api, emitModelChanged} = fakeApi();
     const unverified = {
         profile_id: 'generic_openai' as const, protocol: 'openai' as const, base_url: 'https://openai.example/v1',
         model: 'vision-model', has_api_key: true, max_tokens: 2048, temperature: 0.3, vision_verified: false,
@@ -510,7 +508,7 @@ test('workspace ignores an older model settings refresh that resolves after the 
     render(<WorkspaceView active />);
     await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledOnce());
 
-    act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
+    act(() => emitModelChanged());
     await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
     await act(async () => resolveLatest({active_profile: 'generic_openai', connections: {generic_openai: verified}}));
     await waitFor(() => expect(screen.queryByText('请在设置中验证图片能力')).toBeNull());

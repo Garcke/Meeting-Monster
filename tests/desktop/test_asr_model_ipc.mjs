@@ -121,6 +121,11 @@ async function loadMainHarness() {
         setShape() {}
         show() { this.visible = true; }
         hide() { this.visible = false; }
+        focus() {}
+        isMinimized() { return false; }
+        restore() {}
+        destroy() { this.destroyed = true; }
+        removeListener() {}
         on() {}
         once() {}
         loadFile() { return Promise.resolve(); }
@@ -194,12 +199,15 @@ async function loadMainHarness() {
         Module._load = originalLoad;
     }
     assert.equal(handlers.has('asr-models:select'), true, 'main IPC initialization did not complete');
-    const window = FakeBrowserWindow.windows[0];
+    const overlayWindow = FakeBrowserWindow.windows[0];
+    await handlers.get('settings:open')({sender: overlayWindow.webContents});
+    const settingsWindow = FakeBrowserWindow.windows[1];
     return {
         handlers,
-        window,
+        overlayWindow,
+        settingsWindow,
         FakeLocalAsrEngine,
-        sent: window.sent,
+        get sent() { return [...overlayWindow.sent, ...settingsWindow.sent]; },
         cleanup() {
             appListeners.get('before-quit')?.();
             delete require.cache[mainPath];
@@ -210,21 +218,22 @@ async function loadMainHarness() {
 test('failed reselect of the loaded current model preserves its ready engine and recording gate', async () => {
     const harness = await loadMainHarness();
     try {
-        const event = {sender: harness.window.webContents};
+        const settingsEvent = {sender: harness.settingsWindow.webContents};
+        const overlayEvent = {sender: harness.overlayWindow.webContents};
         const previousEngine = harness.FakeLocalAsrEngine.instances[0];
         harness.FakeLocalAsrEngine.failNextLoad = true;
 
         await assert.rejects(
-            harness.handlers.get('asr-models:select')(event, PARA),
+            harness.handlers.get('asr-models:select')(settingsEvent, PARA),
             /ASR model operation failed/,
         );
 
-        const snapshot = harness.handlers.get('asr-models:list')(event);
+        const snapshot = harness.handlers.get('asr-models:list')(overlayEvent);
         assert.equal(snapshot.currentModelId, PARA);
         assert.equal(snapshot.models.find((model) => model.id === PARA).installedState, 'ready');
         assert.equal(previousEngine.disposed, false);
         assert.equal(harness.FakeLocalAsrEngine.instances[1].disposed, true);
-        await assert.doesNotReject(harness.handlers.get('asr:start')(event, 16000));
+        await assert.doesNotReject(harness.handlers.get('asr:start')(overlayEvent, 16000));
         assert.equal(previousEngine.startCalls, 1);
     } finally {
         harness.cleanup();
@@ -234,7 +243,7 @@ test('failed reselect of the loaded current model preserves its ready engine and
 test('cancelled ASR model download returns a snapshot without publishing runtime failure', async () => {
     const harness = await loadMainHarness();
     try {
-        const event = {sender: harness.window.webContents};
+        const event = {sender: harness.settingsWindow.webContents};
         const result = await harness.handlers.get('asr-models:download')(event, PARA);
         assert.equal(result.models.find((model) => model.id === PARA).installedState, 'not-downloaded');
         assert.equal(result.models.find((model) => model.id === PARA).errorMessage, undefined);
@@ -251,7 +260,10 @@ test('ASR model IPC accepts only fixed model IDs from the authorized main window
     assert.match(source, /Unknown ASR model/);
     for (const channel of ['list', 'select', 'download', 'cancel', 'delete']) {
         const handler = handlerSource(source, channel);
-        assert.match(handler, /if \(!isAuthorizedSender\(event\)\) throw new Error\('Unauthorized ASR model request'\)/);
+        assert.match(
+            handler,
+            channel === 'list' ? /isApplicationWebContents\(event\.sender\)/ : /isSettingsWebContents\(event\.sender\)/,
+        );
         if (channel !== 'list') {
             assert.match(handler, /modelId: unknown/);
             assert.match(handler, /requireAsrModelId\(modelId\)/);
@@ -269,7 +281,7 @@ test('ASR model snapshots merge fixed public catalog metadata with progress only
     assert.match(source, /downloadedBytes:/);
     assert.match(source, /totalBytes:/);
     assert.match(source, /errorMessage/);
-    assert.match(source, /function broadcastAsrModelStatus\(\): void[\s\S]*getLiveOverlayWindows\(\)[\s\S]*IPC_CHANNELS\.asrModels\.status/);
+    assert.match(source, /function broadcastAsrModelStatus\(\): void[\s\S]*getLiveApplicationWindows\(\)[\s\S]*IPC_CHANNELS\.asrModels\.status/);
 });
 
 test('model selection is recording-gated and swaps engines transactionally', () => {

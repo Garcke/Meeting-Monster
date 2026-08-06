@@ -16,6 +16,14 @@ function countMatches(source, pattern) {
     return [...source.matchAll(pattern)].length;
 }
 
+function ipcHandler(source, channel) {
+    const marker = `ipcMain.handle(IPC_CHANNELS.${channel}`;
+    const start = source.indexOf(marker);
+    assert.notEqual(start, -1, `missing IPC handler for ${channel}`);
+    const next = source.indexOf('ipcMain.handle(', start + marker.length);
+    return source.slice(start, next === -1 ? source.length : next);
+}
+
 test('desktop has no Python sidecar and loads the single local overlay renderer entry', () => {
     const source = mainSource();
     const controller = controllerSource();
@@ -113,6 +121,20 @@ test('main authorizes each IPC family to the narrowest application window', () =
     assert.match(source, /render-process-gone[\s\S]*settingsWindowController\.close\(\)/);
     assert.doesNotMatch(source.match(/function configureSettingsWindow[\s\S]*?\n\}/)?.[0] ?? '', /disposeAsr/);
     assert.doesNotMatch(source, /BrowserWindow\.getAllWindows\(\)/);
+
+    for (const channel of ['models.save', 'models.test', 'asrModels.select', 'asrModels.download', 'asrModels.cancel', 'asrModels.delete']) {
+        assert.match(ipcHandler(source, channel), /isSettingsWebContents\(event\.sender\)/, `${channel} must be settings-only`);
+    }
+    for (const channel of ['models.list', 'models.getSaved', 'asrModels.list']) {
+        assert.match(ipcHandler(source, channel), /isApplicationWebContents\(event\.sender\)/, `${channel} must remain readable from both windows`);
+    }
+    for (const channel of [
+        'window.getState', 'window.setExpanded', 'window.toggleExpanded', 'window.hide', 'window.quit', 'window.show',
+        'overlay.intent', 'overlay.getSnapshot', 'overlay.rendererReady', 'overlay.animationFinished',
+        'chat.send', 'chat.assist', 'chat.cancel', 'asr.start', 'asr.stop', 'asr.getStatus',
+    ]) {
+        assert.match(ipcHandler(source, channel), /isOverlayWebContents\(event\.sender\)/, `${channel} must be overlay-only`);
+    }
 });
 
 test('main authorizes Windows system-audio loopback display capture', () => {
@@ -139,7 +161,7 @@ test('main broadcasts overlay-only and application-wide statuses to their intend
         assert.match(body, /getLiveOverlayWindows\(\)/, `${broadcaster} should fan out through getLiveOverlayWindows()`);
         assert.match(body, /\.webContents\.send\(/, `${broadcaster} should send to renderer webContents`);
     }
-    for (const broadcaster of ['broadcastAsrModelStatus', 'broadcastPrivacyStatus']) {
+    for (const broadcaster of ['broadcastAsrModelStatus', 'broadcastPrivacyStatus', 'broadcastModelChanged']) {
         const body = source.match(new RegExp(`function ${broadcaster}\\([^)]*\\): void \\{[\\s\\S]*?\\n\\}`))?.[0] ?? '';
         assert.match(body, /getLiveApplicationWindows\(\)/, `${broadcaster} should fan out through getLiveApplicationWindows()`);
         assert.match(body, /\.webContents\.send\(/, `${broadcaster} should send to renderer webContents`);
@@ -228,12 +250,12 @@ test('main routes model test and save through retries with sender-scoped progres
 
     assert.match(source, /import \{runModelTestWithVisionRetries\} from '\.\/model-test-coordinator'/);
     for (const handler of [testHandler, saveHandler]) {
-        assert.match(handler, /isApplicationWebContents\(event\.sender\)/);
+        assert.match(handler, /isSettingsWebContents\(event\.sender\)/);
         assert.match(handler, /runModelTestWithVisionRetries\(/);
         assert.match(handler, /event\.sender\.send\(IPC_CHANNELS\.models\.progress, progress\)/);
     }
     assert.doesNotMatch(testHandler, /broadcast|getLiveApplicationWindows/);
-    assert.match(saveHandler, /getLiveApplicationWindows\(\)[\s\S]*?IPC_CHANNELS\.models\.changed/);
+    assert.match(saveHandler, /broadcastModelChanged\(\)/);
     assert.match(
         saveHandler,
         /await runModelTestWithVisionRetries\([\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/,

@@ -65,26 +65,15 @@ function loadPreload() {
     };
 }
 
-test('preload exposes fixed ASR model commands separately from remote AI model controls', async () => {
+test('overlay preload exposes read-only ASR model state separately from remote AI model controls', async () => {
     const preload = loadPreload();
     const modelId = 'streaming-paraformer-bilingual-zh-en';
     const snapshot = {currentModelId: modelId, models: []};
     preload.setInvoke(async (channel) => channel === 'asr-models:list' ? snapshot : undefined);
 
     assert.deepEqual(await preload.api.asrModels.list(), snapshot);
-    await preload.api.asrModels.select(modelId);
-    await preload.api.asrModels.download(modelId);
-    await preload.api.asrModels.cancel(modelId);
-    await preload.api.asrModels.delete(modelId);
-
-    assert.deepEqual(preload.invocations, [
-        ['asr-models:list'],
-        ['asr-models:select', modelId],
-        ['asr-models:download', modelId],
-        ['asr-models:cancel', modelId],
-        ['asr-models:delete', modelId],
-    ]);
-    assert.deepEqual(Object.keys(preload.api.asrModels).sort(), ['cancel', 'delete', 'download', 'list', 'onStatus', 'select']);
+    assert.deepEqual(preload.invocations, [['asr-models:list']]);
+    assert.deepEqual(Object.keys(preload.api.asrModels).sort(), ['list', 'onStatus']);
     assert.equal(Object.hasOwn(preload.api.models, 'download'), false);
 
     let received;

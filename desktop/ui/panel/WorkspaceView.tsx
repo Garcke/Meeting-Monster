@@ -7,7 +7,7 @@ import {isAsrModelReady} from '../shared/services/asr-model-service';
 import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../shared/services/audio-input-mode';
 import {canStartRecording, canStopRecording, PcmAudioRecorder, type RecordingPhase} from '../shared/services/audio-recorder';
 import {stripAssistantThinking} from '../shared/services/assistant-markdown';
-import {MODEL_SETTINGS_CHANGED_EVENT, findInitialProfile, loadModelSettings} from '../shared/services/model-settings-service';
+import {findInitialProfile} from '../shared/services/model-settings-service';
 import {QuestionStore} from '../shared/services/question-store';
 
 function isPermissionDenied(error: unknown): boolean {
@@ -87,21 +87,21 @@ export function WorkspaceView({active}: {active: boolean}) {
         let modelSettingsRevision = 0;
         const refreshModelSettings = () => {
             const revision = ++modelSettingsRevision;
-            void loadModelSettings(api).then(({options, saved}) => {
+            void api.models.getSaved().then((saved) => {
                 if (modelSettingsDisposed || revision !== modelSettingsRevision) return;
-                setRemoteModelLabel(findInitialProfile(options, saved).label);
-                const activeConnection = saved?.connections[saved.active_profile];
+                setRemoteModelLabel(findInitialProfile(null, saved).label);
+                const activeConnection = saved.connections[saved.active_profile];
                 setVisionVerified(activeConnection?.vision_verified === true);
             }).catch(() => {
                 if (!modelSettingsDisposed && revision === modelSettingsRevision) setVisionVerified(false);
             });
         };
-        window.addEventListener(MODEL_SETTINGS_CHANGED_EVENT, refreshModelSettings);
+        const unsubscribeModelChanges = api.models.onChanged(refreshModelSettings);
         refreshModelSettings();
         return () => {
             modelSettingsDisposed = true;
             modelSettingsRevision += 1;
-            window.removeEventListener(MODEL_SETTINGS_CHANGED_EVENT, refreshModelSettings);
+            unsubscribeModelChanges();
             unsubscribeStatus();
             unsubscribeResult();
             unsubscribeChat();

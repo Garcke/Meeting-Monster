@@ -221,6 +221,10 @@ function broadcastAudioInputChanged(mode: AudioInputMode): void {
     for (const win of getLiveApplicationWindows()) win.webContents.send(IPC_CHANNELS.audioInput.changed, mode);
 }
 
+function broadcastModelChanged(): void {
+    for (const win of getLiveApplicationWindows()) win.webContents.send(IPC_CHANNELS.models.changed);
+}
+
 function setAsrModelRuntime(
     id: AsrModelId,
     state: 'loading' | 'ready' | 'failed',
@@ -791,7 +795,7 @@ function registerIpcHandlers(): void {
         return getModelConnectionStore().loadSummary();
     });
     ipcMain.handle(IPC_CHANNELS.models.save, async (event, connection: unknown) => {
-        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized models request');
         const requested = requireModelSelection(connection);
         const selection = await mergeSavedModelConnection(requested);
         if (!selection) throw new Error('Model selection is required');
@@ -802,13 +806,11 @@ function registerIpcHandlers(): void {
         );
         if (!tested.vision) throw new Error('Model does not support image input');
         const saved = await getModelConnectionStore().saveVerifiedConnection(modelSelectionToConnection(selection));
-        for (const win of getLiveApplicationWindows()) {
-            win.webContents.send(IPC_CHANNELS.models.changed);
-        }
+        broadcastModelChanged();
         return saved;
     });
     ipcMain.handle(IPC_CHANNELS.models.test, async (event, selection: unknown) => {
-        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized models request');
         const modelSelection = await mergeSavedModelConnection(requireModelSelection(selection));
         if (!modelSelection) throw new Error('Model selection is required');
         return runModelTestWithVisionRetries(
@@ -899,13 +901,13 @@ function registerIpcHandlers(): void {
         return getPublicAsrModelSnapshot();
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.select, async (event, modelId: unknown) => {
-        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         assertAsrModelMutationAllowed();
         return runAsrModelMutation(() => selectInstalledAsrModel(id));
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.download, async (event, modelId: unknown) => {
-        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         assertAsrModelMutationAllowed();
         return runAsrModelMutation(async () => {
@@ -925,12 +927,12 @@ function registerIpcHandlers(): void {
         });
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.cancel, (event, modelId: unknown) => {
-        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         return {cancelled: getAsrModelManager().cancel(id)};
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.delete, async (event, modelId: unknown) => {
-        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         assertAsrModelMutationAllowed();
         return runAsrModelMutation(async () => {

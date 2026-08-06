@@ -46,7 +46,9 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.match(workspace, /onClick=\{\(\) => \{ setAction\('followup'\); void sendText\('followup'\); \}\}/);
     assert.match(workspace, /onClick=\{\(\) => \{ setAction\('recap'\); void sendText\('recap'\); \}\}/);
     assert.match(workspace, /function submit[\s\S]*sendText\('direct'\)/);
-    assert.match(workspace, /MODEL_SETTINGS_CHANGED_EVENT/);
+    assert.match(workspace, /api\.models\.onChanged\(refreshModelSettings\)/);
+    assert.match(workspace, /api\.models\.getSaved\(\)/);
+    assert.doesNotMatch(workspace, /MODEL_SETTINGS_CHANGED_EVENT|loadModelSettings/);
     assert.match(workspace, /vision_verified === true/);
     assert.doesNotMatch(workspace, /image\/png|base64/i);
     assert.match(panelCss, /\.assist-hint\s*\{/);

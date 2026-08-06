@@ -247,11 +247,7 @@ export interface MeetingMonsterApi {
         onChanged(callback: (mode: AudioInputMode) => void): Unsubscribe;
     };
     models: {
-        list(): Promise<ModelOptions>;
         getSaved(): Promise<SavedModelConnectionSettings>;
-        save(connection: ModelConnectionInput): Promise<SavedModelConnectionSettings>;
-        test(selection: ModelSelectionInput): Promise<ModelTestResult>;
-        onTestProgress(callback: (progress: ModelTestProgress) => void): Unsubscribe;
         onChanged(callback: () => void): Unsubscribe;
     };
     chat: {
@@ -262,10 +258,6 @@ export interface MeetingMonsterApi {
     };
     asrModels: {
         list(): Promise<AsrModelSnapshot>;
-        select(modelId: AsrModelId): Promise<AsrModelSnapshot>;
-        download(modelId: AsrModelId): Promise<AsrModelSnapshot>;
-        cancel(modelId: AsrModelId): Promise<{cancelled: boolean}>;
-        delete(modelId: AsrModelId): Promise<AsrModelSnapshot>;
         onStatus(callback: (snapshot: AsrModelSnapshot) => void): Unsubscribe;
     };
     asr: {
