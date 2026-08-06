@@ -115,9 +115,6 @@ button { font: inherit; }
 .capsule-button:hover,
 .capsule-stop:hover { background: rgba(93, 107, 131, 0.9); }
 
-.protection-button { min-width: 54px; color: #ffd3a8; border-color: rgba(236, 150, 75, 0.55); }
-.protection-button.is-protected { color: #a7f5be; border-color: rgba(90, 213, 131, 0.55); }
-
 .capsule-button > span {
     display: inline-flex;
     flex: 0 0 auto;

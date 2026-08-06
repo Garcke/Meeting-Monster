@@ -20,6 +20,7 @@ const asrModels: AsrModelSnapshot = {
 
 function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const intents: Array<{type: string}> = [];
+    const privacyListeners = new Set<(status: PrivacyStatus) => void>();
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
     const audioInputListeners = new Set<(mode: 'system' | 'microphone' | 'mixed') => void>();
@@ -50,9 +51,10 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         },
         privacy: {
             getStatus: vi.fn(async () => privacyStatus),
-            onStatus: vi.fn(() => () => {}),
+            onStatus: vi.fn((listener: (status: PrivacyStatus) => void) => { privacyListeners.add(listener); return () => privacyListeners.delete(listener); }),
             setCaptureProtection: vi.fn(async () => privacy),
         },
+        settings: {open: vi.fn(async () => undefined)},
         audioInput: {
             get: vi.fn(async () => 'system' as const),
             set: vi.fn(async (mode: 'system' | 'microphone' | 'mixed') => mode),
@@ -95,6 +97,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         emitAsrResult: (event: {type: string; text: string}) => { for (const listener of asrListeners) listener(event); },
         emitChatEvent: (event: ChatStreamEvent) => { for (const listener of chatListeners) listener(event); },
         emitAudioInputChanged: (mode: 'system' | 'microphone' | 'mixed') => { for (const listener of audioInputListeners) listener(mode); },
+        emitPrivacy: (status: PrivacyStatus) => { for (const listener of privacyListeners) listener(status); },
     };
 }
 
@@ -221,6 +224,45 @@ test('capsule sends only the workspace overlay intent', async () => {
     fireEvent.click(await screen.findByRole('button', {name: /展开/}));
     expect(intents).toEqual([{type: 'toggle-workspace'}]);
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
+});
+
+test('capsule exposes only workspace and exit actions', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<CapsuleApp />);
+
+    expect(await screen.findByRole('button', {name: /展开/})).toBeTruthy();
+    expect(screen.getByRole('button', {name: '退出应用'})).toBeTruthy();
+    expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
+    expect(screen.queryByText(/已保护|未保护/)).toBeNull();
+});
+
+test('workspace menu toggles privacy and marks the visible state', async () => {
+    const {api, emitPrivacy} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /共享隐藏/});
+    expect(privacyItem.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(privacyItem);
+    expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(false);
+    act(() => emitPrivacy({...privacy, captureProtection: 'disabled', captureProtectionEnabled: false}));
+    expect(screen.getByTestId('privacy-warning-dot')).toBeTruthy();
+});
+
+test('workspace menu closes with Escape and opens settings', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    const more = await screen.findByRole('button', {name: '更多'});
+    fireEvent.click(more);
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole('menuitem', {name: /设置/}));
+    await waitFor(() => expect(api.settings.open).toHaveBeenCalledOnce());
 });
 
 test('capsule exit control quits the app instead of hiding it', async () => {

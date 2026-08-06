@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import type {OverlaySnapshot} from '../../src/shared/contracts';
+import {WorkspaceMenu} from './WorkspaceMenu';
 import {WorkspaceView} from './WorkspaceView';
 import './panel.css';
 
@@ -58,6 +59,7 @@ export function PanelApp() {
             <header className="panel-drag-handle" data-drag-handle>
                 <span className="panel-kicker">TRANSCRIPT</span>
                 <span className="panel-drag-hint">拖动面板</span>
+                <WorkspaceMenu />
             </header>
             {error && <div className="panel-error no-drag" role="alert">{error}</div>}
             <section className={`panel-view ${snapshot.target === 'workspace' ? 'is-active' : ''}`} aria-hidden={snapshot.target !== 'workspace'}>

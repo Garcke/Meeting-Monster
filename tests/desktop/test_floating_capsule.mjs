@@ -25,6 +25,7 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(source, /overlay\.intent\(\{type: 'toggle-workspace'\}\)/);
     assert.match(source, /toggle-workspace/);
     assert.doesNotMatch(source, /toggle-settings|settings/);
+    assert.doesNotMatch(source, /privacy|PrivacyStatus|setCaptureProtection/);
     assert.doesNotMatch(source, /window\.setExpanded/);
     assert.match(styles, /-webkit-app-region:\s*drag/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
@@ -45,6 +46,21 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleButton, /font-size:\s*11px/);
     assert.match(capsuleStop, /width:\s*32px/);
     assert.match(capsuleStop, /height:\s*32px/);
+});
+
+test('workspace menu owns privacy controls and warning state', () => {
+    const source = read('desktop', 'ui', 'panel', 'WorkspaceMenu.tsx');
+    const styles = read('desktop', 'ui', 'panel', 'panel.css');
+
+    assert.match(source, /aria-label="更多"/);
+    assert.match(source, /role="menu"/);
+    assert.match(source, /role="menuitemcheckbox"/);
+    assert.match(source, /aria-checked/);
+    assert.match(source, /settings\.open\(\)/);
+    assert.match(source, /privacy\.setCaptureProtection/);
+    assert.match(source, /privacy-warning-dot/);
+    assert.match(styles, /\.workspace-menu-popover\s*\{[^}]*width:\s*214px/s);
+    assert.match(styles, /\.privacy-warning-dot\s*\{[^}]*#F3A35C/s);
 });
 
 test('capsule width budget keeps the status grip shrinkable before controls', () => {
