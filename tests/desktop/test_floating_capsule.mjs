@@ -59,6 +59,7 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleShell, /background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)/);
     assert.match(capsuleButton, /width:\s*70px/);
     assert.match(capsuleButton, /min-width:\s*70px/);
+    assert.match(capsuleButton, /gap:\s*7px/);
     assert.match(sharedControls, /height:\s*30px/);
     assert.match(chevron, /width:\s*14px/);
     assert.match(chevron, /height:\s*14px/);
