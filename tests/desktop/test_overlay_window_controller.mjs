@@ -59,8 +59,8 @@ test('initializes one transparent overlay at fixed geometry with only the capsul
   const [overlay] = FakeWindow.created;
 
   assert.equal(FakeWindow.created.length, 1);
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, ...OVERLAY_BOUNDS});
-  assert.deepEqual(overlay.setShapeCalls, [[{x: 186, y: 0, width: 276, height: 56}]]);
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, ...OVERLAY_BOUNDS});
+  assert.deepEqual(overlay.setShapeCalls, [[{x: 200, y: 0, width: 248, height: 48}]]);
   assert.equal(overlay.options.transparent, true);
   assert.equal(overlay.options.frame, false);
   assert.equal(overlay.options.alwaysOnTop, true);
@@ -81,12 +81,12 @@ test('opening changes the native shape without moving or resizing the fixed wind
 
   const opening = await controller.dispatch({type: 'toggle-workspace'});
   assert.deepEqual(opening, {target: 'workspace', phase: 'opening', revision: 1});
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, ...OVERLAY_BOUNDS});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, ...OVERLAY_BOUNDS});
   assert.equal(FakeWindow.created.length, 1);
   assert.equal(overlay.setBoundsCalls.length, 0);
   assert.deepEqual(overlay.setShapeCalls.at(-1), [
-    {x: 186, y: 0, width: 276, height: 56},
-    {x: 0, y: 70, width: 648, height: 450},
+    {x: 200, y: 0, width: 248, height: 48},
+    {x: 0, y: 62, width: 648, height: 450},
   ]);
 });
 

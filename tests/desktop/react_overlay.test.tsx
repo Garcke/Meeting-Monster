@@ -216,11 +216,11 @@ afterEach(() => {
     window.localStorage.clear();
 });
 
-test('capsule sends only the workspace overlay intent', async () => {
+test('capsule sends only the workspace overlay intent from Chat', async () => {
     const {api, intents} = fakeApi();
     window.meetingMonster = api;
     render(<CapsuleApp />);
-    fireEvent.click(await screen.findByRole('button', {name: /展开/}));
+    fireEvent.click(await screen.findByRole('button', {name: /Chat/}));
     expect(intents).toEqual([{type: 'toggle-workspace'}]);
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
 });
@@ -230,7 +230,8 @@ test('capsule exposes only workspace and exit actions', async () => {
     window.meetingMonster = api;
     render(<CapsuleApp />);
 
-    expect(await screen.findByRole('button', {name: /展开/})).toBeTruthy();
+    expect(await screen.findByRole('button', {name: /Chat/})).toBeTruthy();
+    expect((await screen.findByRole('button', {name: /Chat/})).getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByRole('button', {name: '退出应用'})).toBeTruthy();
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
     expect(screen.queryByText(/已保护|未保护/)).toBeNull();

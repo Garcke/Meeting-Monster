@@ -54,19 +54,19 @@ test('keeps one fixed native window while opening the panel around the capsule a
 
   assert.equal(FakeWindow.created.length, 1);
   const overlay = FakeWindow.created[0];
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, width: 648, height: 512});
   assert.deepEqual(overlay.setShapeCalls, [
-    [{x: 186, y: 0, width: 276, height: 56}],
+    [{x: 200, y: 0, width: 248, height: 48}],
   ]);
   assert.equal(overlay.loadFileCalls[0], path.join('dist/renderer', 'overlay.html'));
   assert.deepEqual(controller.getWindow(), overlay);
 
   await controller.dispatch({type: 'toggle-workspace'});
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, width: 648, height: 512});
   assert.equal(overlay.setBoundsCalls.length, 0);
   assert.deepEqual(overlay.setShapeCalls.at(-1), [
-    {x: 186, y: 0, width: 276, height: 56},
-    {x: 0, y: 70, width: 648, height: 450},
+    {x: 200, y: 0, width: 248, height: 48},
+    {x: 0, y: 62, width: 648, height: 450},
   ]);
 });
 
@@ -83,7 +83,7 @@ test('toggling the workspace does not resize the single window', async () => {
   await controller.animationFinished(controller.getSnapshot().revision);
   await controller.dispatch({type: 'toggle-workspace'});
   assert.equal(overlay.setBoundsCalls.length, callsAfterOpen);
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, width: 648, height: 512});
 });
 
 test('closing keeps fixed bounds and clips the panel only after the matching animation finishes', async () => {
@@ -93,16 +93,16 @@ test('closing keeps fixed bounds and clips the panel only after the matching ani
 
   await controller.dispatch({type: 'toggle-workspace'});
   const closing = await controller.dispatch({type: 'toggle-workspace'});
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, width: 648, height: 512});
 
   await controller.animationFinished(closing.revision - 1);
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, width: 648, height: 512});
 
   await controller.animationFinished(closing.revision);
-  assert.deepEqual(overlay.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 20, y: 120, width: 648, height: 512});
   assert.equal(overlay.setBoundsCalls.length, 0);
   assert.deepEqual(overlay.setShapeCalls.at(-1), [
-    {x: 186, y: 0, width: 276, height: 56},
+    {x: 200, y: 0, width: 248, height: 48},
   ]);
 });
 
@@ -116,6 +116,6 @@ test('a user drag is not reversed when the fixed window collapses', async () => 
   const closing = await controller.dispatch({type: 'toggle-workspace'});
   await controller.animationFinished(closing.revision);
 
-  assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, width: 648, height: 520});
+  assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, width: 648, height: 512});
   assert.equal(overlay.setBoundsCalls.length, 0);
 });

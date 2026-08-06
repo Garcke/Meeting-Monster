@@ -23,15 +23,15 @@ body,
     position: absolute;
     z-index: 2;
     top: 0;
-    left: calc((100vw - 276px) / 2);
-    width: 276px;
-    height: 56px;
+    left: calc((100vw - 248px) / 2);
+    width: 248px;
+    height: 48px;
 }
 
 .panel-layer {
     position: absolute;
     z-index: 1;
-    top: 70px;
+    top: 62px;
     left: 0;
     width: 648px;
     height: 450px;

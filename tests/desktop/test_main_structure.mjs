@@ -41,9 +41,9 @@ test('main delegates single-window geometry to the overlay controller', () => {
     assert.match(source, /import \{[^}]*createOverlayWindowController[^}]*CAPSULE_BOUNDS[^}]*\} from '\.\/overlay-window-controller'/s);
     assert.match(source, /let overlayController: OverlayWindowController \| null = null/);
     assert.doesNotMatch(source, /windows\.capsule|windows\.panel/);
-    assert.match(controller, /width: 276, height: 56/);
-    assert.match(controller, /width: 648, height: 520/);
-    assert.match(controller, /PANEL_OFFSET = \{x: -186, y: 70\}/);
+    assert.match(controller, /CAPSULE_BOUNDS = \{width: 248, height: 48\}/);
+    assert.match(controller, /OVERLAY_BOUNDS = \{width: 648, height: 512\}/);
+    assert.match(controller, /PANEL_OFFSET = \{x: -200, y: 62\}/);
     assert.doesNotMatch(controller, /toggle-settings|settings/);
     assert.doesNotMatch(contractsSource(), /toggle-settings|OverlayTarget = 'closed' \| 'workspace' \| 'settings'/);
     assert.doesNotMatch(source, /720\s*,\s*height:\s*520|width:\s*720\s*,\s*height:\s*520|EXPANDED_BOUNDS|getExpandedBounds|getCapsuleBounds|getAnchorFromExpandedBounds|setWindowMode|ProgrammaticBoundsTracker/);

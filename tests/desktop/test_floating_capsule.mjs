@@ -13,9 +13,9 @@ test('main uses a fixed single-window overlay without legacy resizing', () => {
     assert.match(source, /createOverlayWindowController\(/);
     assert.match(source, /rendererRoot:\s*path\.join\(__dirname, '\.\.', 'renderer'\)/);
     assert.doesNotMatch(source, /width:\s*720,\s*height:\s*520|setWindowMode\(|EXPANDED_BOUNDS/);
-    assert.match(controller, /CAPSULE_BOUNDS = \{width: 276, height: 56\}/);
-    assert.match(controller, /OVERLAY_BOUNDS = \{width: 648, height: 520\}/);
-    assert.match(controller, /PANEL_OFFSET = \{x: -186, y: 70\}/);
+    assert.match(controller, /CAPSULE_BOUNDS = \{width: 248, height: 48\}/);
+    assert.match(controller, /OVERLAY_BOUNDS = \{width: 648, height: 512\}/);
+    assert.match(controller, /PANEL_OFFSET = \{x: -200, y: 62\}/);
     assert.doesNotMatch(controller, /toggle-settings|settings/);
 });
 
@@ -33,19 +33,22 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.doesNotMatch(styles, /box-shadow/);
     const avatar = styles.match(/\.capsule-avatar\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const dot = styles.match(/\.capsule-dot\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    assert.match(avatar, /flex:\s*0\s+0\s+34px/);
+    assert.match(avatar, /flex:\s*0\s+0\s+32px/);
     assert.match(avatar, /aspect-ratio:\s*1/);
-    assert.match(avatar, /width:\s*34px/);
-    assert.match(avatar, /height:\s*34px/);
+    assert.match(avatar, /width:\s*32px/);
+    assert.match(avatar, /height:\s*32px/);
     assert.match(dot, /flex:\s*0\s+0\s+7px/);
     assert.match(dot, /width:\s*7px/);
     assert.match(dot, /height:\s*7px/);
     const capsuleButton = styles.match(/\.capsule-button\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const capsuleStop = styles.match(/\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    assert.match(capsuleButton, /height:\s*32px/);
     assert.match(capsuleButton, /font-size:\s*11px/);
-    assert.match(capsuleStop, /width:\s*32px/);
-    assert.match(capsuleStop, /height:\s*32px/);
+    assert.match(capsuleStop, /width:\s*30px/);
+    assert.match(capsuleStop, /height:\s*30px/);
+    const capsuleShell = styles.match(/\.capsule-shell\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const sharedControls = styles.match(/\.capsule-button,\s*\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    assert.match(capsuleShell, /background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)/);
+    assert.match(sharedControls, /height:\s*30px/);
 });
 
 test('workspace menu owns privacy controls and warning state', () => {
@@ -134,7 +137,7 @@ test('single overlay keeps the capsule visually detached above the panel', () =>
     const styles = read('desktop', 'ui', 'overlay', 'overlay.css');
     const panelLayer = styles.match(/\.panel-layer\s*\{([\s\S]*?)\}/)?.[1] ?? '';
 
-    assert.match(panelLayer, /top:\s*70px/);
+    assert.match(panelLayer, /top:\s*62px/);
     assert.match(panelLayer, /height:\s*450px/);
     assert.match(panelLayer, /pointer-events:\s*none/);
 });
