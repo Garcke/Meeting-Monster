@@ -51,7 +51,12 @@ export function CapsuleApp() {
                         </svg>
                         <span>Hide</span>
                     </>
-                ) : 'Chat'}
+                ) : (
+                    <>
+                        <span className="capsule-chat-symbol" aria-hidden="true">ฅ</span>
+                        <span>Chat</span>
+                    </>
+                )}
             </button>
             <button className="capsule-stop" type="button" aria-label="退出应用" title="退出应用" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
                 <span aria-hidden="true">■</span>

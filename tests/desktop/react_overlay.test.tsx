@@ -231,21 +231,25 @@ test('capsule sends only the workspace overlay intent from Chat', async () => {
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
 });
 
-test('capsule presents Hide with a chevron while the workspace is expanded', async () => {
+test('capsule swaps its decorative Chat symbol for the Hide chevron with the workspace state', async () => {
     const {api} = fakeApi();
     window.meetingMonster = api;
     render(<CapsuleApp />);
 
     const chatButton = await screen.findByRole('button', {name: /Chat/});
     expect(chatButton.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.capsule-chat-symbol')?.textContent).toBe('ฅ');
+    expect(document.querySelector('.capsule-chat-symbol')?.getAttribute('aria-hidden')).toBe('true');
 
     fireEvent.click(chatButton);
     await waitFor(() => expect(screen.getByRole('button', {name: /Hide/}).getAttribute('aria-expanded')).toBe('true'));
     expect(document.querySelector('.capsule-chevron')).toBeTruthy();
+    expect(document.querySelector('.capsule-chat-symbol')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', {name: /Hide/}));
     await waitFor(() => expect(screen.getByRole('button', {name: /Chat/}).getAttribute('aria-expanded')).toBe('false'));
     expect(document.querySelector('.capsule-chevron')).toBeNull();
+    expect(document.querySelector('.capsule-chat-symbol')?.textContent).toBe('ฅ');
 });
 
 test('capsule exposes only workspace and exit actions', async () => {

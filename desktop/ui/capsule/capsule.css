@@ -101,9 +101,10 @@ button { font: inherit; }
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    min-width: 52px;
-    width: auto;
+    width: 70px;
+    min-width: 70px;
     padding: 0 9px;
+    gap: 7px;
     line-height: 1;
     white-space: nowrap;
     border-radius: 999px;
@@ -130,6 +131,18 @@ button { font: inherit; }
     stroke-width: 1.5;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+.capsule-chat-symbol {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    align-items: center;
+    justify-content: center;
+    font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1;
 }
 
 .capsule-button:has(.capsule-chevron) { gap: 7px; }
