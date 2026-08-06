@@ -65,14 +65,17 @@ test('capsule action buttons keep their labels on one centered line', () => {
     assert.doesNotMatch(capsuleCss, /\.protection-button\s*\{/);
 });
 
-test('capsule expand button keeps the Chat label and arrow in one button', () => {
+test('capsule expand button uses Chat when closed and chevron Hide when expanded', () => {
     const capsuleApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'CapsuleApp.tsx'), 'utf8');
     const capsuleCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'capsule.css'), 'utf8');
 
-    assert.match(
-        capsuleApp,
-        /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}[\s\S]*?\{snapshot\.target === 'workspace' \? '\u6536\u8d77' : 'Chat'\} <span aria-hidden="true">\u2304<\/span>[\s\S]*?<\/button>/,
-    );
+    assert.match(capsuleApp, /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}/);
+    assert.match(capsuleApp, /\{snapshot\.target === 'workspace' \? \(/);
+    assert.match(capsuleApp, /<span>Hide<\/span>/);
+    assert.match(capsuleApp, /\) : 'Chat'}/);
+    assert.match(capsuleApp, /<svg className="capsule-chevron" viewBox="0 0 14 14" aria-hidden="true">/);
+    assert.match(capsuleApp, /<path d="M3\.5 5\.25 7 8\.75l3\.5-3\.5" \/>/);
+    assert.doesNotMatch(capsuleApp, /\u2304/);
     assert.match(capsuleCss, /\.capsule-button\s*>\s*span\s*\{[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 auto[^}]*line-height:\s*1/s);
 });
 
