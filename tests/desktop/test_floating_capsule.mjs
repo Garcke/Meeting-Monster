@@ -26,6 +26,8 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(source, /toggle-workspace/);
     assert.match(source, /className="capsule-chevron"/);
     assert.match(source, /viewBox="0 0 14 14"/);
+    assert.match(source, /<svg\s+className="capsule-chevron"\s+viewBox="0 0 14 14"\s+aria-hidden="true">/);
+    assert.match(source, /<path\s+d="M3\.5 5\.25 7 8\.75l3\.5-3\.5"\s*\/>/);
     assert.doesNotMatch(source, /\u2304/);
     assert.doesNotMatch(source, /toggle-settings|settings/);
     assert.doesNotMatch(source, /privacy|PrivacyStatus|setCaptureProtection/);
@@ -50,10 +52,18 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleStop, /height:\s*30px/);
     const capsuleShell = styles.match(/\.capsule-shell\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const sharedControls = styles.match(/\.capsule-button,\s*\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const chevron = styles.match(/\.capsule-chevron\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const expandedButton = styles.match(/\.capsule-button:has\(\.capsule-chevron\)\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     assert.match(capsuleShell, /background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)/);
     assert.match(sharedControls, /height:\s*30px/);
-    assert.match(styles, /\.capsule-chevron\s*\{[\s\S]*?width:\s*14px[\s\S]*?height:\s*14px/);
-    assert.match(styles, /stroke-width:\s*1\.5/);
+    assert.match(chevron, /width:\s*14px/);
+    assert.match(chevron, /height:\s*14px/);
+    assert.match(chevron, /fill:\s*none/);
+    assert.match(chevron, /stroke:\s*currentColor/);
+    assert.match(chevron, /stroke-width:\s*1\.5/);
+    assert.match(chevron, /stroke-linecap:\s*round/);
+    assert.match(chevron, /stroke-linejoin:\s*round/);
+    assert.match(expandedButton, /gap:\s*7px/);
 });
 
 test('workspace menu owns privacy controls and warning state', () => {
