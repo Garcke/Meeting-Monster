@@ -36,11 +36,14 @@ export function createSettingsWindowController(
 ): SettingsWindowController {
     let window: SettingsBrowserWindowLike | null = null;
     let openingPromise: Promise<SettingsBrowserWindowLike> | null = null;
+    let openingGeneration = 0;
     let disposed = false;
 
     const close = (): void => {
         const current = window;
         window = null;
+        openingPromise = null;
+        openingGeneration += 1;
         if (current && !current.isDestroyed()) current.destroy();
     };
 
@@ -56,6 +59,7 @@ export function createSettingsWindowController(
                 return Promise.resolve(window);
             }
 
+            const generation = ++openingGeneration;
             const next = new options.BrowserWindow({
                 width: 940,
                 height: 640,
@@ -93,18 +97,22 @@ export function createSettingsWindowController(
             openingPromise = (async (): Promise<SettingsBrowserWindowLike> => {
                 try {
                     await next.loadFile(path.join(options.rendererRoot, 'settings.html'));
-                    if (window === next && !next.isDestroyed()) {
-                        next.show();
-                        next.focus();
+                    if (generation !== openingGeneration || window !== next || next.isDestroyed()) {
+                        throw new Error('Settings window was closed before loading');
                     }
+                    next.show();
+                    next.focus();
                     return next;
                 } catch {
-                    next.removeListener('closed', onClosed);
-                    if (!next.isDestroyed()) next.destroy();
-                    if (window === next) window = null;
-                    throw new Error('Settings renderer failed to load');
+                    if (generation === openingGeneration && window === next) {
+                        next.removeListener('closed', onClosed);
+                        if (!next.isDestroyed()) next.destroy();
+                        if (window === next) window = null;
+                        throw new Error('Settings renderer failed to load');
+                    }
+                    throw new Error('Settings window was closed before loading');
                 } finally {
-                    openingPromise = null;
+                    if (generation === openingGeneration) openingPromise = null;
                 }
             })();
 
@@ -120,7 +128,6 @@ export function createSettingsWindowController(
         dispose(): void {
             if (disposed) return;
             disposed = true;
-            openingPromise = null;
             close();
         },
     };

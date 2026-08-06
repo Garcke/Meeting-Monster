@@ -103,3 +103,26 @@ test('clears a failed load so the next open can retry', async () => {
   await controller.open();
   assert.equal(FakeWindow.created.length, 2);
 });
+
+test('opens a new window when close happens during the first renderer load', async () => {
+  const controller = createController({deferLoad: true});
+  const firstOpen = controller.open();
+  const first = FakeWindow.created[0];
+
+  controller.close();
+  const secondOpen = controller.open();
+  const second = FakeWindow.created[1];
+
+  assert.equal(FakeWindow.created.length, 2);
+  assert.equal(controller.getWindow(), second);
+  assert.equal(first.destroyed, true);
+
+  first.resolveLoad();
+  second.resolveLoad();
+  await assert.rejects(firstOpen, /closed before loading/i);
+  assert.equal(await secondOpen, second);
+  assert.equal(first.showCalls, 0);
+  assert.equal(first.focusCalls, 0);
+  assert.equal(second.showCalls, 1);
+  assert.equal(second.focusCalls, 1);
+});
