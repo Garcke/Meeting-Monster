@@ -13,6 +13,7 @@ test('web client is removed while Electron entrypoints remain', () => {
         false,
     );
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'overlay.html')), true);
+    assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'settings.html')), true);
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'capsule.html')), false);
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'panel.html')), false);
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'overlay', 'main.tsx')), true);
@@ -28,8 +29,9 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.doesNotMatch(panelCss, /\.panel-prompt\s*\{/);
     assert.match(panelApp, /className="panel-drag-handle"/);
     assert.match(panelApp, /className="panel-drag-hint"/);
-    assert.match(panelApp, /visibleTarget === 'workspace' && <span className="panel-kicker">TRANSCRIPT<\/span>/);
-    assert.match(panelApp, /visibleTarget === 'settings' && <span className="panel-title">连接与模型<\/span>/);
+    assert.match(panelApp, /<span className="panel-kicker">TRANSCRIPT<\/span>/);
+    assert.doesNotMatch(panelApp, /SettingsView|settings/);
+    assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'SettingsView.tsx')), false);
     assert.doesNotMatch(workspace, /\u5f00\u59cb\u8f6c\u5199\u540e\uff0c\u5f53\u524d\u95ee\u9898\u4f1a\u663e\u793a\u5728\u8fd9\u91cc/);
     assert.match(workspace, /className="answer-scroll no-drag"/);
     assert.match(panelCss, /\.workspace-content\s*\{[^}]*display:\s*grid/s);

@@ -13,6 +13,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         overlay: path.resolve(__dirname, 'ui/overlay.html'),
+        settings: path.resolve(__dirname, 'ui/settings.html'),
       },
     },
   },

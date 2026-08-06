@@ -63,14 +63,13 @@ test('capsule width budget keeps the status grip shrinkable before controls', ()
     assert.match(styles, /\.capsule-shell\s*\{[\s\S]*?border-radius:\s*999px[\s\S]*?overflow:\s*hidden/);
 });
 
-test('panel keeps transparent shell, transform-only states, scroll pointer safety, and worklet asset', () => {
+test('panel keeps transparent shell, transform-only states, and worklet asset', () => {
     const styles = read('desktop', 'ui', 'panel', 'panel.css');
     const panel = read('desktop', 'ui', 'panel', 'PanelApp.tsx');
     const worklet = read('desktop', 'ui', 'public', 'recorder_worklet.js');
     assert.match(styles, /background:\s*transparent/);
     assert.match(styles, /panel-enter/);
     assert.match(styles, /panel-visible/);
-    assert.match(styles, /settings-scroll/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
     assert.match(styles, /transition:\s*transform\s+140ms\s+ease/);
     const enter = styles.match(/\.panel-shell\.panel-enter\s*\{([\s\S]*?)\}/)?.[1] ?? '';
@@ -86,6 +85,11 @@ test('panel keeps transparent shell, transform-only states, scroll pointer safet
     assert.match(panel, /rendererReady\(snapshot\.revision\)/);
     assert.match(panel, /animationFinished\(snapshot\.revision\)/);
     assert.match(worklet, /registerProcessor\('pcm-processor'/);
+});
+
+test('settings keeps its independent main content scrollable', () => {
+    const styles = read('desktop', 'ui', 'settings', 'settings.css');
+    assert.match(styles, /\.settings-main\s*\{[^}]*overflow-y:\s*auto/s);
 });
 
 test('rounded panel shell does not paint a clipped shadow behind its lower corners', () => {

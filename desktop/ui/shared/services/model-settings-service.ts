@@ -1,5 +1,5 @@
 import type {
-    MeetingMonsterApi,
+    ModelSettingsApi,
     ModelOptions,
     ModelProfileId,
     ModelSelectionInput,
@@ -100,7 +100,7 @@ export function buildModelSelection(profile: SelectableModelProfile, values: Mod
     };
 }
 
-export async function loadModelSettings(api: MeetingMonsterApi): Promise<{options: ModelOptions; saved: SavedModelConnectionSettings | null; profile: SelectableModelProfile}> {
+export async function loadModelSettings(api: ModelSettingsApi): Promise<{options: ModelOptions; saved: SavedModelConnectionSettings | null; profile: SelectableModelProfile}> {
     const [remoteOptions, saved] = await Promise.all([
         api.models.list().catch(() => ({active_profile: '', profiles: [...BUILT_IN_MODEL_PROFILES]})),
         api.models.getSaved().catch(() => null),
@@ -112,10 +112,10 @@ export async function loadModelSettings(api: MeetingMonsterApi): Promise<{option
     return {options, saved, profile: findInitialProfile(options, saved)};
 }
 
-export async function saveModelConnection(api: MeetingMonsterApi, profile: SelectableModelProfile, values: ModelFormValues): Promise<SavedModelConnectionSettings> {
+export async function saveModelConnection(api: ModelSettingsApi, profile: SelectableModelProfile, values: ModelFormValues): Promise<SavedModelConnectionSettings> {
     return api.models.save({...buildModelSelection(profile, values), protocol: profile.protocol});
 }
 
-export async function testModelConnection(api: MeetingMonsterApi, profile: SelectableModelProfile, values: ModelFormValues): Promise<ModelTestResult> {
+export async function testModelConnection(api: ModelSettingsApi, profile: SelectableModelProfile, values: ModelFormValues): Promise<ModelTestResult> {
     return api.models.test(buildModelSelection(profile, values));
 }
