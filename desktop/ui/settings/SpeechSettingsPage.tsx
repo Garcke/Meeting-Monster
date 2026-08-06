@@ -85,10 +85,10 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
 
     async function selectAsr(id: AsrModelId) {
         setAsrId(id);
+        setAsrError('');
         const model = asrSnapshot?.models.find((item) => item.id === id);
         if (!model || model.installedState === 'not-downloaded' || model.installedState === 'failed') return;
         setAsrOperation('selecting');
-        setAsrError('');
         try {
             setAsrSnapshot(await asrActions.select(id));
         } catch (error) {
@@ -97,6 +97,12 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
             setAsrOperation(null);
         }
     }
+
+    const asrStatusTone = asrError
+        ? 'error'
+        : selectedAsr?.installedState === 'installed' || selectedAsr?.installedState === 'ready'
+            ? 'success'
+            : 'neutral';
 
     async function download() {
         if (!asrId) return;
@@ -169,7 +175,7 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
                     </select>
                 </div>
                 {selectedAsr && <p id="asrModelDescription" className="settings-muted">{describeAsrModel(selectedAsr)}</p>}
-                <div className="asr-status" id="asrModelStatus">{asrError || asrStatus}</div>
+                <div className={`asr-status${asrStatusTone === 'neutral' ? '' : ` is-${asrStatusTone}`}`} id="asrModelStatus">{asrError || asrStatus}</div>
                 {selectedAsr?.installedState === 'downloading' && <progress value={selectedAsr.downloadedBytes} max={selectedAsr.totalBytes} />}
                 <div className="settings-actions">
                     <button id="asrModelDownloadButton" type="button" className="primary" onClick={() => void download()} disabled={!selectedAsr || isBusy || selectedAsr.installedState === 'installed' || selectedAsr.installedState === 'ready'}>下载模型</button>

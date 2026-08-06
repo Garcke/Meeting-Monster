@@ -89,7 +89,21 @@ test('panel keeps transparent shell, transform-only states, and worklet asset', 
 
 test('settings keeps its independent main content scrollable', () => {
     const styles = read('desktop', 'ui', 'settings', 'settings.css');
-    assert.match(styles, /\.settings-main\s*\{[^}]*overflow-y:\s*auto/s);
+    assert.match(styles, /\.settings-main\s*\{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
+    assert.match(styles, /\.settings-status,[\s\S]*\.settings-error,[\s\S]*\.asr-status\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+});
+
+test('settings uses only the approved dark visual tokens and semantic status colors', () => {
+    const styles = read('desktop', 'ui', 'settings', 'settings.css');
+    const approved = new Set([
+        '#111721', '#0d121a', '#171e29', '#0e141d', '#f2f5fa', '#929dac',
+        '#78b8ff', '#286fe0', '#78d59b', '#f3a35c',
+    ]);
+    const used = new Set((styles.match(/#[0-9a-f]{6}/gi) ?? []).map((color) => color.toLowerCase()));
+    assert.deepEqual([...used].filter((color) => !approved.has(color)), []);
+    assert.doesNotMatch(styles, /gradient/i);
+    assert.match(styles, /\.settings-status\.is-error,[\s\S]*\.asr-status\.is-error\s*\{[^}]*color:\s*var\(--warning\)/s);
+    assert.match(styles, /\.settings-status\.is-success,[\s\S]*\.asr-status\.is-success\s*\{[^}]*color:\s*var\(--success\)/s);
 });
 
 test('rounded panel shell does not paint a clipped shadow behind its lower corners', () => {

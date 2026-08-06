@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import type {ModelOptions, ModelProfileId, ModelTestProgress, SavedModelConnectionSettings, SelectableModelProfile} from '../../src/shared/contracts';
 import {
     BUILT_IN_MODEL_PROFILES,
@@ -14,6 +14,7 @@ import {formatModelConnectionError} from '../../src/main/remote-api-client';
 
 const defaultValues: ModelFormValues = {baseUrl: '', model: '', apiKey: '', maxTokens: '4096', temperature: '0.3'};
 const initialModelTestProgress: ModelTestProgress = {phase: 'connecting', attempt: 0, maxAttempts: 3};
+type ModelStatusTone = 'neutral' | 'success' | 'error';
 
 export function ModelSettingsPage({active}: {active: boolean}) {
     const api = window.meetingMonsterSettings;
@@ -25,8 +26,10 @@ export function ModelSettingsPage({active}: {active: boolean}) {
         generic_anthropic: defaultValues,
     });
     const [remoteStatus, setRemoteStatus] = useState('');
+    const [remoteStatusTone, setRemoteStatusTone] = useState<ModelStatusTone>('neutral');
     const [modelAction, setModelAction] = useState<'idle' | 'testing' | 'saving'>('idle');
     const [modelTestProgress, setModelTestProgress] = useState<ModelTestProgress>(initialModelTestProgress);
+    const touchedProfiles = useRef<Record<ModelProfileId, boolean>>({generic_openai: false, generic_anthropic: false});
 
     useEffect(() => {
         let mounted = true;
@@ -36,11 +39,19 @@ export function ModelSettingsPage({active}: {active: boolean}) {
             setSaved(result.saved);
             const nextProfile = findInitialProfile(result.options, result.saved);
             setProfile(nextProfile);
-            setFormSnapshots({
+            const hydratedSnapshots = {
                 generic_openai: createModelFormValues(BUILT_IN_MODEL_PROFILES[0], result.saved),
                 generic_anthropic: createModelFormValues(BUILT_IN_MODEL_PROFILES[1], result.saved),
-            });
-        }).catch(() => { if (mounted) setRemoteStatus('模型配置加载失败'); });
+            };
+            setFormSnapshots((current) => ({
+                generic_openai: touchedProfiles.current.generic_openai ? current.generic_openai : hydratedSnapshots.generic_openai,
+                generic_anthropic: touchedProfiles.current.generic_anthropic ? current.generic_anthropic : hydratedSnapshots.generic_anthropic,
+            }));
+        }).catch(() => {
+            if (!mounted) return;
+            setRemoteStatus('模型配置加载失败');
+            setRemoteStatusTone('error');
+        });
         return () => { mounted = false; };
     }, [api]);
 
@@ -68,6 +79,7 @@ export function ModelSettingsPage({active}: {active: boolean}) {
         const nextId = next.id as ModelProfileId;
         setFormSnapshots((current) => ({...current, [nextId]: current[nextId] ?? createModelFormValues(next, saved)}));
         setRemoteStatus(`已选择：${next.label}`);
+        setRemoteStatusTone('neutral');
     }
 
     async function save() {
@@ -77,8 +89,10 @@ export function ModelSettingsPage({active}: {active: boolean}) {
         try {
             setSaved(await saveModelConnection(api, profile, values));
             setRemoteStatus('多模态能力验证成功');
+            setRemoteStatusTone('success');
         } catch (error) {
             setRemoteStatus(formatModelConnectionError(error));
+            setRemoteStatusTone('error');
         } finally {
             setModelAction('idle');
             setModelTestProgress(initialModelTestProgress);
@@ -92,8 +106,10 @@ export function ModelSettingsPage({active}: {active: boolean}) {
         try {
             const result = await testModelConnection(api, profile, values);
             setRemoteStatus(result.ok ? `多模态能力验证成功 · ${result.model} · ${result.latency_ms}ms` : '模型不支持图片输入或连接失败');
+            setRemoteStatusTone(result.ok ? 'success' : 'error');
         } catch (error) {
             setRemoteStatus(formatModelConnectionError(error));
+            setRemoteStatusTone('error');
         } finally {
             setModelAction('idle');
             setModelTestProgress(initialModelTestProgress);
@@ -101,8 +117,12 @@ export function ModelSettingsPage({active}: {active: boolean}) {
     }
 
     function updateValue(field: keyof ModelFormValues, value: string) {
+        touchedProfiles.current[profileId] = true;
         setFormSnapshots((current) => ({...current, [profileId]: {...current[profileId], [field]: value}}));
     }
+
+    const displayedStatus = remoteStatus || (getSavedModelConnection(saved, profileId) ? `已保存：${profile.label}` : `已选择：${profile.label}`);
+    const displayedStatusTone: ModelStatusTone = remoteStatus ? remoteStatusTone : getSavedModelConnection(saved, profileId) ? 'success' : 'neutral';
 
     return (
         <section className="settings-page" hidden={!active}>
@@ -152,7 +172,7 @@ export function ModelSettingsPage({active}: {active: boolean}) {
                         {modelAction === 'testing' && <span className="model-action-spinner" aria-hidden="true" />}{modelActionLabel('testing')}
                     </button>
                 </div>
-                <p className="settings-status" aria-live="polite">{remoteStatus || (getSavedModelConnection(saved, profileId) ? `已保存：${profile.label}` : `已选择：${profile.label}`)}</p>
+                <p className={`settings-status${displayedStatusTone === 'neutral' ? '' : ` is-${displayedStatusTone}`}`} aria-live="polite">{displayedStatus}</p>
             </div>
         </section>
     );

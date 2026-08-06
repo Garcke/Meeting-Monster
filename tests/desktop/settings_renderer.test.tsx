@@ -129,6 +129,37 @@ test('settings exposes only the two compatible protocol options and keeps indepe
     expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('openai-model');
 });
 
+test('settings hydration preserves fields touched before the saved model request resolves', async () => {
+    let resolveSaved!: (value: SavedModelConnectionSettings) => void;
+    const delayedSaved = new Promise<SavedModelConnectionSettings>((resolve) => { resolveSaved = resolve; });
+    const {api} = fakeSettingsApi();
+    api.models.getSaved = vi.fn(() => delayedSaved);
+    window.meetingMonsterSettings = api;
+    render(<ModelSettingsPage active />);
+
+    const baseUrl = screen.getByLabelText('Base URL') as HTMLInputElement;
+    const apiKey = screen.getByLabelText('API Key') as HTMLInputElement;
+    fireEvent.change(baseUrl, {target: {value: 'https://typed.example/v1'}});
+    fireEvent.change(apiKey, {target: {value: 'not-a-real-key'}});
+
+    act(() => resolveSaved({
+        ...saved,
+        connections: {
+            ...saved.connections,
+            generic_anthropic: {
+                profile_id: 'generic_anthropic', protocol: 'anthropic', base_url: 'https://hydrated.example/v1', model: 'hydrated-model',
+                has_api_key: false, max_tokens: 1024, temperature: 0.4,
+            },
+        },
+    }));
+    await screen.findByText('已保存：OpenAI Compatible');
+
+    expect(baseUrl.value).toBe('https://typed.example/v1');
+    expect(apiKey.value).toBe('not-a-real-key');
+    fireEvent.change(screen.getByLabelText('API 协议'), {target: {value: 'generic_anthropic'}});
+    expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('https://hydrated.example/v1');
+});
+
 test('settings blocks save before IPC when Base URL or Model ID is invalid', async () => {
     const {api} = fakeSettingsApi();
     api.models.getSaved = vi.fn(async () => ({active_profile: 'generic_openai', connections: {}}));
@@ -167,8 +198,41 @@ test('settings shows a safe status-aware diagnostic when model verification fail
     await screen.findByLabelText('API 协议');
     fireEvent.click(screen.getByRole('button', {name: '测试连接'}));
 
-    expect(await screen.findByText('认证失败（HTTP 401）：请检查 API Key 或账号区域')).toBeTruthy();
+    const diagnostic = await screen.findByText('认证失败（HTTP 401）：请检查 API Key 或账号区域');
+    expect(diagnostic.classList.contains('is-error')).toBe(true);
     expect(screen.queryByText('provider body must never be displayed')).toBeNull();
+});
+
+test('speech settings marks an ASR catalog failure as an error', async () => {
+    const {api} = fakeSettingsApi();
+    api.asrModels.list = vi.fn(async () => { throw new Error('catalog unavailable'); });
+    window.meetingMonsterSettings = api;
+    render(<SpeechSettingsPage active />);
+
+    const error = await screen.findByText('无法加载本地转写模型');
+    expect(error.classList.contains('is-error')).toBe(true);
+});
+
+test('speech settings clears an old ASR action error before selecting an unavailable model', async () => {
+    const failedSnapshot: AsrModelSnapshot = {
+        ...asrModels,
+        models: [
+            asrModels.models[0],
+            {...asrModels.models[1], installedState: 'failed', errorMessage: '模型下载失败'},
+        ],
+    };
+    const {api} = fakeSettingsApi();
+    api.asrModels.list = vi.fn(async () => failedSnapshot);
+    api.asrModels.delete = vi.fn(async () => { throw new Error('无法删除当前模型'); });
+    window.meetingMonsterSettings = api;
+    render(<SpeechSettingsPage active />);
+
+    fireEvent.click(await screen.findByRole('button', {name: '删除模型'}));
+    expect(await screen.findByText('无法删除当前模型')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('识别模型'), {target: {value: 'streaming-zipformer-zh-int8-2025-06-30'}});
+
+    expect(screen.queryByText('无法删除当前模型')).toBeNull();
+    expect(screen.getByText('模型下载失败')).toBeTruthy();
 });
 
 test('settings renders the Windows audio-source selector with system audio selected by default', async () => {
