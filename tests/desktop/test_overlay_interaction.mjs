@@ -51,9 +51,10 @@ function runElectronInteraction({
     spawnElectron = spawn,
     terminateProcessTree = terminateElectronProcessTree,
     timeoutMs = electronInteractionTimeoutMs,
+    harnessArgs = [],
 } = {}) {
     return new Promise((resolve, reject) => {
-        const child = spawnElectron(electronExe, [harnessPath], {
+        const child = spawnElectron(electronExe, [harnessPath, ...harnessArgs], {
             cwd: projectRoot,
             env: {...process.env, ELECTRON_RUN_AS_NODE: undefined, ELECTRON_ENABLE_LOGGING: 'false'},
             windowsHide: true,
@@ -172,6 +173,24 @@ test('Electron interaction error clears the watchdog and child listeners', async
     assert.equal(child.listenerCount('exit'), 0);
     assert.equal(child.stdout.listenerCount('data'), 0);
     assert.equal(child.stderr.listenerCount('data'), 0);
+});
+
+test('renderer-global wheel delivery does not hide a settings-main regression as an environment skip', {timeout: 30_000}, async () => {
+    const result = await runElectronInteraction({harnessArgs: ['--simulate-main-wheel-blocked']});
+
+    assert.equal(result.code, 2, result.stderr || result.stdout);
+    assert.match(result.stderr, /SETTINGS_INTERACTION_ERROR/);
+    assert.doesNotMatch(result.stderr, /SETTINGS_INTERACTION_ENV_UNAVAILABLE/);
+    assert.match(result.stderr, /reached the renderer but not the settings view/i);
+});
+
+test('settings-main wheel delivery without scrolling remains an ordinary interaction failure', {timeout: 30_000}, async () => {
+    const result = await runElectronInteraction({harnessArgs: ['--simulate-main-wheel-unscrolled']});
+
+    assert.equal(result.code, 2, result.stderr || result.stdout);
+    assert.match(result.stderr, /SETTINGS_INTERACTION_ERROR/);
+    assert.doesNotMatch(result.stderr, /SETTINGS_INTERACTION_ENV_UNAVAILABLE/);
+    assert.match(result.stderr, /did not scroll the settings view/i);
 });
 
 test('overlay controller readiness and renderer error channels are wired end-to-end', () => {

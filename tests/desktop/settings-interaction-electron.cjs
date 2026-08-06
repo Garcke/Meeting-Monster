@@ -7,6 +7,8 @@ const projectRoot = path.resolve(__dirname, '..', '..');
 const settingsPath = path.join(projectRoot, 'desktop', 'dist', 'renderer', 'settings.html');
 const preloadPath = path.join(__dirname, 'settings-interaction-preload.cjs');
 const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-monster-settings-'));
+const simulateMainWheelBlocked = process.argv.includes('--simulate-main-wheel-blocked');
+const simulateMainWheelUnscrolled = process.argv.includes('--simulate-main-wheel-unscrolled');
 
 app.setPath('userData', userDataPath);
 app.setPath('sessionData', userDataPath);
@@ -69,8 +71,11 @@ async function run() {
         main.style.height = '180px';
         main.style.alignSelf = 'start';
         main.scrollTop = 0;
-        window.__settingsWheelEvents = 0;
-        main.addEventListener('wheel', () => { window.__settingsWheelEvents += 1; }, {passive: true});
+        window.__settingsRendererWheelEvents = 0;
+        window.__settingsMainWheelEvents = 0;
+        window.addEventListener('wheel', () => { window.__settingsRendererWheelEvents += 1; }, {capture: true, passive: true});
+        main.addEventListener('wheel', () => { window.__settingsMainWheelEvents += 1; }, {passive: true});
+        if (${JSON.stringify(simulateMainWheelBlocked)}) main.style.pointerEvents = 'none';
         const rect = main.getBoundingClientRect();
         return {
             x: Math.round(rect.left + rect.width / 2),
@@ -84,14 +89,24 @@ async function run() {
     window.webContents.sendInputEvent({type: 'mouseMove', x: dimensions.x, y: dimensions.y});
     window.webContents.sendInputEvent({type: 'mouseDown', button: 'left', clickCount: 1, x: dimensions.x, y: dimensions.y});
     window.webContents.sendInputEvent({type: 'mouseUp', button: 'left', clickCount: 1, x: dimensions.x, y: dimensions.y});
-    window.webContents.sendInputEvent({type: 'mouseWheel', x: dimensions.x, y: dimensions.y, deltaX: 0, deltaY: -600, canScroll: true});
+    if (simulateMainWheelBlocked) {
+        await window.webContents.executeJavaScript("document.body.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, deltaY: 600}))");
+    } else if (simulateMainWheelUnscrolled) {
+        await window.webContents.executeJavaScript("document.querySelector('.settings-main').dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, deltaY: 600}))");
+    } else {
+        window.webContents.sendInputEvent({type: 'mouseWheel', x: dimensions.x, y: dimensions.y, deltaX: 0, deltaY: -600, canScroll: true});
+    }
     await delay(80);
     const interaction = await window.webContents.executeJavaScript(`(() => ({
         scrolled: document.querySelector('.settings-main').scrollTop,
-        wheelEvents: window.__settingsWheelEvents,
+        rendererWheelEvents: window.__settingsRendererWheelEvents,
+        mainWheelEvents: window.__settingsMainWheelEvents,
     }))()`);
-    if (interaction.wheelEvents === 0) {
+    if (interaction.rendererWheelEvents === 0) {
         throw new SettingsInteractionEnvironmentError('Native wheel input did not reach the settings renderer');
+    }
+    if (interaction.mainWheelEvents === 0) {
+        throw new Error('Wheel input reached the renderer but not the settings view');
     }
     if (!(interaction.scrolled > 0)) throw new Error('Native wheel input did not scroll the settings view');
     await window.webContents.executeJavaScript("document.querySelector('#modelApiKey').scrollIntoView({block: 'center'})");
