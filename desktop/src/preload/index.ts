@@ -19,6 +19,7 @@ import {
     type Unsubscribe,
     type WindowState,
 } from '../shared/contracts';
+import type {AudioInputMode} from '../shared/audio-input-mode';
 
 let pcmPort: MessagePort | null = null;
 let pendingPcmPort: {
@@ -99,6 +100,11 @@ const meetingMonster: MeetingMonsterApi = {
             Boolean(enabled),
         ),
         onStatus: (callback: (status: PrivacyStatus) => void) => subscribe(IPC_CHANNELS.privacy.status, callback),
+    },
+    audioInput: {
+        get: () => ipcRenderer.invoke(IPC_CHANNELS.audioInput.get) as Promise<AudioInputMode>,
+        set: (mode: AudioInputMode) => ipcRenderer.invoke(IPC_CHANNELS.audioInput.set, mode) as Promise<AudioInputMode>,
+        onChanged: (callback: (mode: AudioInputMode) => void) => subscribe(IPC_CHANNELS.audioInput.changed, callback),
     },
     models: {
         list: () => ipcRenderer.invoke(IPC_CHANNELS.models.list) as Promise<ModelOptions>,

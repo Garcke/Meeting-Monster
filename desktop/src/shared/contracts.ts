@@ -1,4 +1,5 @@
 import type {OverlayIntent, OverlaySnapshot} from './overlay-state';
+import type {AudioInputMode} from './audio-input-mode';
 
 export type {OverlayIntent, OverlayPhase, OverlaySnapshot, OverlayTarget} from './overlay-state';
 
@@ -17,6 +18,11 @@ export const IPC_CHANNELS = {
         getPolicy: 'privacy:get-policy',
         setCaptureProtection: 'privacy:set-capture-protection',
         status: 'privacy:status',
+    },
+    audioInput: {
+        get: 'audio-input:get',
+        set: 'audio-input:set',
+        changed: 'audio-input:changed',
     },
     settings: {
         open: 'settings:open',
@@ -235,6 +241,11 @@ export interface MeetingMonsterApi {
         setCaptureProtection(enabled: boolean): Promise<PrivacyStatus>;
         onStatus(callback: (status: PrivacyStatus) => void): Unsubscribe;
     };
+    audioInput: {
+        get(): Promise<AudioInputMode>;
+        set(mode: AudioInputMode): Promise<AudioInputMode>;
+        onChanged(callback: (mode: AudioInputMode) => void): Unsubscribe;
+    };
     models: {
         list(): Promise<ModelOptions>;
         getSaved(): Promise<SavedModelConnectionSettings>;
@@ -274,6 +285,11 @@ export interface SettingsRendererApi {
     };
     privacy: {
         getStatus(): Promise<PrivacyStatus>;
+    };
+    audioInput: {
+        get(): Promise<AudioInputMode>;
+        set(mode: AudioInputMode): Promise<AudioInputMode>;
+        onChanged(callback: (mode: AudioInputMode) => void): Unsubscribe;
     };
     models: {
         list(): Promise<ModelOptions>;

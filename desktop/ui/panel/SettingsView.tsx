@@ -2,7 +2,8 @@ import {useEffect, useMemo, useState} from 'react';
 import type {AsrModelId, AsrModelSnapshot, ModelOptions, ModelProfileId, ModelTestProgress, SavedModelConnectionSettings, SelectableModelProfile} from '../../src/shared/contracts';
 import {createAsrModelActions, describeAsrModel, formatAsrModelStatus} from '../shared/services/asr-model-service';
 import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection, createModelFormValues, findInitialProfile, getSavedModelConnection, loadModelSettings, saveModelConnection, testModelConnection, type ModelFormValues} from '../shared/services/model-settings-service';
-import {AUDIO_INPUT_MODE_EVENT, readAudioInputMode, writeAudioInputMode, type AudioInputMode} from '../shared/services/audio-input-mode';
+import type {AudioInputMode} from '../../src/shared/audio-input-mode';
+import {normalizeAudioInputMode} from '../../src/shared/audio-input-mode';
 import {formatModelConnectionError} from '../../src/main/remote-api-client';
 
 const defaultValues: ModelFormValues = {baseUrl: '', model: '', apiKey: '', maxTokens: '4096', temperature: '0.3'};
@@ -39,14 +40,14 @@ export function SettingsView({active}: {active: boolean}) {
                 generic_anthropic: createModelFormValues(BUILT_IN_MODEL_PROFILES[1], result.saved),
             });
         }).catch(() => setRemoteStatus('模型配置加载失败'));
-        void api.privacy.getStatus().then((status) => {
+        void Promise.all([api.privacy.getStatus(), api.audioInput.get()]).then(([status, mode]) => {
             if (!mounted) return;
             setAudioInputPlatform(status.platform);
-            setAudioInputMode(readAudioInputMode(window.localStorage, status.platform));
+            setAudioInputMode(normalizeAudioInputMode(mode, status.platform));
         }).catch(() => {
             if (!mounted) return;
             setAudioInputPlatform('unknown');
-            setAudioInputMode(readAudioInputMode(window.localStorage, 'unknown'));
+            setAudioInputMode('microphone');
         });
         void api.asrModels.list().then((next) => { if (mounted) { setAsrSnapshot(next); setAsrId(next.currentModelId); } }).catch(() => setAsrSnapshot(null));
         const unsubscribe = api.asrModels.onStatus((next) => setAsrSnapshot((current) => {
@@ -129,11 +130,9 @@ export function SettingsView({active}: {active: boolean}) {
     }
     async function cancel() { if (asrId) { await asrActions.cancel(asrId); setAsrSnapshot(await asrActions.refresh()); setAsrOperation(null); } }
     async function remove() { if (asrId) setAsrSnapshot(await asrActions.delete(asrId)); }
-    function changeAudioInputMode(value: string) {
+    async function changeAudioInputMode(value: string) {
         if (audioInputPlatform === null || (value !== 'system' && value !== 'microphone' && value !== 'mixed')) return;
-        const mode = writeAudioInputMode(window.localStorage, value, audioInputPlatform);
-        setAudioInputMode(mode);
-        window.dispatchEvent(new Event(AUDIO_INPUT_MODE_EVENT));
+        setAudioInputMode(await api.audioInput.set(value));
     }
 
     const isNonWindowsAudioInputPlatform = audioInputPlatform !== null && audioInputPlatform !== 'win32';

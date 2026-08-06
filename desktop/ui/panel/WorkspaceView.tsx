@@ -2,13 +2,9 @@ import {FormEvent, useEffect, useRef, useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {AsrStatus, ChatStreamEvent} from '../../src/shared/contracts';
+import {normalizeAudioInputMode, type AudioInputMode, type AudioInputPlatform} from '../../src/shared/audio-input-mode';
 import {isAsrModelReady} from '../shared/services/asr-model-service';
-import {
-    AUDIO_INPUT_MODE_EVENT,
-    readAudioInputMode,
-    type AudioInputMode,
-    type AudioInputPlatform,
-} from '../shared/services/audio-input-mode';
+import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../shared/services/audio-input-mode';
 import {canStartRecording, canStopRecording, PcmAudioRecorder, type RecordingPhase} from '../shared/services/audio-recorder';
 import {stripAssistantThinking} from '../shared/services/assistant-markdown';
 import {MODEL_SETTINGS_CHANGED_EVENT, findInitialProfile, loadModelSettings} from '../shared/services/model-settings-service';
@@ -122,23 +118,26 @@ export function WorkspaceView({active}: {active: boolean}) {
 
     useEffect(() => {
         let disposed = false;
-        const updateAudioInputMode = () => {
-            const currentPlatform = platformRef.current;
-            if (currentPlatform === null) return;
-            setAudioInputMode(readAudioInputMode(window.localStorage, currentPlatform));
-        };
-
-        window.addEventListener(AUDIO_INPUT_MODE_EVENT, updateAudioInputMode);
-        void api.privacy.getStatus().then((status) => {
+        const unsubscribe = api.audioInput.onChanged((mode) => {
+            if (!disposed) setAudioInputMode(mode);
+        });
+        void Promise.all([api.privacy.getStatus(), api.audioInput.get()]).then(async ([status, savedMode]) => {
             if (disposed) return;
             platformRef.current = status.platform;
             setPlatform(status.platform);
-            setAudioInputMode(readAudioInputMode(window.localStorage, status.platform));
+            const legacy = window.localStorage.getItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY);
+            if (legacy) {
+                const migrated = await api.audioInput.set(normalizeAudioInputMode(legacy, status.platform));
+                if (!disposed) setAudioInputMode(migrated);
+                window.localStorage.removeItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY);
+                return;
+            }
+            setAudioInputMode(savedMode);
         }).catch(() => undefined);
 
         return () => {
             disposed = true;
-            window.removeEventListener(AUDIO_INPUT_MODE_EVENT, updateAudioInputMode);
+            unsubscribe();
         };
     }, [api]);
 
@@ -165,8 +164,7 @@ export function WorkspaceView({active}: {active: boolean}) {
             return;
         }
 
-        const mode = readAudioInputMode(window.localStorage, platform);
-        setAudioInputMode(mode);
+        const mode = audioInputMode;
         setAudioError(null);
         updateRecordingPhase('connecting');
         setAsr({state: 'connecting'});

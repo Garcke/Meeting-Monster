@@ -6,7 +6,7 @@ import {SettingsView} from '../../desktop/ui/panel/SettingsView';
 import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
 import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
-import {AUDIO_INPUT_MODE_EVENT, AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
+import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
 import {MODEL_SETTINGS_CHANGED_EVENT} from '../../desktop/ui/shared/services/model-settings-service';
 
 const snapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', revision: 0};
@@ -23,6 +23,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const intents: Array<{type: string}> = [];
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
+    const audioInputListeners = new Set<(mode: 'system' | 'microphone' | 'mixed') => void>();
     const chatSends: Array<{requestId: string; prompt: string}> = [];
     const assistSends: Array<{requestId: string; selection?: ModelSelectionInput}> = [];
     const verifiedConnection = {
@@ -52,6 +53,14 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
             getStatus: vi.fn(async () => privacyStatus),
             onStatus: vi.fn(() => () => {}),
             setCaptureProtection: vi.fn(async () => privacy),
+        },
+        audioInput: {
+            get: vi.fn(async () => 'system' as const),
+            set: vi.fn(async (mode: 'system' | 'microphone' | 'mixed') => mode),
+            onChanged: vi.fn((listener: (mode: 'system' | 'microphone' | 'mixed') => void) => {
+                audioInputListeners.add(listener);
+                return () => audioInputListeners.delete(listener);
+            }),
         },
         asr: {
             getStatus: vi.fn(async () => ({state: 'idle' as const})),
@@ -86,6 +95,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         assistSends,
         emitAsrResult: (event: {type: string; text: string}) => { for (const listener of asrListeners) listener(event); },
         emitChatEvent: (event: ChatStreamEvent) => { for (const listener of chatListeners) listener(event); },
+        emitAudioInputChanged: (mode: 'system' | 'microphone' | 'mixed') => { for (const listener of audioInputListeners) listener(mode); },
     };
 }
 
@@ -330,29 +340,23 @@ test('settings renders the Windows audio-source selector with system audio selec
     expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['系统音频', '麦克风', '系统音频＋麦克风']);
 });
 
-test('settings persists a mixed Windows audio source and broadcasts the change', async () => {
+test('settings persists a mixed Windows audio source through the application API', async () => {
     const {api} = fakeApi();
-    const onAudioInputModeChange = vi.fn();
     window.meetingMonster = api;
-    window.addEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
     render(<SettingsView active />);
 
     const select = await screen.findByLabelText('音频来源');
     fireEvent.change(select, {target: {value: 'mixed'}});
 
-    expect(window.localStorage.getItem(AUDIO_INPUT_MODE_STORAGE_KEY)).toBe('mixed');
-    expect(onAudioInputModeChange).toHaveBeenCalledTimes(1);
-    window.removeEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
+    await waitFor(() => expect(api.audioInput.set).toHaveBeenCalledWith('mixed'));
 });
 
 test('settings ignores audio-source changes while the privacy platform is still resolving', async () => {
     let resolvePrivacyStatus!: (status: PrivacyStatus) => void;
     const delayedPrivacyStatus = new Promise<PrivacyStatus>((resolve) => { resolvePrivacyStatus = resolve; });
     const {api} = fakeApi();
-    const onAudioInputModeChange = vi.fn();
     api.privacy.getStatus = vi.fn(() => delayedPrivacyStatus);
     window.meetingMonster = api;
-    window.addEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
 
     try {
         render(<SettingsView active />);
@@ -360,21 +364,17 @@ test('settings ignores audio-source changes while the privacy platform is still 
 
         expect(select.disabled).toBe(true);
         fireEvent.change(select, {target: {value: 'mixed'}});
-        expect(window.localStorage.getItem(AUDIO_INPUT_MODE_STORAGE_KEY)).toBeNull();
-        expect(onAudioInputModeChange).not.toHaveBeenCalled();
+        expect(api.audioInput.set).not.toHaveBeenCalled();
 
         act(() => resolvePrivacyStatus({...privacy, platform: 'darwin'}));
         await waitFor(() => expect(select.value).toBe('microphone'));
-    } finally {
-        window.removeEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
-    }
+    } finally {}
 });
 
 test('settings falls back to microphone when the privacy platform cannot be loaded', async () => {
     const {api} = fakeApi();
     api.privacy.getStatus = vi.fn(async () => { throw new Error('privacy status unavailable'); });
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     render(<SettingsView active />);
 
     const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
@@ -694,15 +694,17 @@ test('workspace keeps incomplete reasoning hidden and does not execute raw HTML'
     expect(container.textContent).not.toContain('still thinking');
 });
 
-test('workspace uses the stored mixed input mode for a new recording session', async () => {
+test('workspace migrates the legacy input preference once and uses the saved mode for recording', async () => {
     const media = installWorkspaceAudioFakes();
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'mixed');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'mixed');
     const {container} = render(<WorkspaceView active />);
     const {start, stop} = workspaceRecordButtons(container);
 
     await waitFor(() => expect(start.disabled).toBe(false));
+    await waitFor(() => expect(api.audioInput.set).toHaveBeenCalledWith('mixed'));
+    expect(window.localStorage.getItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY)).toBeNull();
     fireEvent.click(start);
 
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledWith(16000));
@@ -720,7 +722,7 @@ test('workspace maps a denied system capture to a safe permission message', asyn
     installWorkspaceAudioFakes({displayError: audioPermissionError(rawMessage)});
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -739,7 +741,7 @@ test('workspace maps a denied microphone capture to a safe permission message', 
     installWorkspaceAudioFakes({microphoneError: audioPermissionError(rawMessage)});
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -753,11 +755,10 @@ test('workspace maps a denied microphone capture to a safe permission message', 
     expect(alert.textContent).not.toContain('RAW STACK');
 });
 
-test('workspace applies a renderer-local input mode event to the next idle session', async () => {
+test('workspace uses a later audio input change for the next idle session', async () => {
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitAudioInputChanged} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start, stop} = workspaceRecordButtons(container);
 
@@ -767,8 +768,7 @@ test('workspace applies a renderer-local input mode event to the next idle sessi
     fireEvent.click(stop);
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledTimes(1));
 
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
-    act(() => window.dispatchEvent(new Event(AUDIO_INPUT_MODE_EVENT)));
+    act(() => emitAudioInputChanged('microphone'));
     await waitFor(() => expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone'));
 
     fireEvent.click(start);
@@ -781,7 +781,7 @@ test('workspace stops local capture and ASR once when an input track ends, while
     const media = installWorkspaceAudioFakes();
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -805,7 +805,7 @@ test('workspace retains the input-ended error when pending ASR start rejects aft
     const {api} = fakeApi();
     api.asr.start = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectAsrStart = reject; }));
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -832,12 +832,12 @@ test('workspace retains the input-ended error when pending ASR start rejects aft
 test('workspace ignores a stale ASR start rejection after the next session begins', async () => {
     let rejectFirstAsrStart!: (error: Error) => void;
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitAudioInputChanged} = fakeApi();
     api.asr.start = vi.fn()
         .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectFirstAsrStart = reject; }))
         .mockResolvedValueOnce(undefined);
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start, stop} = workspaceRecordButtons(container);
 
@@ -848,8 +848,7 @@ test('workspace ignores a stale ASR start rejection after the next session begin
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
     await waitFor(() => expect(start.disabled).toBe(false));
 
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
-    act(() => window.dispatchEvent(new Event(AUDIO_INPUT_MODE_EVENT)));
+    act(() => emitAudioInputChanged('microphone'));
     fireEvent.click(start);
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(stop.disabled).toBe(false));

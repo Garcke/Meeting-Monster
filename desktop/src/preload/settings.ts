@@ -13,6 +13,7 @@ import {
     type SettingsRendererApi,
     type Unsubscribe,
 } from '../shared/contracts';
+import type {AudioInputMode} from '../shared/audio-input-mode';
 
 function subscribe<T>(channel: string, callback: (value: T) => void): Unsubscribe {
     if (typeof callback !== 'function') throw new TypeError('Meeting Monster event callback must be a function');
@@ -33,6 +34,11 @@ const meetingMonsterSettings: SettingsRendererApi = {
     },
     privacy: {
         getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.privacy.getStatus) as Promise<PrivacyStatus>,
+    },
+    audioInput: {
+        get: () => ipcRenderer.invoke(IPC_CHANNELS.audioInput.get) as Promise<AudioInputMode>,
+        set: (mode: AudioInputMode) => ipcRenderer.invoke(IPC_CHANNELS.audioInput.set, mode) as Promise<AudioInputMode>,
+        onChanged: (callback: (mode: AudioInputMode) => void) => subscribe(IPC_CHANNELS.audioInput.changed, callback),
     },
     models: {
         list: () => ipcRenderer.invoke(IPC_CHANNELS.models.list) as Promise<ModelOptions>,

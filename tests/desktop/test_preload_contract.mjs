@@ -19,6 +19,7 @@ test('preload exports one fixed nested Meeting Monster API', () => {
     assert.match(source, /window:\s*\{/);
     assert.match(source, /quit: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.window\.quit\)/);
     assert.match(source, /privacy:\s*\{/);
+    assert.match(source, /audioInput:\s*\{/);
     assert.match(source, /models:\s*\{/);
     assert.match(source, /chat:\s*\{/);
     assert.match(source, /asrModels:\s*\{/);
@@ -57,10 +58,12 @@ test('overlay and settings preloads expose separate least-privilege APIs', () =>
 
     assert.match(overlayPreloadSource, /open: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.open\)/);
     assert.match(overlayPreloadSource, /onChanged: .*IPC_CHANNELS\.models\.changed/s);
+    assert.match(overlayPreloadSource, /audioInput:\s*\{[\s\S]*?get: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.get\)[\s\S]*?set: \(mode: AudioInputMode\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.set, mode\)[\s\S]*?onChanged: \(callback: \(mode: AudioInputMode\) => void\) => subscribe\(IPC_CHANNELS\.audioInput\.changed, callback\)/);
     assert.doesNotMatch(overlayPreloadSource, /settings\.close|settings\.getAppVersion/);
     assert.match(settingsPreloadSource, /contextBridge\.exposeInMainWorld\('meetingMonsterSettings'/);
     assert.match(settingsPreloadSource, /close: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.close\)/);
     assert.match(settingsPreloadSource, /getAppVersion: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.getAppVersion\)/);
+    assert.match(settingsPreloadSource, /audioInput:\s*\{[\s\S]*?get: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.get\)[\s\S]*?set: \(mode: AudioInputMode\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.set, mode\)[\s\S]*?onChanged: \(callback: \(mode: AudioInputMode\) => void\) => subscribe\(IPC_CHANNELS\.audioInput\.changed, callback\)/);
     assert.doesNotMatch(settingsPreloadSource, /IPC_CHANNELS\.(?:window|overlay|chat|asr)\./);
     assert.doesNotMatch(settingsPreloadSource, /writePcm|captureDisplay|assist:/);
 });
@@ -69,7 +72,7 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     const source = read('desktop', 'src', 'shared', 'contracts.ts');
 
     assert.match(source, /export const IPC_CHANNELS/);
-    for (const family of ['window', 'privacy', 'models', 'chat', 'asrModels', 'asr', 'overlay']) {
+    for (const family of ['window', 'privacy', 'audioInput', 'models', 'chat', 'asrModels', 'asr', 'overlay']) {
         assert.match(source, new RegExp(`${family}:`));
     }
     assert.match(source, /export type IpcChannel/);

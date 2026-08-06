@@ -2,6 +2,7 @@ import {app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, MessageCha
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {AsrModelManager} from './asr-model-manager';
+import {AudioInputSettingsStore} from './audio-input-settings';
 import {getAsrModel, getAsrModelCatalog, toPublicAsrModelDescriptor} from './asr-model-catalog';
 import {
     ModelConnectionStore,
@@ -43,6 +44,7 @@ import {
     type PrivacyPolicy,
     type WindowState,
 } from '../shared/contracts';
+import {normalizeAudioInputMode, type AudioInputMode} from '../shared/audio-input-mode';
 
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 const LOCAL_ASR_ERROR = 'Local ASR failed';
@@ -60,6 +62,7 @@ let overlayController: OverlayWindowController | null = null;
 let settingsWindowController: SettingsWindowController | null = null;
 let privacyManager: WindowPrivacyManager | null = null;
 let modelConnectionStore: ModelConnectionStore | null = null;
+let audioInputSettingsStore: AudioInputSettingsStore | null = null;
 let ipcHandlersRegistered = false;
 type ActiveChatRequest = {
     controller: AbortController;
@@ -164,6 +167,11 @@ function getModelConnectionStore(): ModelConnectionStore {
     return modelConnectionStore;
 }
 
+function getAudioInputSettingsStore(): AudioInputSettingsStore {
+    if (!audioInputSettingsStore) throw new Error('Audio input settings store is not ready');
+    return audioInputSettingsStore;
+}
+
 function getAsrModelManager(): AsrModelManager {
     if (!asrModelManager) throw new Error('ASR model manager is not ready');
     return asrModelManager;
@@ -207,6 +215,10 @@ function getPublicAsrModelSnapshot(): AsrModelSnapshot {
 function broadcastAsrModelStatus(): void {
     const snapshot = getPublicAsrModelSnapshot();
     for (const win of getLiveApplicationWindows()) win.webContents.send(IPC_CHANNELS.asrModels.status, snapshot);
+}
+
+function broadcastAudioInputChanged(mode: AudioInputMode): void {
+    for (const win of getLiveApplicationWindows()) win.webContents.send(IPC_CHANNELS.audioInput.changed, mode);
 }
 
 function setAsrModelRuntime(
@@ -654,6 +666,7 @@ function registerIpcHandlers(): void {
     const handledChannels = [
         ...Object.values(IPC_CHANNELS.window).filter((channel) => channel !== IPC_CHANNELS.window.state),
         ...Object.values(IPC_CHANNELS.privacy).filter((channel) => channel !== IPC_CHANNELS.privacy.status),
+        ...Object.values(IPC_CHANNELS.audioInput).filter((channel) => channel !== IPC_CHANNELS.audioInput.changed),
         ...Object.values(IPC_CHANNELS.settings),
         ...Object.values(IPC_CHANNELS.models).filter((channel) => (
             channel !== IPC_CHANNELS.models.progress && channel !== IPC_CHANNELS.models.changed
@@ -686,6 +699,19 @@ function registerIpcHandlers(): void {
     ipcMain.handle(IPC_CHANNELS.privacy.getStatus, (event) => {
         if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized privacy request');
         return getPrivacyManager().getStatus();
+    });
+    ipcMain.handle(IPC_CHANNELS.audioInput.get, async (event) => {
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized audio input request');
+        return getAudioInputSettingsStore().load();
+    });
+    ipcMain.handle(IPC_CHANNELS.audioInput.set, async (event, mode: unknown) => {
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized audio input request');
+        if (typeof mode !== 'string' || !['system', 'microphone', 'mixed'].includes(mode)) {
+            throw new TypeError('Invalid audio input mode');
+        }
+        const saved = await getAudioInputSettingsStore().save(normalizeAudioInputMode(mode, process.platform));
+        broadcastAudioInputChanged(saved);
+        return saved;
     });
     ipcMain.handle(IPC_CHANNELS.privacy.getPolicy, (event): PrivacyPolicy => {
         if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized privacy request');
@@ -1059,6 +1085,10 @@ async function startApplication(): Promise<void> {
     modelConnectionStore = new ModelConnectionStore({
         safeStorage,
         settingsPath: path.join(app.getPath('userData'), 'model-connection.json'),
+    });
+    audioInputSettingsStore = new AudioInputSettingsStore({
+        platform: process.platform,
+        settingsPath: path.join(app.getPath('userData'), 'audio-input.json'),
     });
     await initializeAsr();
     settingsWindowController = createSettingsWindowController({

@@ -33,6 +33,7 @@ test('shows the active model test progress and blocks saving while the test runs
     const testConnection = vi.fn(() => new Promise<ModelTestResult>(() => {}));
     const api = {
         privacy: {getStatus: vi.fn(async () => privacy)},
+        audioInput: {get: vi.fn(async () => 'system' as const), set: vi.fn(), onChanged: vi.fn(() => () => {})},
         asrModels: {list: vi.fn(async () => asrSnapshot), onStatus: vi.fn(() => () => {})},
         models: {
             list: vi.fn(async () => ({active_profile: 'generic_openai', profiles: []})),
