@@ -13,22 +13,166 @@ const harnessPath = path.join(projectRoot, 'tests', 'desktop', 'settings-interac
 const contractsSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'shared', 'contracts.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'preload', 'index.ts'), 'utf8');
 const mainSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'main', 'main.ts'), 'utf8');
+const electronInteractionTimeoutMs = 25_000;
 
-function runElectronInteraction() {
+function terminateElectronProcessTree(child) {
+    if (!child.pid) {
+        child.kill?.('SIGKILL');
+        return Promise.resolve();
+    }
+    if (process.platform !== 'win32') {
+        child.kill('SIGKILL');
+        return Promise.resolve();
+    }
     return new Promise((resolve, reject) => {
-        const child = spawn(electronExe, [harnessPath], {
+        const terminator = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+            windowsHide: true,
+            stdio: 'ignore',
+        });
+        const cleanup = () => {
+            terminator.off('error', onError);
+            terminator.off('exit', onExit);
+        };
+        const onError = (error) => {
+            cleanup();
+            reject(error);
+        };
+        const onExit = (code) => {
+            cleanup();
+            if (code === 0) resolve();
+            else reject(new Error(`taskkill exited with code ${code}`));
+        };
+        terminator.once('error', onError);
+        terminator.once('exit', onExit);
+    });
+}
+
+function runElectronInteraction({
+    spawnElectron = spawn,
+    terminateProcessTree = terminateElectronProcessTree,
+    timeoutMs = electronInteractionTimeoutMs,
+} = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawnElectron(electronExe, [harnessPath], {
             cwd: projectRoot,
             env: {...process.env, ELECTRON_RUN_AS_NODE: undefined, ELECTRON_ENABLE_LOGGING: 'false'},
             windowsHide: true,
         });
         let stdout = '';
         let stderr = '';
-        child.stdout.on('data', (chunk) => { stdout += chunk; });
-        child.stderr.on('data', (chunk) => { stderr += chunk; });
-        child.once('error', reject);
-        child.once('exit', (code, signal) => resolve({code, signal, stdout, stderr}));
+        let settled = false;
+        let watchdog;
+        const onStdout = (chunk) => { stdout += chunk; };
+        const onStderr = (chunk) => { stderr += chunk; };
+        const cleanup = () => {
+            clearTimeout(watchdog);
+            child.stdout.off('data', onStdout);
+            child.stderr.off('data', onStderr);
+            child.off('error', onError);
+            child.off('exit', onExit);
+        };
+        const onError = (error) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error);
+        };
+        const onExit = (code, signal) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve({code, signal, stdout, stderr});
+        };
+        child.stdout.on('data', onStdout);
+        child.stderr.on('data', onStderr);
+        child.once('error', onError);
+        child.once('exit', onExit);
+        watchdog = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            Promise.resolve()
+                .then(() => terminateProcessTree(child))
+                .then(
+                    () => reject(new Error(`Electron settings interaction timed out after ${timeoutMs}ms`)),
+                    (error) => reject(new Error(
+                        `Electron settings interaction timed out after ${timeoutMs}ms and process-tree termination failed: ${String(error)}`,
+                        {cause: error},
+                    )),
+                );
+        }, timeoutMs);
     });
 }
+
+function createFakeElectronChild() {
+    const child = new EventEmitter();
+    child.pid = 4321;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    return child;
+}
+
+test('Electron interaction watchdog terminates the child tree and removes listeners before rejecting', async () => {
+    const child = createFakeElectronChild();
+    let terminateCalls = 0;
+
+    await assert.rejects(
+        runElectronInteraction({
+            spawnElectron: () => child,
+            terminateProcessTree: async () => { terminateCalls += 1; },
+            timeoutMs: 5,
+        }),
+        /timed out/i,
+    );
+    assert.equal(terminateCalls, 1);
+    assert.equal(child.listenerCount('error'), 0);
+    assert.equal(child.listenerCount('exit'), 0);
+    assert.equal(child.stdout.listenerCount('data'), 0);
+    assert.equal(child.stderr.listenerCount('data'), 0);
+});
+
+test('Electron interaction exit clears the watchdog and child listeners', async () => {
+    const child = createFakeElectronChild();
+    let terminateCalls = 0;
+    queueMicrotask(() => child.emit('exit', 0, null));
+
+    const result = await runElectronInteraction({
+        spawnElectron: () => child,
+        terminateProcessTree: async () => { terminateCalls += 1; },
+        timeoutMs: 5,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.deepEqual(result, {code: 0, signal: null, stdout: '', stderr: ''});
+    assert.equal(terminateCalls, 0);
+    assert.equal(child.listenerCount('error'), 0);
+    assert.equal(child.listenerCount('exit'), 0);
+    assert.equal(child.stdout.listenerCount('data'), 0);
+    assert.equal(child.stderr.listenerCount('data'), 0);
+});
+
+test('Electron interaction error clears the watchdog and child listeners', async () => {
+    const child = createFakeElectronChild();
+    const failure = new Error('spawn failed');
+    let terminateCalls = 0;
+    queueMicrotask(() => child.emit('error', failure));
+
+    await assert.rejects(
+        runElectronInteraction({
+            spawnElectron: () => child,
+            terminateProcessTree: async () => { terminateCalls += 1; },
+            timeoutMs: 5,
+        }),
+        failure,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(terminateCalls, 0);
+    assert.equal(child.listenerCount('error'), 0);
+    assert.equal(child.listenerCount('exit'), 0);
+    assert.equal(child.stdout.listenerCount('data'), 0);
+    assert.equal(child.stderr.listenerCount('data'), 0);
+});
 
 test('overlay controller readiness and renderer error channels are wired end-to-end', () => {
     assert.match(contractsSource, /rendererReady: 'overlay:renderer-ready'/);

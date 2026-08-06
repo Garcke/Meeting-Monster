@@ -16,6 +16,8 @@ app.commandLine.appendSwitch('disable-gpu-compositing');
 app.commandLine.appendSwitch('in-process-gpu');
 app.commandLine.appendSwitch('use-gl', 'swiftshader');
 
+class SettingsInteractionEnvironmentError extends Error {}
+
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function clickElement(window, selector) {
@@ -67,6 +69,8 @@ async function run() {
         main.style.height = '180px';
         main.style.alignSelf = 'start';
         main.scrollTop = 0;
+        window.__settingsWheelEvents = 0;
+        main.addEventListener('wheel', () => { window.__settingsWheelEvents += 1; }, {passive: true});
         const rect = main.getBoundingClientRect();
         return {
             x: Math.round(rect.left + rect.width / 2),
@@ -82,8 +86,14 @@ async function run() {
     window.webContents.sendInputEvent({type: 'mouseUp', button: 'left', clickCount: 1, x: dimensions.x, y: dimensions.y});
     window.webContents.sendInputEvent({type: 'mouseWheel', x: dimensions.x, y: dimensions.y, deltaX: 0, deltaY: -600, canScroll: true});
     await delay(80);
-    const scrolled = await window.webContents.executeJavaScript("document.querySelector('.settings-main').scrollTop");
-    if (!(scrolled > 0)) throw new Error('Native wheel input did not reach the settings renderer');
+    const interaction = await window.webContents.executeJavaScript(`(() => ({
+        scrolled: document.querySelector('.settings-main').scrollTop,
+        wheelEvents: window.__settingsWheelEvents,
+    }))()`);
+    if (interaction.wheelEvents === 0) {
+        throw new SettingsInteractionEnvironmentError('Native wheel input did not reach the settings renderer');
+    }
+    if (!(interaction.scrolled > 0)) throw new Error('Native wheel input did not scroll the settings view');
     await window.webContents.executeJavaScript("document.querySelector('#modelApiKey').scrollIntoView({block: 'center'})");
     await clickElement(window, '#modelApiKey');
     const focusedId = await window.webContents.executeJavaScript("document.activeElement?.id || ''");
@@ -93,7 +103,7 @@ async function run() {
         speechVisible,
         scrollHeight: dimensions.scrollHeight,
         clientHeight: dimensions.clientHeight,
-        scrolled,
+        scrolled: interaction.scrolled,
         focusedId,
         modelOptions: dimensions.modelOptions,
         asrOptions: dimensions.asrOptions,
@@ -102,7 +112,18 @@ async function run() {
     process.stdout.write(`SETTINGS_INTERACTION_RESULT ${JSON.stringify(result)}\n`, () => app.exit(0));
 }
 
-app.whenReady().then(() => run().catch((error) => {
+function reportEnvironmentFailure(error) {
     process.stderr.write(`SETTINGS_INTERACTION_ENV_UNAVAILABLE ${String(error.stack || error)}\n`);
     app.exit(2);
-}));
+}
+
+function reportInteractionFailure(error) {
+    if (error instanceof SettingsInteractionEnvironmentError) {
+        reportEnvironmentFailure(error);
+        return;
+    }
+    process.stderr.write(`SETTINGS_INTERACTION_ERROR ${String(error.stack || error)}\n`);
+    app.exit(2);
+}
+
+app.whenReady().then(() => run().catch(reportInteractionFailure), reportEnvironmentFailure);
