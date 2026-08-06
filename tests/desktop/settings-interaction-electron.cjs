@@ -23,11 +23,25 @@ class SettingsInteractionEnvironmentError extends Error {}
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function clickElement(window, selector) {
+    window.focus();
+    window.webContents.focus();
+    await delay(20);
     const point = await window.webContents.executeJavaScript(`(() => {
         const element = document.querySelector(${JSON.stringify(selector)});
         if (!element) throw new Error('Missing element: ' + ${JSON.stringify(selector)});
         const rect = element.getBoundingClientRect();
-        return {x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2)};
+        const x = Math.round(rect.left + rect.width / 2);
+        const y = Math.round(rect.top + rect.height / 2);
+        const style = getComputedStyle(element);
+        const visible = rect.width > 0
+            && rect.height > 0
+            && style.visibility !== 'hidden'
+            && style.display !== 'none';
+        const hit = document.elementFromPoint(x, y);
+        if (!visible || element.disabled || !hit || (hit !== element && !element.contains(hit))) {
+            throw new Error('Element is not a clickable hit target: ' + ${JSON.stringify(selector)});
+        }
+        return {x, y};
     })()`);
     window.webContents.sendInputEvent({type: 'mouseMove', x: point.x, y: point.y});
     window.webContents.sendInputEvent({type: 'mouseDown', button: 'left', clickCount: 1, x: point.x, y: point.y});

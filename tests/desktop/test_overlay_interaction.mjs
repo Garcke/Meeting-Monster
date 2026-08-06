@@ -224,22 +224,22 @@ test('workspace open and close keep fixed native bounds while stale animation re
     await controller.initialize();
     const window = controller.getWindow();
     await controller.dispatch({type: 'toggle-workspace'});
-    assert.deepEqual(window.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+    assert.deepEqual(window.getBounds(), {x: 20, y: 120, width: 648, height: 512});
     assert.equal(window.setBoundsCalls.length, 0);
     assert.deepEqual(window.setShapeCalls.at(-1), [
-        {x: 186, y: 0, width: 276, height: 56},
-        {x: 0, y: 70, width: 648, height: 450},
+        {x: 200, y: 0, width: 248, height: 48},
+        {x: 0, y: 62, width: 648, height: 450},
     ]);
     await controller.dispatch({type: 'toggle-workspace'});
     await controller.panelAnimationFinished(0);
     assert.deepEqual(window.setShapeCalls.at(-1), [
-        {x: 186, y: 0, width: 276, height: 56},
-        {x: 0, y: 70, width: 648, height: 450},
+        {x: 200, y: 0, width: 248, height: 48},
+        {x: 0, y: 62, width: 648, height: 450},
     ]);
     await controller.panelAnimationFinished(controller.getSnapshot().revision);
-    assert.deepEqual(window.getBounds(), {x: 34, y: 120, width: 648, height: 520});
+    assert.deepEqual(window.getBounds(), {x: 20, y: 120, width: 648, height: 512});
     assert.equal(window.setBoundsCalls.length, 0);
-    assert.deepEqual(window.setShapeCalls.at(-1), [{x: 186, y: 0, width: 276, height: 56}]);
+    assert.deepEqual(window.setShapeCalls.at(-1), [{x: 200, y: 0, width: 248, height: 48}]);
 });
 
 test('Electron settings view accepts wheel scrolling and pointer focus', {timeout: 30_000}, async (t) => {
