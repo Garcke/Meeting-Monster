@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import type {AsrModelId, AsrModelSnapshot} from '../../src/shared/contracts';
 import type {AudioInputMode} from '../../src/shared/audio-input-mode';
 import {normalizeAudioInputMode} from '../../src/shared/audio-input-mode';
@@ -10,6 +10,10 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
     const [platformResolved, setPlatformResolved] = useState(false);
     const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>('microphone');
     const [audioInputError, setAudioInputError] = useState('');
+    const confirmedAudioInputMode = useRef<AudioInputMode>('microphone');
+    const pendingAudioInputMode = useRef<AudioInputMode | null>(null);
+    const audioInputRequestRevision = useRef(0);
+    const audioInputRequestsInFlight = useRef(0);
     const [asrSnapshot, setAsrSnapshot] = useState<AsrModelSnapshot | null>(null);
     const [asrId, setAsrId] = useState<AsrModelId | null>(null);
     const [asrOperation, setAsrOperation] = useState<string | null>(null);
@@ -21,7 +25,9 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
         let asrChanged = false;
         const unsubscribeAudio = api.audioInput.onChanged((mode) => {
             audioChanged = true;
-            if (mounted) setAudioInputMode(mode);
+            if (!mounted || (pendingAudioInputMode.current !== null && mode !== pendingAudioInputMode.current)) return;
+            confirmedAudioInputMode.current = mode;
+            setAudioInputMode(mode);
         });
         const unsubscribeAsr = api.asrModels.onStatus((next) => {
             asrChanged = true;
@@ -43,7 +49,10 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
                 : 'microphone';
             setPlatform(resolvedPlatform);
             setPlatformResolved(true);
-            if (!audioChanged) setAudioInputMode(resolvedMode);
+            if (!audioChanged) {
+                confirmedAudioInputMode.current = resolvedMode;
+                setAudioInputMode(resolvedMode);
+            }
             if (snapshotResult.status === 'fulfilled') {
                 if (!asrChanged) setAsrSnapshot(snapshotResult.value);
                 setAsrId((selected) => selected ?? snapshotResult.value.currentModelId);
@@ -74,12 +83,25 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
 
     async function changeAudioInputMode(value: string) {
         if (!platformResolved || platform === null || (value !== 'system' && value !== 'microphone' && value !== 'mixed')) return;
+        const requestRevision = ++audioInputRequestRevision.current;
+        audioInputRequestsInFlight.current += 1;
+        pendingAudioInputMode.current = value;
+        setAudioInputMode(value);
         setAudioInputError('');
         try {
             const normalized = await api.audioInput.set(value);
+            if (requestRevision !== audioInputRequestRevision.current) return;
+            pendingAudioInputMode.current = normalized;
+            confirmedAudioInputMode.current = normalized;
             setAudioInputMode(normalized);
         } catch {
+            if (requestRevision !== audioInputRequestRevision.current) return;
+            pendingAudioInputMode.current = confirmedAudioInputMode.current;
+            setAudioInputMode(confirmedAudioInputMode.current);
             setAudioInputError('无法保存音频来源');
+        } finally {
+            audioInputRequestsInFlight.current -= 1;
+            if (audioInputRequestsInFlight.current === 0) pendingAudioInputMode.current = null;
         }
     }
 

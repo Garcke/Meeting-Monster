@@ -9,6 +9,7 @@ export function WorkspaceMenu() {
     const [privacyPending, setPrivacyPending] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const privacyActive = privacy?.captureProtectionEnabled === true && privacy.captureProtection === 'protected';
 
     useEffect(() => {
         const api = window.meetingMonster;
@@ -37,7 +38,7 @@ export function WorkspaceMenu() {
         setPrivacyError('');
         setPrivacyPending(true);
         try {
-            setPrivacy(await window.meetingMonster.privacy.setCaptureProtection(!privacy.captureProtectionEnabled));
+            setPrivacy(await window.meetingMonster.privacy.setCaptureProtection(!privacyActive));
         } catch {
             setPrivacyError('无法更新共享隐藏');
         } finally {
@@ -59,14 +60,14 @@ export function WorkspaceMenu() {
         <div className="workspace-menu no-drag" ref={rootRef}>
             <button ref={triggerRef} className="workspace-menu-trigger" type="button" aria-label="更多" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((visible) => !visible)}>
                 <span aria-hidden="true">•••</span>
-                {privacy?.captureProtectionEnabled === false && <span className="privacy-warning-dot" data-testid="privacy-warning-dot" />}
+                {privacy && !privacyActive && <span className="privacy-warning-dot" data-testid="privacy-warning-dot" />}
             </button>
             {open && (
                 <div className="workspace-menu-popover" role="menu" aria-label="工作区菜单">
-                    <button className="workspace-menu-item workspace-privacy-item" type="button" role="menuitemcheckbox" aria-checked={privacy?.captureProtectionEnabled === true} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
+                    <button className="workspace-menu-item workspace-privacy-item" type="button" role="menuitemcheckbox" aria-checked={privacyActive} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
                         <span className="workspace-menu-item-label">共享隐藏</span>
-                        <span className="workspace-menu-item-state">{privacy?.captureProtectionEnabled ? '已开启' : '未开启'}</span>
-                        <span className="workspace-menu-help">开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。</span>
+                        <span className="workspace-menu-item-state">{privacyActive ? '已开启' : '未开启'}</span>
+                        <span className="workspace-menu-help">开启后会尽量让悬浮窗口避开常见的屏幕共享和录屏画面，实际效果取决于系统与录制工具。</span>
                     </button>
                     <button className="workspace-menu-item" type="button" role="menuitem" onClick={() => void openSettings()}>设置</button>
                     {privacyError && <div className="workspace-menu-status" role="status">{privacyError}</div>}

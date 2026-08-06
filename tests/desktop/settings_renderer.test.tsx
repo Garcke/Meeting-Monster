@@ -267,6 +267,33 @@ test('speech settings applies authoritative audio-source broadcasts', async () =
     expect(select.value).toBe('mixed');
 });
 
+test('the last audio-source choice wins over older broadcasts and out-of-order save responses', async () => {
+    let resolveMixed!: (mode: 'mixed') => void;
+    let resolveMicrophone!: (mode: 'microphone') => void;
+    const {api, emitAudioInputChanged} = fakeSettingsApi();
+    api.audioInput.set = vi.fn((mode) => new Promise<'mixed' | 'microphone'>((resolve) => {
+        if (mode === 'mixed') resolveMixed = resolve as (saved: 'mixed') => void;
+        if (mode === 'microphone') resolveMicrophone = resolve as (saved: 'microphone') => void;
+    }));
+    window.meetingMonsterSettings = api;
+    render(<SpeechSettingsPage active />);
+
+    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe('system'));
+    fireEvent.change(select, {target: {value: 'mixed'}});
+    fireEvent.change(select, {target: {value: 'microphone'}});
+
+    act(() => emitAudioInputChanged('mixed'));
+    expect(select.value).toBe('microphone');
+
+    act(() => resolveMicrophone('microphone'));
+    await waitFor(() => expect(select.value).toBe('microphone'));
+    act(() => emitAudioInputChanged('mixed'));
+    expect(select.value).toBe('microphone');
+    act(() => resolveMixed('mixed'));
+    await waitFor(() => expect(select.value).toBe('microphone'));
+});
+
 test('speech settings applies authoritative ASR status broadcasts', async () => {
     const {api, emitAsrStatus} = fakeSettingsApi();
     window.meetingMonsterSettings = api;

@@ -250,6 +250,24 @@ test('workspace menu toggles privacy and marks the visible state', async () => {
     expect(screen.getByTestId('privacy-warning-dot')).toBeTruthy();
 });
 
+test('workspace menu reports configured-but-failed sharing privacy as not enabled and retries protection', async () => {
+    const failedPrivacy = {...privacy, captureProtection: 'failed' as const, captureProtectionEnabled: true};
+    const {api} = fakeApi(failedPrivacy);
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    expect(await screen.findByTestId('privacy-warning-dot')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', {name: '更多'}));
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /共享隐藏/});
+    expect(privacyItem.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText('未开启')).toBeTruthy();
+    expect(screen.getByText(/实际效果取决于系统与录制工具/)).toBeTruthy();
+
+    fireEvent.click(privacyItem);
+    expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(true);
+});
+
 test('workspace menu closes with Escape and opens settings', async () => {
     const {api} = fakeApi();
     window.meetingMonster = api;

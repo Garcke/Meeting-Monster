@@ -1,4 +1,5 @@
 import {promises as fs} from 'node:fs';
+import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {getDefaultAudioInputMode, normalizeAudioInputMode, type AudioInputMode, type AudioInputPlatform} from '../shared/audio-input-mode';
 
@@ -6,10 +7,9 @@ type PersistedAudioInputSettings = {version: 1; mode: AudioInputMode};
 export interface AudioInputSettingsStoreOptions { platform: AudioInputPlatform; settingsPath: string; fileSystem?: Pick<typeof fs, 'readFile' | 'writeFile' | 'mkdir' | 'rename' | 'unlink'>; }
 
 export class AudioInputSettingsStore {
-    private readonly temporaryPath: string;
     private readonly fileSystem: NonNullable<AudioInputSettingsStoreOptions['fileSystem']>;
+    private saveQueue: Promise<void> = Promise.resolve();
     public constructor(private readonly options: AudioInputSettingsStoreOptions) {
-        this.temporaryPath = `${options.settingsPath}.tmp`;
         this.fileSystem = options.fileSystem ?? fs;
     }
     public async load(): Promise<AudioInputMode> {
@@ -23,13 +23,19 @@ export class AudioInputSettingsStore {
     }
     public async save(value: unknown): Promise<AudioInputMode> {
         const mode = normalizeAudioInputMode(value, this.options.platform);
+        const operation = this.saveQueue.then(() => this.persist(mode));
+        this.saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+    }
+    private async persist(mode: AudioInputMode): Promise<AudioInputMode> {
+        const temporaryPath = `${this.options.settingsPath}.${randomUUID()}.tmp`;
         try {
             await this.fileSystem.mkdir(path.dirname(this.options.settingsPath), {recursive: true});
-            await this.fileSystem.writeFile(this.temporaryPath, JSON.stringify({version: 1, mode}), {encoding: 'utf8', mode: 0o600});
-            await this.fileSystem.rename(this.temporaryPath, this.options.settingsPath);
+            await this.fileSystem.writeFile(temporaryPath, JSON.stringify({version: 1, mode}), {encoding: 'utf8', mode: 0o600});
+            await this.fileSystem.rename(temporaryPath, this.options.settingsPath);
             return mode;
         } catch {
-            try { await this.fileSystem.unlink(this.temporaryPath); } catch {}
+            try { await this.fileSystem.unlink(temporaryPath); } catch {}
             throw new Error('Unable to persist audio input preference');
         }
     }

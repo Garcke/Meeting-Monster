@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {WindowPrivacyManager} from '../../desktop/dist/main/privacy-manager.js';
 
 function fakeWindow({protectedState = true, throws = false, supported = true} = {}) {
+    let onClosed = () => {};
     return {
         calls: 0,
         setContentProtection(enabled) {
@@ -14,7 +15,10 @@ function fakeWindow({protectedState = true, throws = false, supported = true} = 
         isContentProtected() {
             return this.protectedState;
         },
-        once() {},
+        once(event, listener) {
+            if (event === 'closed') onClosed = listener;
+        },
+        close() { onClosed(); },
     };
 }
 
@@ -43,6 +47,34 @@ test('reports failed when Electron content protection throws', () => {
     manager.registerWindow(fakeWindow({throws: true}));
 
     assert.equal(manager.getStatus().captureProtection, 'failed');
+});
+
+test('aggregates mixed window results without letting a later protected window hide a failure', () => {
+    const manager = new WindowPrivacyManager({platform: 'win32'});
+    const failed = fakeWindow({throws: true});
+    const protectedWindow = fakeWindow();
+
+    manager.registerWindow(failed);
+    manager.registerWindow(protectedWindow);
+
+    assert.equal(manager.getStatus().captureProtection, 'failed');
+    assert.equal(manager.getStatus().windowCount, 2);
+
+    failed.close();
+    assert.equal(manager.getStatus().captureProtection, 'protected');
+    assert.equal(manager.getStatus().windowCount, 1);
+});
+
+test('aggregates unsupported with protected windows until the unsupported window closes', () => {
+    const manager = new WindowPrivacyManager({platform: 'linux'});
+    const unsupported = {once(event, listener) { if (event === 'closed') this.onClosed = listener; }};
+
+    manager.registerWindow(unsupported);
+    manager.registerWindow(fakeWindow());
+    assert.equal(manager.getStatus().captureProtection, 'unsupported');
+
+    unsupported.onClosed();
+    assert.equal(manager.getStatus().captureProtection, 'protected');
 });
 
 test('reasserts content protection for every registered window', () => {

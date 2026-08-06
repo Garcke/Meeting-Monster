@@ -38,3 +38,47 @@ test('falls back safely for corrupt JSON', async () => {
     await fs.writeFile(file, '{broken', 'utf8');
     assert.equal(await store.load(), 'system');
 });
+
+test('serializes concurrent saves with unique temporary files so the last request wins', async () => {
+    const files = new Map();
+    const writes = [];
+    const renames = [];
+    let releaseFirstWrite;
+    const firstWriteGate = new Promise((resolve) => { releaseFirstWrite = resolve; });
+    const file = path.join('C:', 'settings', 'audio-input.json');
+    const fileSystem = {
+        async readFile(target) {
+            if (!files.has(target)) throw new Error('missing');
+            return files.get(target);
+        },
+        async mkdir() {},
+        async writeFile(target, contents) {
+            writes.push({target, contents: String(contents)});
+            if (writes.length === 1) await firstWriteGate;
+            files.set(target, String(contents));
+        },
+        async rename(source, destination) {
+            if (!files.has(source)) throw new Error('missing temporary file');
+            renames.push({source, destination});
+            files.set(destination, files.get(source));
+            files.delete(source);
+        },
+        async unlink(target) { files.delete(target); },
+    };
+    const {AudioInputSettingsStore} = await import(SETTINGS_MODULE);
+    const store = new AudioInputSettingsStore({platform: 'win32', settingsPath: file, fileSystem});
+
+    const first = store.save('mixed');
+    const second = store.save('microphone');
+    await new Promise((resolve) => setImmediate(resolve));
+    const writesBeforeFirstCompletes = writes.length;
+    releaseFirstWrite();
+    const results = await Promise.all([first, second]);
+
+    assert.equal(writesBeforeFirstCompletes, 1);
+    assert.deepEqual(results, ['mixed', 'microphone']);
+    assert.equal(writes.length, 2);
+    assert.notEqual(writes[0].target, writes[1].target);
+    assert.deepEqual(renames.map(({destination}) => destination), [file, file]);
+    assert.equal(await store.load(), 'microphone');
+});
