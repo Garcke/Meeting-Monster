@@ -19,6 +19,7 @@ const asrModels: AsrModelSnapshot = {
 
 function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const intents: Array<{type: string}> = [];
+    let overlayTarget: OverlaySnapshot['target'] = snapshot.target;
     const privacyListeners = new Set<(status: PrivacyStatus) => void>();
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
@@ -40,7 +41,12 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         overlay: {
             intent: vi.fn(async ({type}: {type: 'toggle-workspace'}) => {
                 intents.push({type});
-                return {target: 'workspace', phase: 'opening', revision: intents.length} as OverlaySnapshot;
+                overlayTarget = overlayTarget === 'workspace' ? 'closed' : 'workspace';
+                return {
+                    target: overlayTarget,
+                    phase: overlayTarget === 'workspace' ? 'opening' : 'closing',
+                    revision: intents.length,
+                } as OverlaySnapshot;
             }),
             getSnapshot: vi.fn(async () => snapshot),
             onSnapshot: vi.fn(() => () => {}),
@@ -223,6 +229,23 @@ test('capsule sends only the workspace overlay intent from Chat', async () => {
     fireEvent.click(await screen.findByRole('button', {name: /Chat/}));
     expect(intents).toEqual([{type: 'toggle-workspace'}]);
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
+});
+
+test('capsule presents Hide with a chevron while the workspace is expanded', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<CapsuleApp />);
+
+    const chatButton = await screen.findByRole('button', {name: /Chat/});
+    expect(chatButton.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(chatButton);
+    await waitFor(() => expect(screen.getByRole('button', {name: /Hide/}).getAttribute('aria-expanded')).toBe('true'));
+    expect(document.querySelector('.capsule-chevron')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', {name: /Hide/}));
+    await waitFor(() => expect(screen.getByRole('button', {name: /Chat/}).getAttribute('aria-expanded')).toBe('false'));
+    expect(document.querySelector('.capsule-chevron')).toBeNull();
 });
 
 test('capsule exposes only workspace and exit actions', async () => {

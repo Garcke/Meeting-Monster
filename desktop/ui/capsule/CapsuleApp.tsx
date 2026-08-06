@@ -44,7 +44,14 @@ export function CapsuleApp() {
                 <span className="capsule-status">{statusLabel}</span>
             </div>
             <button className="capsule-button" type="button" aria-expanded={snapshot.target === 'workspace'} onClick={() => void sendIntent()}>
-                {snapshot.target === 'workspace' ? '收起' : 'Chat'} <span aria-hidden="true">⌄</span>
+                {snapshot.target === 'workspace' ? (
+                    <>
+                        <svg className="capsule-chevron" viewBox="0 0 14 14" aria-hidden="true">
+                            <path d="M3.5 5.25 7 8.75l3.5-3.5" />
+                        </svg>
+                        <span>Hide</span>
+                    </>
+                ) : 'Chat'}
             </button>
             <button className="capsule-stop" type="button" aria-label="退出应用" title="退出应用" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
                 <span aria-hidden="true">■</span>

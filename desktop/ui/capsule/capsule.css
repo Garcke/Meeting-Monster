@@ -121,6 +121,19 @@ button { font: inherit; }
     line-height: 1;
 }
 
+.capsule-chevron {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.capsule-button:has(.capsule-chevron) { gap: 7px; }
+
 .capsule-stop {
     display: grid;
     width: 30px;

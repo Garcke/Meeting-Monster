@@ -24,6 +24,9 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     const styles = read('desktop', 'ui', 'capsule', 'capsule.css');
     assert.match(source, /overlay\.intent\(\{type: 'toggle-workspace'\}\)/);
     assert.match(source, /toggle-workspace/);
+    assert.match(source, /className="capsule-chevron"/);
+    assert.match(source, /viewBox="0 0 14 14"/);
+    assert.doesNotMatch(source, /\u2304/);
     assert.doesNotMatch(source, /toggle-settings|settings/);
     assert.doesNotMatch(source, /privacy|PrivacyStatus|setCaptureProtection/);
     assert.doesNotMatch(source, /window\.setExpanded/);
@@ -49,6 +52,8 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     const sharedControls = styles.match(/\.capsule-button,\s*\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     assert.match(capsuleShell, /background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)/);
     assert.match(sharedControls, /height:\s*30px/);
+    assert.match(styles, /\.capsule-chevron\s*\{[\s\S]*?width:\s*14px[\s\S]*?height:\s*14px/);
+    assert.match(styles, /stroke-width:\s*1\.5/);
 });
 
 test('workspace menu owns privacy controls and warning state', () => {
