@@ -124,9 +124,17 @@ test('settings uses light chrome tokens, a titlebar drag region, and semantic st
     assert.match(styles, /--sidebar:\s*#F4F5F7/);
     assert.match(styles, /--canvas:\s*#FFFFFF/);
     assert.match(styles, /grid-template-rows:\s*42px/);
-    assert.match(styles, /grid-template-columns:\s*210px/);
+    assert.match(styles, /grid-template-columns:\s*var\(--sidebar-width\)/);
+    assert.match(styles, /--sidebar-width:\s*210px/);
+    assert.match(styles, /grid-template-columns:\s*var\(--sidebar-width\)\s+minmax\(0,\s*1fr\)/);
+    assert.match(styles, /\.settings-titlebar::before\s*\{[^}]*width:\s*var\(--sidebar-width\)/s);
+    assert.match(styles, /@media \(max-width:\s*820px\)\s*\{[\s\S]*?--sidebar-width:\s*170px/s);
+    assert.match(styles, /@media \(max-width:\s*600px\)\s*\{[\s\S]*?--sidebar-width:\s*148px/s);
     assert.match(styles, /\.settings-titlebar\s*\{[^}]*-webkit-app-region:\s*drag/s);
     assert.match(styles, /\.settings-close\s*,[\s\S]*-webkit-app-region:\s*no-drag/s);
+    assert.match(styles, /\.settings-actions button\.primary\s*\{[^}]*color:\s*#FFFFFF/s);
+    assert.match(styles, /\.settings-actions button\.primary \.model-action-spinner\s*\{[^}]*border-top-color:\s*#FFFFFF/s);
+    assert.match(styles, /\.settings-nav\.is-active\s*\{[^}]*background:\s*var\(--field\)[^}]*border-color:\s*rgba\(75,\s*142,\s*247,\s*0\.3\)/s);
     assert.doesNotMatch(styles, /gradient/i);
     assert.match(styles, /\.settings-status\.is-error,[\s\S]*\.asr-status\.is-error\s*\{[^}]*color:\s*var\(--warning\)/s);
     assert.match(styles, /\.settings-status\.is-success,[\s\S]*\.asr-status\.is-success\s*\{[^}]*color:\s*var\(--success\)/s);
