@@ -140,8 +140,7 @@ button { font: inherit; }
     flex: 0 0 14px;
     align-items: center;
     justify-content: center;
-    font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
-    font-size: 14px;
+    fill: currentColor;
     line-height: 1;
 }
 

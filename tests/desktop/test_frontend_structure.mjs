@@ -72,7 +72,8 @@ test('capsule expand button uses Chat when closed and chevron Hide when expanded
     assert.match(capsuleApp, /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}/);
     assert.match(capsuleApp, /\{snapshot\.target === 'workspace' \? \(/);
     assert.match(capsuleApp, /<span>Hide<\/span>/);
-    assert.match(capsuleApp, /<span className="capsule-chat-symbol" aria-hidden="true">ฅ<\/span>/);
+    assert.match(capsuleApp, /<svg className="capsule-chat-symbol" viewBox="0 0 1259 1024" aria-hidden="true">/);
+    assert.match(capsuleApp, /<path d="M635\.211887 354\.085959c-236\.873121 0-430\.651342[\s\S]*?75\.34166z" \/>/);
     assert.match(capsuleApp, /<span>Chat<\/span>/);
     assert.match(capsuleApp, /<svg className="capsule-chevron" viewBox="0 0 14 14" aria-hidden="true">/);
     assert.match(capsuleApp, /<path d="M3\.5 5\.25 7 8\.75l3\.5-3\.5" \/>/);

@@ -28,7 +28,8 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(source, /viewBox="0 0 14 14"/);
     assert.match(source, /<svg\s+className="capsule-chevron"\s+viewBox="0 0 14 14"\s+aria-hidden="true">/);
     assert.match(source, /<path\s+d="M3\.5 5\.25 7 8\.75l3\.5-3\.5"\s*\/>/);
-    assert.match(source, /<span className="capsule-chat-symbol" aria-hidden="true">ฅ<\/span>/);
+    assert.match(source, /<svg\s+className="capsule-chat-symbol"\s+viewBox="0 0 1259 1024"\s+aria-hidden="true">/);
+    assert.match(source, /<path\s+d="M635\.211887 354\.085959c-236\.873121 0-430\.651342 311\.057206-430\.651342 430\.651342[\s\S]*?75\.34166z"\s*\/>/);
     assert.doesNotMatch(source, /\u2304/);
     assert.doesNotMatch(source, /toggle-settings|settings/);
     assert.doesNotMatch(source, /privacy|PrivacyStatus|setCaptureProtection/);
