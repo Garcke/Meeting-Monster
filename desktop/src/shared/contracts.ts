@@ -18,12 +18,18 @@ export const IPC_CHANNELS = {
         setCaptureProtection: 'privacy:set-capture-protection',
         status: 'privacy:status',
     },
+    settings: {
+        open: 'settings:open',
+        close: 'settings:close',
+        getAppVersion: 'settings:get-app-version',
+    },
     models: {
         list: 'models:list',
         getSaved: 'models:get-saved',
         save: 'models:save',
         test: 'models:test',
         progress: 'models:progress',
+        changed: 'models:changed',
     },
     chat: {send: 'chat:send', assist: 'chat:assist', cancel: 'chat:cancel', event: 'chat:event'},
     asrModels: {
@@ -201,6 +207,9 @@ export interface AsrResultEvent {
 export type Unsubscribe = () => void;
 
 export interface MeetingMonsterApi {
+    settings: {
+        open(): Promise<void>;
+    };
     window: {
         getState(): Promise<WindowState>;
         setExpanded(expanded: boolean): Promise<WindowState>;
@@ -232,6 +241,7 @@ export interface MeetingMonsterApi {
         save(connection: ModelConnectionInput): Promise<SavedModelConnectionSettings>;
         test(selection: ModelSelectionInput): Promise<ModelTestResult>;
         onTestProgress(callback: (progress: ModelTestProgress) => void): Unsubscribe;
+        onChanged(callback: () => void): Unsubscribe;
     };
     chat: {
         send(requestId: string, content: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
@@ -255,4 +265,37 @@ export interface MeetingMonsterApi {
         onStatus(callback: (status: AsrStatus) => void): Unsubscribe;
         onResult(callback: (event: AsrResultEvent) => void): Unsubscribe;
     };
+}
+
+export interface SettingsRendererApi {
+    settings: {
+        close(): Promise<void>;
+        getAppVersion(): Promise<string>;
+    };
+    privacy: {
+        getStatus(): Promise<PrivacyStatus>;
+    };
+    models: {
+        list(): Promise<ModelOptions>;
+        getSaved(): Promise<SavedModelConnectionSettings>;
+        save(connection: ModelConnectionInput): Promise<SavedModelConnectionSettings>;
+        test(selection: ModelSelectionInput): Promise<ModelTestResult>;
+        onTestProgress(callback: (progress: ModelTestProgress) => void): Unsubscribe;
+    };
+    asrModels: {
+        list(): Promise<AsrModelSnapshot>;
+        select(modelId: AsrModelId): Promise<AsrModelSnapshot>;
+        download(modelId: AsrModelId): Promise<AsrModelSnapshot>;
+        cancel(modelId: AsrModelId): Promise<{cancelled: boolean}>;
+        delete(modelId: AsrModelId): Promise<AsrModelSnapshot>;
+        onStatus(callback: (snapshot: AsrModelSnapshot) => void): Unsubscribe;
+    };
+}
+
+export interface ModelSettingsApi {
+    models: Pick<SettingsRendererApi['models'], 'list' | 'getSaved' | 'save' | 'test'>;
+}
+
+export interface AsrModelSettingsApi {
+    asrModels: SettingsRendererApi['asrModels'];
 }

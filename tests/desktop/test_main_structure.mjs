@@ -78,13 +78,14 @@ test('main IPC registration is sender-authorized and idempotent across legacy an
     const contracts = contractsSource();
     const preload = preloadSource();
 
-    assert.match(source, /function isAuthorizedSender/);
-    assert.match(source, /if \(!isAuthorizedSender\(event\)\) throw new Error\('Unauthorized/);
+    assert.match(source, /function isOverlayWebContents\(sender: WebContents\)/);
+    assert.match(source, /function isApplicationWebContents\(sender: WebContents\)/);
+    assert.match(source, /if \(!isOverlayWebContents\(event\.sender\)\) throw new Error\('Unauthorized/);
     assert.match(source, /ipcMain\.removeHandler\(/);
     assert.match(source, /if \(ipcHandlersRegistered\) return/);
     assert.match(
         source,
-        /Object\.values\(IPC_CHANNELS\.models\)\.filter\(\(channel\) => channel !== IPC_CHANNELS\.models\.progress\)/,
+        /Object\.values\(IPC_CHANNELS\.models\)[\s\S]*?IPC_CHANNELS\.models\.progress[\s\S]*?IPC_CHANNELS\.models\.changed/,
     );
 
     for (const channel of ['intent', 'getSnapshot', 'rendererReady', 'animationFinished']) {
@@ -100,15 +101,18 @@ test('main IPC registration is sender-authorized and idempotent across legacy an
     assert.match(contracts, /windowError: 'overlay:window-error'/);
 });
 
-test('main authorizes only the single controller webContents', () => {
+test('main authorizes each IPC family to the narrowest application window', () => {
     const source = mainSource();
 
-    const authorization = source.match(/function isAuthorizedWebContents\(sender: WebContents\): boolean \{[\s\S]*?\n\}/)?.[0] ?? '';
-    assert.match(authorization, /overlayController\?\.getWindow\(\)/);
-    assert.match(authorization, /senderWindow === overlayWindow/);
-    assert.doesNotMatch(authorization, /BrowserWindow\.getAllWindows\(\)|senderWindow === mainWindow/);
-    assert.doesNotMatch(source, /function isPanelWebContents\(sender: WebContents\)/);
-    assert.doesNotMatch(source, /isPanelWebContents\(event\.sender\)/);
+    assert.match(source, /function isOverlayWebContents\(sender: WebContents\)/);
+    assert.match(source, /function isSettingsWebContents\(sender: WebContents\)/);
+    assert.match(source, /function isApplicationWebContents\(sender: WebContents\)/);
+    assert.match(source, /IPC_CHANNELS\.settings\.open[\s\S]*isOverlayWebContents\(event\.sender\)/);
+    assert.match(source, /IPC_CHANNELS\.settings\.close[\s\S]*isSettingsWebContents\(event\.sender\)/);
+    assert.match(source, /IPC_CHANNELS\.chat\.assist[\s\S]*isOverlayWebContents\(event\.sender\)/);
+    assert.match(source, /render-process-gone[\s\S]*settingsWindowController\.close\(\)/);
+    assert.doesNotMatch(source.match(/function configureSettingsWindow[\s\S]*?\n\}/)?.[0] ?? '', /disposeAsr/);
+    assert.doesNotMatch(source, /BrowserWindow\.getAllWindows\(\)/);
 });
 
 test('main authorizes Windows system-audio loopback display capture', () => {
@@ -120,18 +124,24 @@ test('main authorizes Windows system-audio loopback display capture', () => {
     assert.match(source, /types:\s*\['screen'\]/);
     assert.match(source, /thumbnailSize:\s*\{width:\s*0,\s*height:\s*0\}/);
     assert.match(source, /webContents\.fromFrame\(request\.frame\)/);
-    assert.match(source, /isAuthorizedWebContents\(/);
+    assert.match(source, /isOverlayWebContents\(/);
     assert.match(source, /process\.platform\s*!==\s*'win32'/);
     assert.match(source, /function configureDisplayMediaCapture\(\): void/);
 });
 
-test('main broadcasts window, privacy, overlay, and ASR model statuses to all live overlay windows', () => {
+test('main broadcasts overlay-only and application-wide statuses to their intended windows', () => {
     const source = mainSource();
 
     assert.match(source, /function getLiveOverlayWindows\(\): BrowserWindow\[\]/);
-    for (const broadcaster of ['broadcastAsrModelStatus', 'broadcastWindowState', 'broadcastPrivacyStatus', 'broadcastOverlaySnapshot']) {
+    assert.match(source, /function getLiveApplicationWindows\(\): BrowserWindow\[\]/);
+    for (const broadcaster of ['broadcastWindowState', 'broadcastOverlaySnapshot']) {
         const body = source.match(new RegExp(`function ${broadcaster}\\([^)]*\\): void \\{[\\s\\S]*?\\n\\}`))?.[0] ?? '';
         assert.match(body, /getLiveOverlayWindows\(\)/, `${broadcaster} should fan out through getLiveOverlayWindows()`);
+        assert.match(body, /\.webContents\.send\(/, `${broadcaster} should send to renderer webContents`);
+    }
+    for (const broadcaster of ['broadcastAsrModelStatus', 'broadcastPrivacyStatus']) {
+        const body = source.match(new RegExp(`function ${broadcaster}\\([^)]*\\): void \\{[\\s\\S]*?\\n\\}`))?.[0] ?? '';
+        assert.match(body, /getLiveApplicationWindows\(\)/, `${broadcaster} should fan out through getLiveApplicationWindows()`);
         assert.match(body, /\.webContents\.send\(/, `${broadcaster} should send to renderer webContents`);
     }
     assert.match(source, /configureOverlayWindow\(browserWindow, manager\)/);
@@ -194,7 +204,7 @@ test('main verifies saved model vision before persisting and owns Assist screen 
     assert.match(source, /async function requireVerifiedSavedSelection/);
     assert.match(saveHandler, /runModelTestWithVisionRetries\([\s\S]*?selection[\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/);
     assert.doesNotMatch(saveHandler, /saveConnection\(/);
-    assert.match(assistHandler, /isAuthorizedSender\(event\)/);
+    assert.match(assistHandler, /isOverlayWebContents\(event\.sender\)/);
     assert.match(assistHandler, /reserveChatRequest\(id, event\.sender\)[\s\S]*?await requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
     assert.match(assistHandler, /isCurrentChatRequest\(id, reserved\)[\s\S]*?return \{requestId: id\}/);
     assert.match(assistHandler, /captureCurrentDisplay[\s\S]*?isCurrentChatRequest\(id, reserved\)/);
@@ -218,11 +228,12 @@ test('main routes model test and save through retries with sender-scoped progres
 
     assert.match(source, /import \{runModelTestWithVisionRetries\} from '\.\/model-test-coordinator'/);
     for (const handler of [testHandler, saveHandler]) {
-        assert.match(handler, /isAuthorizedSender\(event\)/);
+        assert.match(handler, /isApplicationWebContents\(event\.sender\)/);
         assert.match(handler, /runModelTestWithVisionRetries\(/);
         assert.match(handler, /event\.sender\.send\(IPC_CHANNELS\.models\.progress, progress\)/);
-        assert.doesNotMatch(handler, /broadcast|getLiveOverlayWindows/);
     }
+    assert.doesNotMatch(testHandler, /broadcast|getLiveApplicationWindows/);
+    assert.match(saveHandler, /getLiveApplicationWindows\(\)[\s\S]*?IPC_CHANNELS\.models\.changed/);
     assert.match(
         saveHandler,
         /await runModelTestWithVisionRetries\([\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/,
@@ -263,7 +274,7 @@ test('main owns the single-instance lifecycle and authorizes the quit IPC', () =
     assert.match(initialization, /secondInstancePending = false;/);
     assert.match(initialization, /overlay\.show\(\);/);
     assert.match(initialization, /overlay\.focus\(\);/);
-    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.window\.quit, \(event\) => \{[\s\S]*?isAuthorizedSender\(event\)[\s\S]*?setImmediate\(\(\) => app\.quit\(\)\)/);
+    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.window\.quit, \(event\) => \{[\s\S]*?isOverlayWebContents\(event\.sender\)[\s\S]*?setImmediate\(\(\) => app\.quit\(\)\)/);
 });
 
 test('main disables hardware acceleration before starting the transparent overlay', () => {

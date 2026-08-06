@@ -45,6 +45,26 @@ test('preload exports one fixed nested Meeting Monster API', () => {
     assert.doesNotMatch(source, /exposeInMainWorld\([^,]+,\s*\{[^}]*ipcRenderer/s);
 });
 
+test('overlay and settings preloads expose separate least-privilege APIs', () => {
+    const overlayPreloadSource = fs.readFileSync(
+        path.join(projectRoot, 'desktop', 'src', 'preload', 'index.ts'),
+        'utf8',
+    );
+    const settingsPreloadSource = fs.readFileSync(
+        path.join(projectRoot, 'desktop', 'src', 'preload', 'settings.ts'),
+        'utf8',
+    );
+
+    assert.match(overlayPreloadSource, /open: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.open\)/);
+    assert.match(overlayPreloadSource, /onChanged: .*IPC_CHANNELS\.models\.changed/s);
+    assert.doesNotMatch(overlayPreloadSource, /settings\.close|settings\.getAppVersion/);
+    assert.match(settingsPreloadSource, /contextBridge\.exposeInMainWorld\('meetingMonsterSettings'/);
+    assert.match(settingsPreloadSource, /close: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.close\)/);
+    assert.match(settingsPreloadSource, /getAppVersion: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.getAppVersion\)/);
+    assert.doesNotMatch(settingsPreloadSource, /IPC_CHANNELS\.(?:window|overlay|chat|asr)\./);
+    assert.doesNotMatch(settingsPreloadSource, /writePcm|captureDisplay|assist:/);
+});
+
 test('shared contracts reserve typed IPC channel families for later desktop work', () => {
     const source = read('desktop', 'src', 'shared', 'contracts.ts');
 
@@ -60,8 +80,11 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     assert.match(source, /assist\(requestId: string, selection\?: ModelSelectionInput\): Promise<\{requestId: string\}>/);
     assert.doesNotMatch(source, /assist\(requestId: string, content:/);
     assert.match(source, /quit\(\): Promise<void>/);
+    const overlayTypeReexports = source.match(/export type \{([^}]*)\} from '\.\/overlay-state';/)?.[1] ?? '';
     for (const typeName of ['OverlayTarget', 'OverlayPhase', 'OverlaySnapshot', 'OverlayIntent']) {
-        assert.match(source, new RegExp(`export (?:type|interface) ${typeName}\\b`));
+        const directExport = new RegExp(`export (?:type|interface) ${typeName}\\b`).test(source);
+        const groupedReexport = new RegExp(`\\b${typeName}\\b`).test(overlayTypeReexports);
+        assert.equal(directExport || groupedReexport, true, `missing exported overlay type: ${typeName}`);
     }
     assert.match(source, /overlay:\s*\{[\s\S]*?intent\(intent: OverlayIntent\): Promise<OverlaySnapshot>/);
     assert.match(source, /getSnapshot\(\): Promise<OverlaySnapshot>/);

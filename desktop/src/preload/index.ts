@@ -70,6 +70,9 @@ function subscribe<T>(channel: string, callback: (value: T) => void): Unsubscrib
 }
 
 const meetingMonster: MeetingMonsterApi = {
+    settings: {
+        open: () => ipcRenderer.invoke(IPC_CHANNELS.settings.open) as Promise<void>,
+    },
     window: {
         getState: () => ipcRenderer.invoke(IPC_CHANNELS.window.getState),
         setExpanded: (expanded) => ipcRenderer.invoke(IPC_CHANNELS.window.setExpanded, Boolean(expanded)),
@@ -103,6 +106,7 @@ const meetingMonster: MeetingMonsterApi = {
         save: (connection: ModelConnectionInput) => ipcRenderer.invoke(IPC_CHANNELS.models.save, connection) as Promise<SavedModelConnectionSettings>,
         test: (selection: ModelSelectionInput) => ipcRenderer.invoke(IPC_CHANNELS.models.test, selection) as Promise<ModelTestResult>,
         onTestProgress: (callback: (progress: ModelTestProgress) => void) => subscribe(IPC_CHANNELS.models.progress, callback),
+        onChanged: (callback: () => void) => subscribe<void>(IPC_CHANNELS.models.changed, callback),
     },
     chat: {
         send: (requestId, content, selection) => ipcRenderer.invoke(IPC_CHANNELS.chat.send, requestId, content, selection),

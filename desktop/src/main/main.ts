@@ -26,6 +26,11 @@ import {
     type OverlayWindowController,
 } from './overlay-window-controller';
 import {
+    createSettingsWindowController,
+    type SettingsBrowserWindowConstructor,
+    type SettingsWindowController,
+} from './settings-window-controller';
+import {
     IPC_CHANNELS,
     type ChatImageInput,
     type AsrModelId,
@@ -52,6 +57,7 @@ if (app.commandLine?.appendSwitch) app.commandLine.appendSwitch('in-process-gpu'
 
 let mainWindow: BrowserWindow | null = null;
 let overlayController: OverlayWindowController | null = null;
+let settingsWindowController: SettingsWindowController | null = null;
 let privacyManager: WindowPrivacyManager | null = null;
 let modelConnectionStore: ModelConnectionStore | null = null;
 let ipcHandlersRegistered = false;
@@ -86,26 +92,32 @@ if (!hasSingleInstanceLock) {
     });
 }
 
-function isAuthorizedSender(event: Electron.IpcMainInvokeEvent): boolean {
-    return isAuthorizedWebContents(event.sender);
-}
-
-function isAuthorizedWebContents(sender: WebContents): boolean {
-    const senderWindow = BrowserWindow.fromWebContents(sender);
-    const overlayWindow = overlayController?.getWindow() as unknown as BrowserWindow | null;
+function isLiveWindowSender(sender: WebContents, window: BrowserWindow | null): boolean {
     return Boolean(
         !sender.isDestroyed()
-        && senderWindow
-        && !senderWindow.isDestroyed()
-        && overlayWindow
-        && senderWindow === overlayWindow,
+        && window
+        && !window.isDestroyed()
+        && !window.webContents.isDestroyed()
+        && BrowserWindow.fromWebContents(sender) === window,
     );
+}
+
+function isOverlayWebContents(sender: WebContents): boolean {
+    return isLiveWindowSender(sender, overlayController?.getWindow() as BrowserWindow | null);
+}
+
+function isSettingsWebContents(sender: WebContents): boolean {
+    return isLiveWindowSender(sender, settingsWindowController?.getWindow() as BrowserWindow | null);
+}
+
+function isApplicationWebContents(sender: WebContents): boolean {
+    return isOverlayWebContents(sender) || isSettingsWebContents(sender);
 }
 
 function configureDisplayMediaCapture(): void {
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
         const requester = request.frame ? webContents.fromFrame(request.frame) : undefined;
-        if (process.platform !== 'win32' || !requester || !isAuthorizedWebContents(requester)) {
+        if (process.platform !== 'win32' || !requester || !isOverlayWebContents(requester)) {
             callback({});
             return;
         }
@@ -131,6 +143,15 @@ function configureDisplayMediaCapture(): void {
 function getLiveOverlayWindows(): BrowserWindow[] {
     const win = overlayController?.getWindow() as unknown as BrowserWindow | null;
     return win && !win.isDestroyed() && !win.webContents.isDestroyed() ? [win] : [];
+}
+
+function getLiveSettingsWindows(): BrowserWindow[] {
+    const win = settingsWindowController?.getWindow() as BrowserWindow | null;
+    return win && !win.isDestroyed() && !win.webContents.isDestroyed() ? [win] : [];
+}
+
+function getLiveApplicationWindows(): BrowserWindow[] {
+    return [...getLiveOverlayWindows(), ...getLiveSettingsWindows()];
 }
 
 function getPrivacyManager(): WindowPrivacyManager {
@@ -185,7 +206,7 @@ function getPublicAsrModelSnapshot(): AsrModelSnapshot {
 
 function broadcastAsrModelStatus(): void {
     const snapshot = getPublicAsrModelSnapshot();
-    for (const win of getLiveOverlayWindows()) win.webContents.send(IPC_CHANNELS.asrModels.status, snapshot);
+    for (const win of getLiveApplicationWindows()) win.webContents.send(IPC_CHANNELS.asrModels.status, snapshot);
 }
 
 function setAsrModelRuntime(
@@ -199,7 +220,7 @@ function setAsrModelRuntime(
 
 function getLiveAsrOwner(): WebContents | null {
     const owner = asrSessionCoordinator?.getOwner() as WebContents | null;
-    if (!owner || !isAuthorizedWebContents(owner)) {
+    if (!owner || !isOverlayWebContents(owner)) {
         return null;
     }
     return owner;
@@ -217,7 +238,7 @@ function sendAsrResult(event: AsrResultEvent): void {
 
 function terminateAsr(owner: AsrSessionSender): void {
     const sender = owner as WebContents;
-    if (isAuthorizedWebContents(sender)) {
+    if (isOverlayWebContents(sender)) {
         sender.send(IPC_CHANNELS.asr.result, {type: 'error', text: LOCAL_ASR_ERROR});
         sender.send(IPC_CHANNELS.asr.status, {state: 'error', message: LOCAL_ASR_ERROR});
     }
@@ -357,7 +378,7 @@ function getLocalAsrStatus(): AsrStatus {
 function getAsrSessionCoordinator(): AsrSessionCoordinator {
     if (asrSessionCoordinator) return asrSessionCoordinator;
     asrSessionCoordinator = new AsrSessionCoordinator({
-        isAuthorizedSender: (sender) => isAuthorizedWebContents(sender as WebContents),
+        isAuthorizedSender: (sender) => isOverlayWebContents(sender as WebContents),
         createPort: () => {
             const {port1, port2} = new MessageChannelMain();
             return {input: port1, output: port2};
@@ -553,7 +574,7 @@ function startChatRequest(args: {
 }
 
 function sendChatEvent(sender: WebContents, event: ChatStreamEvent): void {
-    if (!isAuthorizedWebContents(sender)) return;
+    if (!isOverlayWebContents(sender)) return;
     sender.send(IPC_CHANNELS.chat.event, event);
 }
 
@@ -607,7 +628,7 @@ function broadcastWindowState(): void {
 function broadcastPrivacyStatus(): void {
     const manager = getPrivacyManager();
     const status = manager.getStatus();
-    for (const win of getLiveOverlayWindows()) win.webContents.send(IPC_CHANNELS.privacy.status, status);
+    for (const win of getLiveApplicationWindows()) win.webContents.send(IPC_CHANNELS.privacy.status, status);
 }
 
 async function setLegacyExpanded(expanded: boolean): Promise<WindowState> {
@@ -633,7 +654,10 @@ function registerIpcHandlers(): void {
     const handledChannels = [
         ...Object.values(IPC_CHANNELS.window).filter((channel) => channel !== IPC_CHANNELS.window.state),
         ...Object.values(IPC_CHANNELS.privacy).filter((channel) => channel !== IPC_CHANNELS.privacy.status),
-        ...Object.values(IPC_CHANNELS.models).filter((channel) => channel !== IPC_CHANNELS.models.progress),
+        ...Object.values(IPC_CHANNELS.settings),
+        ...Object.values(IPC_CHANNELS.models).filter((channel) => (
+            channel !== IPC_CHANNELS.models.progress && channel !== IPC_CHANNELS.models.changed
+        )),
         ...Object.values(IPC_CHANNELS.chat).filter((channel) => channel !== IPC_CHANNELS.chat.event),
         ...Object.values(IPC_CHANNELS.asrModels).filter((channel) => channel !== IPC_CHANNELS.asrModels.status),
         ...Object.values(IPC_CHANNELS.asr).filter((channel) => (
@@ -645,12 +669,26 @@ function registerIpcHandlers(): void {
     ];
     for (const channel of handledChannels) ipcMain.removeHandler(channel);
 
+    ipcMain.handle(IPC_CHANNELS.settings.open, async (event) => {
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized settings request');
+        if (!settingsWindowController) throw new Error('Settings window is not ready');
+        await settingsWindowController.open();
+        await setLegacyExpanded(false);
+    });
+    ipcMain.handle(IPC_CHANNELS.settings.close, (event) => {
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized settings request');
+        settingsWindowController?.close();
+    });
+    ipcMain.handle(IPC_CHANNELS.settings.getAppVersion, (event) => {
+        if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized settings request');
+        return app.getVersion();
+    });
     ipcMain.handle(IPC_CHANNELS.privacy.getStatus, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized privacy request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized privacy request');
         return getPrivacyManager().getStatus();
     });
     ipcMain.handle(IPC_CHANNELS.privacy.getPolicy, (event): PrivacyPolicy => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized privacy request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized privacy request');
         return {
             captureProtectionDefault: true,
             supportedPlatforms: ['win32', 'darwin'],
@@ -659,49 +697,49 @@ function registerIpcHandlers(): void {
         };
     });
     ipcMain.handle(IPC_CHANNELS.privacy.setCaptureProtection, (event, enabled: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized privacy request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized privacy request');
         if (typeof enabled !== 'boolean') throw new TypeError('capture protection state must be boolean');
         const manager = getPrivacyManager();
         manager.setCaptureProtection(enabled);
         return manager.getStatus();
     });
     ipcMain.handle(IPC_CHANNELS.window.getState, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized window request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized window request');
         return getWindowState();
     });
     ipcMain.handle(IPC_CHANNELS.window.setExpanded, (event, expanded: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized window request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized window request');
         if (typeof expanded !== 'boolean') throw new TypeError('expanded state must be boolean');
         return setLegacyExpanded(expanded);
     });
     ipcMain.handle(IPC_CHANNELS.window.toggleExpanded, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized window request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized window request');
         return toggleLegacyExpanded();
     });
     ipcMain.handle(IPC_CHANNELS.window.hide, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized window request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized window request');
         setOverlayVisibility(false);
         return getWindowState();
     });
     ipcMain.handle(IPC_CHANNELS.window.quit, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized window request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized window request');
         setImmediate(() => app.quit());
     });
     ipcMain.handle(IPC_CHANNELS.window.show, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized window request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized window request');
         setOverlayVisibility(true);
         return getWindowState();
     });
     ipcMain.handle(IPC_CHANNELS.overlay.intent, async (event, intent: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized overlay request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized overlay request');
         return dispatchOverlayIntent(requireOverlayIntent(intent));
     });
     ipcMain.handle(IPC_CHANNELS.overlay.getSnapshot, (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized overlay request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized overlay request');
         return getOverlaySnapshot();
     });
     ipcMain.handle(IPC_CHANNELS.overlay.rendererReady, async (event, revision: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized overlay renderer request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized overlay renderer request');
         if (!Number.isInteger(revision) || (revision as number) < 0) throw new TypeError('Invalid overlay revision');
         if (!overlayController) throw new Error('Overlay controller is not ready');
         const snapshot = await overlayController.rendererReady(revision as number);
@@ -710,7 +748,7 @@ function registerIpcHandlers(): void {
         return snapshot;
     });
     ipcMain.handle(IPC_CHANNELS.overlay.animationFinished, async (event, revision: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized overlay renderer request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized overlay renderer request');
         if (!Number.isInteger(revision) || (revision as number) < 0) throw new TypeError('Invalid overlay revision');
         if (!overlayController) throw new Error('Overlay controller is not ready');
         const snapshot = await overlayController.animationFinished(revision as number);
@@ -719,15 +757,15 @@ function registerIpcHandlers(): void {
         return snapshot;
     });
     ipcMain.handle(IPC_CHANNELS.models.list, async (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
         return (await getRemoteApiClient()).listSelectableModels();
     });
     ipcMain.handle(IPC_CHANNELS.models.getSaved, async (event) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
         return getModelConnectionStore().loadSummary();
     });
     ipcMain.handle(IPC_CHANNELS.models.save, async (event, connection: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
         const requested = requireModelSelection(connection);
         const selection = await mergeSavedModelConnection(requested);
         if (!selection) throw new Error('Model selection is required');
@@ -737,10 +775,14 @@ function registerIpcHandlers(): void {
             (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
         );
         if (!tested.vision) throw new Error('Model does not support image input');
-        return getModelConnectionStore().saveVerifiedConnection(modelSelectionToConnection(selection));
+        const saved = await getModelConnectionStore().saveVerifiedConnection(modelSelectionToConnection(selection));
+        for (const win of getLiveApplicationWindows()) {
+            win.webContents.send(IPC_CHANNELS.models.changed);
+        }
+        return saved;
     });
     ipcMain.handle(IPC_CHANNELS.models.test, async (event, selection: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized models request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
         const modelSelection = await mergeSavedModelConnection(requireModelSelection(selection));
         if (!modelSelection) throw new Error('Model selection is required');
         return runModelTestWithVisionRetries(
@@ -750,7 +792,7 @@ function registerIpcHandlers(): void {
         );
     });
     ipcMain.handle(IPC_CHANNELS.chat.send, async (event, requestId: unknown, content: unknown, selection?: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized chat request');
         const id = requireText(requestId, 'Chat request id');
         const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
@@ -777,7 +819,7 @@ function registerIpcHandlers(): void {
         }
     });
     ipcMain.handle(IPC_CHANNELS.chat.assist, async (event, requestId: unknown, selection?: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized Assist request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized Assist request');
         const id = requireText(requestId, 'Chat request id');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
         const reserved = reserveChatRequest(id, event.sender);
@@ -819,7 +861,7 @@ function registerIpcHandlers(): void {
         }
     });
     ipcMain.handle(IPC_CHANNELS.chat.cancel, (event, requestId: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized chat request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized chat request');
         const id = requireText(requestId, 'Chat request id');
         const activeRequest = activeChatRequests.get(id);
         if (!activeRequest || activeRequest.sender !== event.sender) return {cancelled: false};
@@ -827,17 +869,17 @@ function registerIpcHandlers(): void {
         return {cancelled: true};
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.list, (event): AsrModelSnapshot => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR model request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         return getPublicAsrModelSnapshot();
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.select, async (event, modelId: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR model request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         assertAsrModelMutationAllowed();
         return runAsrModelMutation(() => selectInstalledAsrModel(id));
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.download, async (event, modelId: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR model request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         assertAsrModelMutationAllowed();
         return runAsrModelMutation(async () => {
@@ -857,12 +899,12 @@ function registerIpcHandlers(): void {
         });
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.cancel, (event, modelId: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR model request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         return {cancelled: getAsrModelManager().cancel(id)};
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.delete, async (event, modelId: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR model request');
+        if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized ASR model request');
         const id = requireAsrModelId(modelId);
         assertAsrModelMutationAllowed();
         return runAsrModelMutation(async () => {
@@ -894,17 +936,17 @@ function registerIpcHandlers(): void {
         });
     });
     ipcMain.handle(IPC_CHANNELS.asr.start, async (event, sampleRate: unknown) => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized ASR request');
         if (!Number.isInteger(sampleRate)) throw new TypeError('ASR sample rate must be an integer');
         assertCurrentAsrModelReady();
         return getAsrSessionCoordinator().start(event.sender as unknown as AsrSessionSender, sampleRate as number);
     });
     ipcMain.handle(IPC_CHANNELS.asr.stop, async (event): Promise<AsrStatus> => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized ASR request');
         return getAsrSessionCoordinator().stop();
     });
     ipcMain.handle(IPC_CHANNELS.asr.getStatus, (event): AsrStatus => {
-        if (!isAuthorizedSender(event)) throw new Error('Unauthorized ASR request');
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized ASR request');
         return getLocalAsrStatus();
     });
 
@@ -937,6 +979,26 @@ function configureOverlayWindow(win: BrowserWindow, manager: WindowPrivacyManage
         broadcastWindowState();
     });
     win.on('hide', broadcastWindowState);
+}
+
+function configureSettingsWindow(win: BrowserWindow, manager: WindowPrivacyManager): void {
+    manager.registerWindow(win);
+    win.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
+    win.webContents.on('will-navigate', (event) => event.preventDefault());
+    win.webContents.on('did-finish-load', () => {
+        manager.reassertCaptureProtection();
+        broadcastPrivacyStatus();
+        broadcastAsrModelStatus();
+    });
+    win.webContents.on('render-process-gone', (_event, details) => {
+        console.error('[desktop] settings renderer exited:', details.reason);
+        if (settingsWindowController?.getWindow() === win) settingsWindowController.close();
+    });
+    win.on('show', () => {
+        manager.reassertCaptureProtection();
+        broadcastPrivacyStatus();
+        broadcastAsrModelStatus();
+    });
 }
 
 function onOverlayWindowClosed(): void {
@@ -999,6 +1061,13 @@ async function startApplication(): Promise<void> {
         settingsPath: path.join(app.getPath('userData'), 'model-connection.json'),
     });
     await initializeAsr();
+    settingsWindowController = createSettingsWindowController({
+        BrowserWindow: BrowserWindow as unknown as SettingsBrowserWindowConstructor,
+        rendererRoot: path.join(__dirname, '..', 'renderer'),
+        windowIconPath: path.join(__dirname, '..', '..', 'renderer', 'favicon.ico'),
+        preloadPath: path.join(__dirname, '..', 'preload', 'settings.js'),
+        onWindowCreated: (window) => configureSettingsWindow(window as BrowserWindow, getPrivacyManager()),
+    });
     registerIpcHandlers();
     configureDisplayMediaCapture();
     createMainWindow();
@@ -1034,6 +1103,8 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+    settingsWindowController?.dispose();
+    settingsWindowController = null;
     disposeAsr();
     globalShortcut.unregisterAll();
 });
