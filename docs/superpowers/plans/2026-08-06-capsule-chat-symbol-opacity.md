@@ -33,17 +33,17 @@
 - Consumes: the current `snapshot.target === 'workspace'` conditional and `toggle-workspace` intent in `CapsuleApp`.
 - Produces: a closed button whose accessible name remains `Chat`, an expanded button whose accessible name remains `Hide`, and CSS contracts consumed by the existing overlay renderer.
 
-- [ ] **Step 1: Write the failing React assertions**
+- [x] **Step 1: Write the failing React assertions**
 
   Extend the existing capsule tests so the closed state requires a `.capsule-chat-symbol` SVG with `viewBox="0 0 1259 1024"`, `aria-hidden="true"`, and a path from the supplied paw artwork, while the `Chat` accessible name remains available. After clicking, require the existing `.capsule-chevron` and `Hide` accessible name; after closing, require the paw SVG to return and the chevron to disappear.
 
-- [ ] **Step 2: Run the focused React test to verify it fails**
+- [x] **Step 2: Run the focused React test to verify it fails**
 
   Run: `npm --prefix desktop run unit-test -- --run tests/desktop/react_overlay.test.tsx`
 
   Expected: FAIL because the current closed branch renders only the `Chat` string and has no `.capsule-chat-symbol` contract.
 
-- [ ] **Step 3: Write the failing static contracts**
+- [x] **Step 3: Write the failing static contracts**
 
   Add assertions that the capsule source contains:
 
@@ -55,13 +55,13 @@
 
   and that the CSS contains a `14px × 14px` symbol slot, `width: 70px`, `min-width: 70px`, and the existing chevron contract. Add a panel CSS assertion that `.panel-shell` contains the exact shared background and border values.
 
-- [ ] **Step 4: Run the focused static tests to verify they fail**
+- [x] **Step 4: Run the focused static tests to verify they fail**
 
   Run: `node --test tests/desktop/test_floating_capsule.mjs tests/desktop/test_frontend_structure.mjs`
 
   Expected: FAIL because production CSS still has an auto-width action and `.panel-shell` still uses `rgba(17, 22, 31, 0.9)`.
 
-- [ ] **Step 5: Implement the minimal React markup**
+- [x] **Step 5: Implement the minimal React markup**
 
   Change only the closed branch of the existing action button to render the supplied paw SVG artwork and label:
 
@@ -76,7 +76,7 @@
 
   Keep the expanded SVG chevron and `<span>Hide</span>` unchanged, including `aria-hidden="true"` and the existing path.
 
-- [ ] **Step 6: Implement fixed capsule geometry and synchronized panel surface**
+- [x] **Step 6: Implement fixed capsule geometry and synchronized panel surface**
 
   In `capsule.css`, set `.capsule-button` to `width: 70px`, `min-width: 70px`, retain `height: 30px`, and keep centered inline-flex layout. Add:
 
@@ -94,7 +94,7 @@
 
   Keep a `7px` gap for the expanded chevron button and apply the same gap to the shared button layout. In `panel.css`, replace only `.panel-shell`'s surface values with `rgba(29, 36, 48, 0.68)` and `1px solid rgba(255, 255, 255, 0.17)`; keep inner composer/menu backgrounds unchanged.
 
-- [ ] **Step 7: Run focused tests and inspect the diff**
+- [x] **Step 7: Run focused tests and inspect the diff**
 
   Run:
 
@@ -106,7 +106,7 @@
 
   Expected: all focused tests pass, the accessible names remain `Chat`/`Hide`, and the diff contains only the listed capsule/panel files and tests.
 
-- [ ] **Step 8: Commit the implementation**
+- [x] **Step 8: Commit the implementation**
 
   ```bash
   git add desktop/ui/capsule/CapsuleApp.tsx desktop/ui/capsule/capsule.css desktop/ui/panel/panel.css tests/desktop/react_overlay.test.tsx tests/desktop/test_floating_capsule.mjs tests/desktop/test_frontend_structure.mjs
