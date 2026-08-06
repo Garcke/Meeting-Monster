@@ -26,3 +26,21 @@ Results: 11/11 Node tests passed; 67/67 Vitest tests passed; main build and both
 
 - No model, ASR protocol, capture behavior, remote API credentials, release artifacts, tags, or historical release directories were changed.
 - Existing untracked release directories and `node_modules` were left untouched.
+
+## P1 follow-up — initialization/event ordering
+
+Review found that a delayed `audioInput.get()` snapshot could complete after an `audioInput.changed` broadcast and overwrite the newer mode. `WorkspaceView` now tracks the subscription's audio-input change generation. The initialization snapshot applies only if no broadcast arrived while it was pending; a later broadcast remains authoritative. When a broadcast supersedes a legacy migration, the stale local key is discarded because broadcasts occur only after a successful main-process save.
+
+Added regression coverage for delayed `get()` resolving to `system` after a `microphone` change event; the rendered workspace remains `microphone`.
+
+Fresh follow-up verification passed:
+
+```powershell
+npx --prefix desktop vitest run --root . --config desktop/vitest.config.ts tests/desktop/react_overlay.test.tsx
+npx --prefix desktop vitest run --root . --config desktop/vitest.config.ts tests/desktop/react_services.test.ts
+npm --prefix desktop run build:main
+node --test tests/desktop/test_audio_input_settings.mjs tests/desktop/test_preload_contract.mjs
+npm --prefix desktop run typecheck
+```
+
+Results: 33/33 overlay tests, 25/25 renderer-service tests, and 11/11 Node tests passed; main build and typecheck passed.

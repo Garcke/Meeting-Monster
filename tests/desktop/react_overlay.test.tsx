@@ -777,6 +777,22 @@ test('workspace uses a later audio input change for the next idle session', asyn
     expect(media.getUserMedia).toHaveBeenCalledOnce();
 });
 
+test('workspace does not let a delayed saved mode overwrite a newer audio input change', async () => {
+    let resolveSavedMode!: (mode: 'system' | 'microphone' | 'mixed') => void;
+    const {api, emitAudioInputChanged} = fakeApi();
+    api.audioInput.get = vi.fn(() => new Promise((resolve) => { resolveSavedMode = resolve; }));
+    window.meetingMonster = api;
+    const {container} = render(<WorkspaceView active />);
+
+    await waitFor(() => expect(api.audioInput.onChanged).toHaveBeenCalledOnce());
+    act(() => emitAudioInputChanged('microphone'));
+    await waitFor(() => expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone'));
+
+    await act(async () => { resolveSavedMode('system'); });
+
+    expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone');
+});
+
 test('workspace stops local capture and ASR once when an input track ends, while retaining the error', async () => {
     const media = installWorkspaceAudioFakes();
     const {api} = fakeApi();

@@ -118,16 +118,27 @@ export function WorkspaceView({active}: {active: boolean}) {
 
     useEffect(() => {
         let disposed = false;
+        let audioInputChangeGeneration = 0;
         const unsubscribe = api.audioInput.onChanged((mode) => {
+            audioInputChangeGeneration += 1;
             if (!disposed) setAudioInputMode(mode);
         });
+        const initialAudioInputChangeGeneration = audioInputChangeGeneration;
         void Promise.all([api.privacy.getStatus(), api.audioInput.get()]).then(async ([status, savedMode]) => {
             if (disposed) return;
             platformRef.current = status.platform;
             setPlatform(status.platform);
             const legacy = window.localStorage.getItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY);
+            if (audioInputChangeGeneration !== initialAudioInputChangeGeneration) {
+                window.localStorage.removeItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY);
+                return;
+            }
             if (legacy) {
                 const migrated = await api.audioInput.set(normalizeAudioInputMode(legacy, status.platform));
+                if (audioInputChangeGeneration !== initialAudioInputChangeGeneration) {
+                    window.localStorage.removeItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY);
+                    return;
+                }
                 if (!disposed) setAudioInputMode(migrated);
                 window.localStorage.removeItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY);
                 return;
