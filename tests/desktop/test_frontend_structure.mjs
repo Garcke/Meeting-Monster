@@ -65,13 +65,21 @@ test('capsule action buttons keep their labels on one centered line', () => {
     assert.doesNotMatch(capsuleCss, /\.protection-button\s*\{/);
 });
 
-test('capsule expand button keeps its label and arrow in one button', () => {
+test('capsule expand button keeps the Chat label and arrow in one button', () => {
     const capsuleApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'CapsuleApp.tsx'), 'utf8');
     const capsuleCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'capsule.css'), 'utf8');
 
     assert.match(
         capsuleApp,
-        /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}[\s\S]*?\{snapshot\.target === 'workspace' \? '收起' : '展开'\} <span aria-hidden="true">⌄<\/span>[\s\S]*?<\/button>/,
+        /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}[\s\S]*?\{snapshot\.target === 'workspace' \? '\u6536\u8d77' : 'Chat'\} <span aria-hidden="true">\u2304<\/span>[\s\S]*?<\/button>/,
     );
     assert.match(capsuleCss, /\.capsule-button\s*>\s*span\s*\{[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 auto[^}]*line-height:\s*1/s);
+});
+
+test('settings chrome keeps the close control inside the dedicated titlebar', () => {
+    const settingsApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'settings', 'SettingsApp.tsx'), 'utf8');
+
+    assert.match(settingsApp, /<header className="settings-titlebar">[\s\S]*?<button className="settings-close"[\s\S]*?<\/header>/);
+    assert.match(settingsApp, /<aside className="settings-sidebar">/);
+    assert.match(settingsApp, /<section className="settings-main">/);
 });

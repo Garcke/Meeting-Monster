@@ -18,8 +18,10 @@ export function SettingsApp() {
 
     return (
         <main className="settings-window-shell">
-            <aside className="settings-sidebar">
+            <header className="settings-titlebar">
                 <button className="settings-close" type="button" aria-label="关闭设置" onClick={() => void window.meetingMonsterSettings.settings.close()}>×</button>
+            </header>
+            <aside className="settings-sidebar">
                 <div className="settings-brand" aria-hidden="true">
                     <span className="settings-brand-mark" />
                     <span>Meeting-Monster</span>

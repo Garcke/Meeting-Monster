@@ -1,15 +1,15 @@
 :root {
-    --canvas: #111721;
-    --sidebar: #0d121a;
-    --surface: #171e29;
-    --field: #0e141d;
-    --text: #f2f5fa;
-    --muted: #929dac;
-    --focus: #78b8ff;
+    --canvas: #FFFFFF;
+    --sidebar: #F4F5F7;
+    --surface: #F8FAFC;
+    --field: #FFFFFF;
+    --text: #161B22;
+    --muted: #697386;
+    --focus: #4B8EF7;
     --primary: #286fe0;
-    --success: #78d59b;
-    --warning: #f3a35c;
-    color-scheme: dark;
+    --success: #178A4C;
+    --warning: #C15E1F;
+    color-scheme: light;
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     background: var(--canvas);
     color: var(--text);
@@ -31,16 +31,38 @@ button, input, select { font: inherit; }
     display: grid;
     width: 100%;
     height: 100%;
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: 42px minmax(0, 1fr);
+    grid-template-columns: 210px minmax(0, 1fr);
+}
+
+.settings-titlebar {
+    position: relative;
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    min-width: 0;
+    background: var(--canvas);
+    border-bottom: 1px solid rgba(22, 27, 34, 0.09);
+    -webkit-app-region: drag;
+}
+
+.settings-titlebar::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 210px;
+    content: "";
+    background: var(--sidebar);
+    border-right: 1px solid rgba(22, 27, 34, 0.09);
 }
 
 .settings-sidebar {
     display: flex;
+    grid-row: 2;
     min-width: 0;
     flex-direction: column;
-    padding: 15px 12px;
+    padding: 20px 12px 15px;
     background: var(--sidebar);
-    border-right: 1px solid rgba(255, 255, 255, 0.11);
+    border-right: 1px solid rgba(22, 27, 34, 0.09);
     -webkit-app-region: drag;
 }
 
@@ -54,9 +76,11 @@ button, input, select { font: inherit; }
 
 .settings-close {
     display: grid;
+    position: relative;
+    z-index: 1;
     width: 30px;
     height: 30px;
-    margin: 0 0 22px auto;
+    margin: 0 0 0 14px;
     padding: 0;
     place-items: center;
     color: var(--muted);
@@ -68,7 +92,7 @@ button, input, select { font: inherit; }
     cursor: pointer;
 }
 
-.settings-close:hover { color: var(--text); background: var(--surface); }
+.settings-close:hover { color: var(--text); background: rgba(22, 27, 34, 0.08); }
 
 .settings-brand {
     display: flex;
@@ -106,8 +130,8 @@ button, input, select { font: inherit; }
     cursor: pointer;
 }
 
-.settings-nav:hover { color: var(--text); background: var(--surface); }
-.settings-nav.is-active { color: var(--text); background: var(--surface); border-color: rgba(120, 184, 255, 0.2); }
+.settings-nav:hover { color: var(--text); background: rgba(22, 27, 34, 0.05); }
+.settings-nav.is-active { color: var(--text); background: rgba(75, 142, 247, 0.1); border-color: rgba(75, 142, 247, 0.2); }
 .settings-nav.is-active::before { content: ""; display: inline-block; width: 3px; height: 14px; margin-right: 9px; vertical-align: -2px; background: var(--focus); border-radius: 2px; }
 
 .settings-version {
@@ -118,17 +142,18 @@ button, input, select { font: inherit; }
 }
 
 .settings-main {
+    grid-row: 2;
     min-width: 0;
     overflow-x: hidden;
     overflow-y: auto;
     padding: 32px 38px 40px;
-    scrollbar-color: rgba(146, 157, 172, 0.58) var(--canvas);
+    scrollbar-color: rgba(105, 115, 134, 0.58) var(--canvas);
     scrollbar-width: thin;
 }
 
 .settings-main::-webkit-scrollbar { width: 8px; }
 .settings-main::-webkit-scrollbar-track { background: var(--canvas); }
-.settings-main::-webkit-scrollbar-thumb { background: rgba(146, 157, 172, 0.58); border: 2px solid var(--canvas); border-radius: 999px; }
+.settings-main::-webkit-scrollbar-thumb { background: rgba(105, 115, 134, 0.58); border: 2px solid var(--canvas); border-radius: 999px; }
 
 .settings-page,
 .settings-card,
@@ -144,7 +169,7 @@ button, input, select { font: inherit; }
 .settings-card {
     padding: 22px;
     background: var(--surface);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(22, 27, 34, 0.12);
     border-radius: 12px;
 }
 
@@ -155,7 +180,7 @@ button, input, select { font: inherit; }
 .settings-card-heading span { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
 
 .settings-field + .settings-field { margin-top: 13px; }
-.settings-field label { display: block; margin: 0 0 6px; color: rgba(242, 245, 250, 0.8); font-size: 11px; font-weight: 650; }
+.settings-field label { display: block; margin: 0 0 6px; color: rgba(22, 27, 34, 0.8); font-size: 11px; font-weight: 650; }
 .settings-field input,
 .settings-field select {
     width: 100%;
@@ -164,7 +189,7 @@ button, input, select { font: inherit; }
     color: var(--text);
     font-size: 12px;
     background: var(--field);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(22, 27, 34, 0.16);
     border-radius: 7px;
 }
 
@@ -186,18 +211,18 @@ button, input, select { font: inherit; }
     font-size: 11.5px;
     font-weight: 650;
     background: var(--field);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(22, 27, 34, 0.16);
     border-radius: 7px;
     cursor: pointer;
 }
 
-.settings-actions button:hover:not(:disabled) { background: var(--surface); border-color: rgba(120, 184, 255, 0.35); }
+.settings-actions button:hover:not(:disabled) { background: var(--surface); border-color: rgba(75, 142, 247, 0.4); }
 .settings-actions button.primary { background: var(--primary); border-color: var(--focus); }
-.settings-actions button.primary:hover:not(:disabled) { background: var(--primary); box-shadow: inset 0 0 0 1px rgba(242, 245, 250, 0.18); }
+.settings-actions button.primary:hover:not(:disabled) { background: var(--primary); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32); }
 .settings-actions button:disabled { cursor: not-allowed; opacity: 0.45; }
 .settings-actions button.is-busy { gap: 7px; }
 
-.model-action-spinner { width: 11px; height: 11px; border: 2px solid rgba(255, 255, 255, 0.36); border-top-color: var(--text); border-radius: 50%; animation: model-action-spin 0.7s linear infinite; }
+.model-action-spinner { width: 11px; height: 11px; border: 2px solid rgba(22, 27, 34, 0.18); border-top-color: var(--text); border-radius: 50%; animation: model-action-spin 0.7s linear infinite; }
 @keyframes model-action-spin { to { transform: rotate(360deg); } }
 
 .settings-muted { margin: 9px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }

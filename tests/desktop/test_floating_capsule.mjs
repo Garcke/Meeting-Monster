@@ -112,14 +112,21 @@ test('settings keeps its independent main content scrollable', () => {
     assert.match(styles, /\.settings-status,[\s\S]*\.settings-error,[\s\S]*\.asr-status\s*\{[^}]*overflow-wrap:\s*anywhere/s);
 });
 
-test('settings uses only the approved dark visual tokens and semantic status colors', () => {
+test('settings uses light chrome tokens, a titlebar drag region, and semantic status colors', () => {
     const styles = read('desktop', 'ui', 'settings', 'settings.css');
     const approved = new Set([
-        '#111721', '#0d121a', '#171e29', '#0e141d', '#f2f5fa', '#929dac',
-        '#78b8ff', '#286fe0', '#78d59b', '#f3a35c',
+        '#f4f5f7', '#ffffff', '#f8fafc', '#ffffff', '#161b22', '#697386',
+        '#4b8ef7', '#286fe0', '#178a4c', '#c15e1f',
     ]);
     const used = new Set((styles.match(/#[0-9a-f]{6}/gi) ?? []).map((color) => color.toLowerCase()));
     assert.deepEqual([...used].filter((color) => !approved.has(color)), []);
+    assert.match(styles, /color-scheme:\s*light/);
+    assert.match(styles, /--sidebar:\s*#F4F5F7/);
+    assert.match(styles, /--canvas:\s*#FFFFFF/);
+    assert.match(styles, /grid-template-rows:\s*42px/);
+    assert.match(styles, /grid-template-columns:\s*210px/);
+    assert.match(styles, /\.settings-titlebar\s*\{[^}]*-webkit-app-region:\s*drag/s);
+    assert.match(styles, /\.settings-close\s*,[\s\S]*-webkit-app-region:\s*no-drag/s);
     assert.doesNotMatch(styles, /gradient/i);
     assert.match(styles, /\.settings-status\.is-error,[\s\S]*\.asr-status\.is-error\s*\{[^}]*color:\s*var\(--warning\)/s);
     assert.match(styles, /\.settings-status\.is-success,[\s\S]*\.asr-status\.is-success\s*\{[^}]*color:\s*var\(--success\)/s);

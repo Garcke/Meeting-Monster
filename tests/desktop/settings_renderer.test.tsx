@@ -78,6 +78,8 @@ test('settings shell switches pages, exposes the app version, and closes through
     window.meetingMonsterSettings = api;
     render(<SettingsApp />);
 
+    expect(document.querySelector('.settings-titlebar')).toBeTruthy();
+    expect(screen.getByRole('button', {name: /\u5173\u95ed\u8bbe\u7f6e/})).toBeTruthy();
     expect(await screen.findByText('Meeting-Monster v2.2.5')).toBeTruthy();
     expect(screen.getByRole('heading', {name: 'AI 与模型'})).toBeTruthy();
     fireEvent.click(screen.getByRole('button', {name: '语音与转写'}));
