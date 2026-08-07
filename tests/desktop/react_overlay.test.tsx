@@ -327,6 +327,9 @@ test('workspace menu dispatches transcription and chat commands while exposing c
     expect(screen.getByText('显示/隐藏窗口')).toBeTruthy();
     expect(screen.getByText('移动悬浮窗')).toBeTruthy();
     expect(screen.getByText('滚动聊天')).toBeTruthy();
+    expect(screen.getByText('Ctrl+\\')).toBeTruthy();
+    expect(screen.getByText('Ctrl+↑↓←→')).toBeTruthy();
+    expect(screen.getByText('Ctrl+Shift+↑↓')).toBeTruthy();
     const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/});
     expect(transcription).toBeTruthy();
     expect(screen.getByRole('menuitem', {name: /清空聊天/})).toBeTruthy();

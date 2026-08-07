@@ -31,7 +31,7 @@ export function classifyWebShortcut(
         return chatExpanded ? 'clear-chat' : 'prevent';
     }
     if (key === 's' || key === 'r' || key === 'u' || key === 'p'
-        || key === 'f' || key === '+' || key === '-' || key === '0') {
+        || key === 'f' || key === '+' || key === '=' || key === '-' || key === '0') {
         return 'prevent';
     }
     if (input.shift && key === 'i') return 'prevent';

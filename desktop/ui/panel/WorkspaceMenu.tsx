@@ -91,10 +91,10 @@ export function WorkspaceMenu() {
                     <section className="workspace-menu-section" aria-label="窗口">
                         <span className="workspace-menu-section-label">窗口</span>
                         <button className="workspace-menu-item" type="button" role="menuitem" onClick={hideWindow}>
-                            <span className="workspace-menu-item-label">显示/隐藏窗口</span><kbd>Ctrl+\\</kbd>
+                            <span className="workspace-menu-item-label">显示/隐藏窗口</span><kbd>{'Ctrl+\\'}</kbd>
                         </button>
-                        <div className="workspace-menu-reference"><span>移动悬浮窗</span><kbd>拖动</kbd></div>
-                        <div className="workspace-menu-reference"><span>滚动聊天</span><kbd>Ctrl+↑↓</kbd></div>
+                        <div className="workspace-menu-reference"><span>移动悬浮窗</span><kbd>Ctrl+↑↓←→</kbd></div>
+                        <div className="workspace-menu-reference"><span>滚动聊天</span><kbd>Ctrl+Shift+↑↓</kbd></div>
                     </section>
                     <div className="workspace-menu-separator" role="separator" />
                     <section className="workspace-menu-section" aria-label="会话">

@@ -27,6 +27,7 @@ describe('web shortcut policy', () => {
         ctrl('p'),
         ctrl('f'),
         ctrl('+'),
+        ctrl('='),
         ctrl('-'),
         ctrl('0'),
     ])('prevents browser or debug shortcut %#', (input) => {
