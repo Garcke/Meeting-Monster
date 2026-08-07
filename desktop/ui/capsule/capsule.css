@@ -207,6 +207,12 @@ button { font: inherit; }
     line-height: 1;
 }
 
+.capsule-stop > span {
+    display: inline-block;
+    line-height: 1;
+    transform: translateY(-1px);
+}
+
 .capsule-stop:hover {
     background: rgba(120, 48, 62, 0.58);
     border-color: rgba(255, 104, 116, 0.68);

@@ -66,6 +66,10 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleStop, /background:\s*rgba\(61,\s*34,\s*43,\s*0\.72\)/);
     assert.match(capsuleStop, /font-size:\s*14px/);
     assert.match(capsuleStop, /font-weight:\s*700/);
+    const capsuleStopGlyph = styles.match(/\.capsule-stop\s*>\s*span\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    assert.match(capsuleStopGlyph, /display:\s*inline-block/);
+    assert.match(capsuleStopGlyph, /line-height:\s*1/);
+    assert.match(capsuleStopGlyph, /transform:\s*translateY\(-1px\)/);
     assert.match(styles, /\.capsule-stop:hover\s*\{[\s\S]*?background:\s*rgba\(120,\s*48,\s*62,\s*0\.58\)/);
     assert.match(styles, /\.capsule-stop:hover\s*\{[\s\S]*?border-color:\s*rgba\(255,\s*104,\s*116,\s*0\.68\)/);
     assert.match(styles, /\.capsule-stop:focus-visible\s*\{[\s\S]*?outline:\s*2px\s+solid\s+#ffb3b8/);
