@@ -119,3 +119,38 @@ test('a user drag is not reversed when the fixed window collapses', async () => 
   assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, width: 648, height: 512});
   assert.equal(overlay.setBoundsCalls.length, 0);
 });
+
+test('moves a collapsed capsule within its visible work area while retaining expanded native bounds', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const overlay = FakeWindow.created[0];
+  const workArea = {x: 0, y: 0, width: 1920, height: 1080};
+
+  assert.deepEqual(
+    controller.moveBy({x: -24, y: 24}, workArea),
+    {x: -4, y: 144, width: 648, height: 512},
+  );
+  assert.deepEqual(
+    controller.moveBy({x: -10_000, y: -10_000}, workArea),
+    {x: -200, y: 0, width: 648, height: 512},
+  );
+  assert.deepEqual(overlay.getBounds(), {x: -200, y: 0, width: 648, height: 512});
+});
+
+test('keeps the full expanded overlay within the work area while moving toward every edge', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const overlay = FakeWindow.created[0];
+  const workArea = {x: 0, y: 0, width: 1920, height: 1080};
+  await controller.dispatch({type: 'toggle-workspace'});
+
+  assert.deepEqual(
+    controller.moveBy({x: -10_000, y: -10_000}, workArea),
+    {x: 0, y: 0, width: 648, height: 512},
+  );
+  assert.deepEqual(
+    controller.moveBy({x: 10_000, y: 10_000}, workArea),
+    {x: 1272, y: 568, width: 648, height: 512},
+  );
+  assert.deepEqual(overlay.getBounds(), {x: 1272, y: 568, width: 648, height: 512});
+});

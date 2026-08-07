@@ -24,6 +24,7 @@ import {classifyWebShortcut, type WebShortcutSurface} from './web-shortcut-polic
 import {
     createOverlayWindowController,
     CAPSULE_BOUNDS,
+    CAPSULE_SHAPE,
     type BrowserWindowLike,
     type OverlayWindowController,
 } from './overlay-window-controller';
@@ -52,6 +53,7 @@ const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 const LOCAL_ASR_ERROR = 'Local ASR failed';
 const ASR_MODEL_ERROR = 'ASR model operation failed';
 const ASSIST_SCREENSHOT_PROMPT = '请分析这张截图，并直接回答截图中显示的问题；如果有多个问题，请按顺序回答。';
+const OVERLAY_MOVE_STEP = 24;
 
 // Some Windows environments cannot start Chromium's out-of-process GPU DLL.
 // Keep the transparent overlay on the software/in-process rendering path so
@@ -1129,6 +1131,36 @@ function createMainWindow(): void {
     });
 }
 
+function registerGlobalShortcut(accelerator: string, callback: () => void): void {
+    if (!globalShortcut.register(accelerator, callback)) {
+        console.warn(`[desktop] global shortcut unavailable: ${accelerator}`);
+    }
+}
+
+function moveOverlayBy(delta: {x: number; y: number}): void {
+    const controller = overlayController;
+    const overlay = controller?.getWindow() as BrowserWindow | null;
+    if (!controller || !overlay || overlay.isDestroyed()) return;
+
+    const nativeBounds = overlay.getBounds();
+    const expanded = getOverlaySnapshot().target === 'workspace';
+    const displayBounds = expanded
+        ? nativeBounds
+        : {
+            x: nativeBounds.x + CAPSULE_SHAPE.x,
+            y: nativeBounds.y + CAPSULE_SHAPE.y,
+            ...CAPSULE_BOUNDS,
+        };
+    const workArea = screen.getDisplayMatching(displayBounds).workArea;
+    controller.moveBy(delta, workArea);
+}
+
+function scrollExpandedWorkspace(direction: 'up' | 'down'): void {
+    const overlay = getLiveOverlayWindows()[0];
+    if (!overlay?.isVisible() || getOverlaySnapshot().target !== 'workspace') return;
+    sendWorkspaceCommand({type: 'scroll-chat', direction});
+}
+
 async function startApplication(): Promise<void> {
     privacyManager = new WindowPrivacyManager({onStatus: broadcastPrivacyStatus});
     modelConnectionStore = new ModelConnectionStore({
@@ -1151,14 +1183,20 @@ async function startApplication(): Promise<void> {
     configureDisplayMediaCapture();
     createMainWindow();
 
-    globalShortcut.register('CommandOrControl+Shift+P', () => {
+    registerGlobalShortcut('CommandOrControl+Shift+P', () => {
         const manager = getPrivacyManager();
         manager.setCaptureProtection(!manager.getStatus().captureProtectionEnabled);
     });
-    globalShortcut.register('CommandOrControl+Shift+M', () => {
+    registerGlobalShortcut('CommandOrControl+\\', () => {
         const visible = getLiveOverlayWindows().some((win) => win.isVisible());
         setOverlayVisibility(!visible);
     });
+    registerGlobalShortcut('CommandOrControl+Up', () => moveOverlayBy({x: 0, y: -OVERLAY_MOVE_STEP}));
+    registerGlobalShortcut('CommandOrControl+Down', () => moveOverlayBy({x: 0, y: OVERLAY_MOVE_STEP}));
+    registerGlobalShortcut('CommandOrControl+Left', () => moveOverlayBy({x: -OVERLAY_MOVE_STEP, y: 0}));
+    registerGlobalShortcut('CommandOrControl+Right', () => moveOverlayBy({x: OVERLAY_MOVE_STEP, y: 0}));
+    registerGlobalShortcut('CommandOrControl+Shift+Up', () => scrollExpandedWorkspace('up'));
+    registerGlobalShortcut('CommandOrControl+Shift+Down', () => scrollExpandedWorkspace('down'));
 }
 
 if (hasSingleInstanceLock) {

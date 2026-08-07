@@ -52,6 +52,7 @@ export interface OverlayWindowController {
     animationFinished(revision: number): Promise<OverlaySnapshot>;
     getSnapshot(): OverlaySnapshot;
     getWindow(): BrowserWindowLike | null;
+    moveBy(delta: {x: number; y: number}, workArea: WindowBounds): WindowBounds | null;
     /** Transitional read API for main-process callers being migrated in the next slice. */
     getWindows(): {capsule: BrowserWindowLike | null; panel: null};
     /** Transitional aliases retained until preload/main IPC is migrated. */
@@ -87,6 +88,24 @@ export function anchorFromBounds(bounds: WindowBounds, expanded: boolean): {x: n
     return {
         x: expanded ? bounds.x - PANEL_OFFSET.x : bounds.x,
         y: bounds.y,
+    };
+}
+
+export function clampAnchorToWorkArea(
+    anchor: {x: number; y: number},
+    workArea: WindowBounds,
+    expanded: boolean,
+): {x: number; y: number} {
+    const minX = expanded ? workArea.x - PANEL_OFFSET.x : workArea.x;
+    const maxX = expanded
+        ? workArea.x + workArea.width - OVERLAY_BOUNDS.width - PANEL_OFFSET.x
+        : workArea.x + workArea.width - CAPSULE_BOUNDS.width;
+    const minY = workArea.y;
+    const maxY = workArea.y + workArea.height
+        - (expanded ? OVERLAY_BOUNDS.height : CAPSULE_BOUNDS.height);
+    return {
+        x: Math.min(Math.max(anchor.x, minX), Math.max(minX, maxX)),
+        y: Math.min(Math.max(anchor.y, minY), Math.max(minY, maxY)),
     };
 }
 
@@ -184,6 +203,18 @@ export function createOverlayWindowController(
         getSnapshot(): OverlaySnapshot { return {...snapshot}; },
 
         getWindow(): BrowserWindowLike | null { return overlay; },
+
+        moveBy(delta: {x: number; y: number}, workArea: WindowBounds): WindowBounds | null {
+            if (!isAlive()) return null;
+            anchor = clampAnchorToWorkArea(
+                {x: anchor.x + delta.x, y: anchor.y + delta.y},
+                workArea,
+                snapshot.target === 'workspace',
+            );
+            const bounds = expandedBounds(anchor);
+            overlay!.setBounds(bounds, false);
+            return bounds;
+        },
 
         getWindows(): {capsule: BrowserWindowLike | null; panel: null} {
             return {capsule: overlay, panel: null};

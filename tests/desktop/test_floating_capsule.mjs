@@ -192,6 +192,8 @@ test('privacy policy retains protected overlay defaults and no renderer redactio
     const main = read('desktop', 'src', 'main', 'main.ts');
     assert.match(main, /taskbarHidden: true/);
     assert.match(main, /CommandOrControl\+Shift\+P/);
+    assert.match(main, /CommandOrControl\+\\\\/);
     assert.match(main, /setCaptureProtection/);
+    assert.doesNotMatch(main, /CommandOrControl\+Shift\+M/);
     assert.doesNotMatch(main, /privacyRedactionShield|toggleRedacted/);
 });

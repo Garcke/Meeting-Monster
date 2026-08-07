@@ -73,7 +73,7 @@ test('main preserves secured overlay BrowserWindow options and taskbar policy', 
         /skipTaskbar: true/,
         /icon: options\.windowIconPath/,
         /CommandOrControl\+Shift\+P/,
-        /CommandOrControl\+Shift\+M/,
+        /CommandOrControl\+\\/,
         /setWindowOpenHandler\(\(\) => \(\{action: 'deny'\}\)\)/,
         /will-navigate[\s\S]*preventDefault\(\)/,
     ]) {
@@ -164,6 +164,33 @@ test('main applies local web shortcut policy to both windows without global Ctrl
     assert.match(policy, /action === 'clear-chat'[\s\S]*sendWorkspaceCommand\(\{type: 'clear-chat'\}\)/);
     assert.doesNotMatch(source, /globalShortcut\.register\('CommandOrControl\+S'/);
     assert.doesNotMatch(source, /globalShortcut\.register\('CommandOrControl\+R'/);
+});
+
+test('main registers checked global movement, visibility, and workspace scroll controls', () => {
+    const source = mainSource();
+
+    assert.match(source, /function registerGlobalShortcut\(accelerator: string, callback: \(\) => void\): void/);
+    assert.match(source, /globalShortcut\.register\(accelerator, callback\)[\s\S]*console\.warn\(`\[desktop\] global shortcut unavailable: \$\{accelerator\}`\)/);
+    for (const accelerator of [
+        'CommandOrControl+Shift+P',
+        'CommandOrControl+\\',
+        'CommandOrControl+Up',
+        'CommandOrControl+Down',
+        'CommandOrControl+Left',
+        'CommandOrControl+Right',
+        'CommandOrControl+Shift+Up',
+        'CommandOrControl+Shift+Down',
+    ]) {
+        assert.match(source, new RegExp(`registerGlobalShortcut\\('${accelerator.replace(/[+\\]/g, '\\$&')}`));
+    }
+    assert.doesNotMatch(source, /CommandOrControl\+Shift\+M/);
+    assert.match(source, /controller\.moveBy\(/);
+    assert.match(source, /screen\.getDisplayMatching\(/);
+    assert.match(source, /CAPSULE_SHAPE/);
+    assert.match(source, /scrollExpandedWorkspace\('up'\)/);
+    assert.match(source, /scrollExpandedWorkspace\('down'\)/);
+    assert.match(source, /isVisible\(\)[\s\S]*getOverlaySnapshot\(\)\.target !== 'workspace'/);
+    assert.match(source, /globalShortcut\.unregisterAll\(\)/);
 });
 
 test('main authorizes Windows system-audio loopback display capture', () => {
