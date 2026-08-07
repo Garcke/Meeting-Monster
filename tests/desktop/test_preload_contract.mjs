@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const read = (...parts) => fs.readFileSync(path.join(projectRoot, ...parts), 'utf8');
+const read = (...parts) => fs.readFileSync(path.join(projectRoot, ...parts), 'utf8').replace(/\r\n?/g, '\n');
 
 function namespaceBlock(source, namespace, startAt = 0) {
     const start = source.indexOf(`${namespace}: {`, startAt);
@@ -60,14 +60,8 @@ test('preload exports one fixed nested Meeting Monster API', () => {
 });
 
 test('overlay and settings preloads expose separate least-privilege APIs', () => {
-    const overlayPreloadSource = fs.readFileSync(
-        path.join(projectRoot, 'desktop', 'src', 'preload', 'index.ts'),
-        'utf8',
-    );
-    const settingsPreloadSource = fs.readFileSync(
-        path.join(projectRoot, 'desktop', 'src', 'preload', 'settings.ts'),
-        'utf8',
-    );
+    const overlayPreloadSource = read('desktop', 'src', 'preload', 'index.ts');
+    const settingsPreloadSource = read('desktop', 'src', 'preload', 'settings.ts');
 
     assert.match(overlayPreloadSource, /open: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.open\)/);
     assert.match(overlayPreloadSource, /onChanged: .*IPC_CHANNELS\.models\.changed/s);
