@@ -1,4 +1,4 @@
-import type {AudioInputMode} from './audio-input-mode';
+import type {AudioInputMode} from '../../../src/shared/audio-input-mode';
 
 export interface AudioRecorderOptions {
     inputMode: AudioInputMode;

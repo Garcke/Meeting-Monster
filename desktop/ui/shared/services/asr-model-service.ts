@@ -1,4 +1,4 @@
-import type {AsrModelId, AsrModelSnapshot, MeetingMonsterApi} from '../../../src/shared/contracts';
+import type {AsrModelId, AsrModelSettingsApi, AsrModelSnapshot} from '../../../src/shared/contracts';
 
 export function isAsrModelReady(snapshot: AsrModelSnapshot | null, selectedId: AsrModelId | null): boolean {
     const selected = snapshot?.models.find((model) => model.id === (selectedId ?? snapshot.currentModelId));
@@ -24,7 +24,7 @@ export function describeAsrModel(model: AsrModelSnapshot['models'][number]): str
     return `${model.languages.join(' · ')} · ${size} · ${model.supportsHotwords ? '支持热词' : '不支持热词'}`;
 }
 
-export function createAsrModelActions(api: MeetingMonsterApi) {
+export function createAsrModelActions(api: AsrModelSettingsApi) {
     return {
         refresh: () => api.asrModels.list(),
         select: (id: AsrModelId) => api.asrModels.select(id),

@@ -10,9 +10,9 @@ const viteSource = fs.readFileSync(path.join(desktop, 'vite.config.ts'), 'utf8')
 test('renderer build contract is declared', () => {
   assert.match(pkg.scripts.build, /build:renderer/);
   assert.match(pkg.scripts['build:renderer'], /vite build/);
-  assert.match(viteSource, /input:\s*\{\s*overlay:/s);
+  assert.match(viteSource, /input:\s*\{\s*overlay:[\s\S]*settings:/s);
   assert.doesNotMatch(viteSource, /capsule:|panel:/);
-  for (const file of ['ui/overlay.html']) {
+  for (const file of ['ui/overlay.html', 'ui/settings.html']) {
     const html = fs.readFileSync(path.join(desktop, file), 'utf8');
     const roots = html.match(/<[^>]+\bid=["']root["'][^>]*>/g) ?? [];
     assert.equal(roots.length, 1, `${file} must contain exactly one root element`);

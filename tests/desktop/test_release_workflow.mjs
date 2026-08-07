@@ -14,6 +14,9 @@ test('tag release workflow builds and publishes only unsigned Windows artifacts'
     assert.match(workflow, /path: desktop\/release\/\*\.exe/);
     assert.match(workflow, /name: meeting-monster-windows/);
     assert.match(workflow, /gh release create/);
+    assert.match(workflow, /gh release view "\$GITHUB_REF_NAME"/);
+    assert.match(workflow, /gh release upload "\$GITHUB_REF_NAME"/);
+    assert.match(workflow, /--clobber/);
     assert.match(workflow, /mapfile -t assets/);
     assert.doesNotMatch(workflow, /desktop\/dist\/\*\.(?:exe|dmg|zip)/);
     assert.doesNotMatch(workflow, /dist:mac|\.dmg|\.zip|macos/);

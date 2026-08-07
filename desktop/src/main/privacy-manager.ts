@@ -10,7 +10,7 @@ export class WindowPrivacyManager {
     private readonly platform: NodeJS.Platform;
     private readonly onStatus: (status: PrivacyStatus) => void;
     private readonly windows = new Set<BrowserWindow>();
-    private captureProtection: CaptureProtection = 'unsupported';
+    private readonly captureProtectionByWindow = new Map<BrowserWindow, CaptureProtection>();
     private captureProtectionEnabled = true;
 
     constructor({platform = process.platform, onStatus = () => {}}: PrivacyManagerOptions = {}) {
@@ -27,6 +27,7 @@ export class WindowPrivacyManager {
 
     unregisterWindow(win: BrowserWindow): void {
         this.windows.delete(win);
+        this.captureProtectionByWindow.delete(win);
         this.notify();
     }
 
@@ -44,7 +45,7 @@ export class WindowPrivacyManager {
 
     getStatus(): PrivacyStatus {
         return {
-            captureProtection: this.captureProtection,
+            captureProtection: this.aggregateCaptureProtection(),
             captureProtectionEnabled: this.captureProtectionEnabled,
             platform: this.platform,
             windowCount: this.windows.size,
@@ -53,7 +54,7 @@ export class WindowPrivacyManager {
 
     private applyToWindow(win: BrowserWindow): void {
         if (typeof win.setContentProtection !== 'function') {
-            this.captureProtection = 'unsupported';
+            this.captureProtectionByWindow.set(win, 'unsupported');
             return;
         }
         try {
@@ -61,12 +62,20 @@ export class WindowPrivacyManager {
             const protectedState = typeof win.isContentProtected === 'function'
                 ? win.isContentProtected()
                 : this.captureProtectionEnabled;
-            this.captureProtection = this.captureProtectionEnabled
+            this.captureProtectionByWindow.set(win, this.captureProtectionEnabled
                 ? (protectedState ? 'protected' : 'failed')
-                : (protectedState ? 'failed' : 'disabled');
+                : (protectedState ? 'failed' : 'disabled'));
         } catch {
-            this.captureProtection = 'failed';
+            this.captureProtectionByWindow.set(win, 'failed');
         }
+    }
+
+    private aggregateCaptureProtection(): CaptureProtection {
+        const states = [...this.captureProtectionByWindow.values()];
+        if (states.length === 0) return 'unsupported';
+        if (states.includes('failed')) return 'failed';
+        if (states.includes('unsupported')) return 'unsupported';
+        return this.captureProtectionEnabled ? 'protected' : 'disabled';
     }
 
     private notify(): void {

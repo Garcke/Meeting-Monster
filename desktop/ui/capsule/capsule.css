@@ -19,12 +19,12 @@ button { font: inherit; }
 .capsule-shell {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     width: 100%;
     height: 100%;
-    padding: 4px 6px 4px 7px;
+    padding: 3px 5px 3px 6px;
     color: #f5f7fb;
-    background: rgba(35, 42, 54, 0.86);
+    background: rgba(29, 36, 48, 0.68);
     border: 1px solid rgba(255, 255, 255, 0.17);
     border-radius: 999px;
     overflow: hidden;
@@ -36,15 +36,15 @@ button { font: inherit; }
     flex: 1 1 auto;
     min-width: 0;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     -webkit-app-region: drag;
 }
 
 .capsule-avatar {
     display: grid;
-    flex: 0 0 34px;
-    width: 34px;
-    height: 34px;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
     aspect-ratio: 1;
     place-items: center;
     color: #10251c;
@@ -87,11 +87,11 @@ button { font: inherit; }
 .capsule-button,
 .capsule-stop {
     flex: 0 0 auto;
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     color: #f7f8fc;
-    background: rgba(69, 80, 99, 0.78);
+    background: rgba(69, 80, 99, 0.64);
     cursor: pointer;
     -webkit-app-region: no-drag;
 }
@@ -101,10 +101,10 @@ button { font: inherit; }
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    min-width: 52px;
-    width: auto;
-    height: 32px;
+    width: 70px;
+    min-width: 70px;
     padding: 0 9px;
+    gap: 7px;
     line-height: 1;
     white-space: nowrap;
     border-radius: 999px;
@@ -113,10 +113,7 @@ button { font: inherit; }
 }
 
 .capsule-button:hover,
-.capsule-stop:hover { background: rgba(93, 107, 131, 0.9); }
-
-.protection-button { min-width: 54px; color: #ffd3a8; border-color: rgba(236, 150, 75, 0.55); }
-.protection-button.is-protected { color: #a7f5be; border-color: rgba(90, 213, 131, 0.55); }
+.capsule-stop:hover { background: rgba(93, 107, 131, 0.82); }
 
 .capsule-button > span {
     display: inline-flex;
@@ -125,10 +122,34 @@ button { font: inherit; }
     line-height: 1;
 }
 
+.capsule-chevron {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.capsule-chat-symbol {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    align-items: center;
+    justify-content: center;
+    fill: currentColor;
+    line-height: 1;
+}
+
+.capsule-button:has(.capsule-chevron) { gap: 7px; }
+
 .capsule-stop {
     display: grid;
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     place-items: center;
     border-radius: 50%;

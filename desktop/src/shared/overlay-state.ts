@@ -1,4 +1,4 @@
-export type OverlayTarget = 'closed' | 'workspace' | 'settings';
+export type OverlayTarget = 'closed' | 'workspace';
 export type OverlayPhase = 'hidden' | 'opening' | 'visible' | 'closing';
 
 export interface OverlaySnapshot {
@@ -7,14 +7,10 @@ export interface OverlaySnapshot {
     revision: number;
 }
 
-export type OverlayIntent =
-    | {type: 'toggle-workspace'}
-    | {type: 'toggle-settings'};
+export type OverlayIntent = {type: 'toggle-workspace'};
 
-export function reduceOverlay(snapshot: OverlaySnapshot, intent: OverlayIntent): OverlaySnapshot {
-    const target = intent.type === 'toggle-workspace'
-        ? snapshot.target === 'workspace' ? 'closed' : 'workspace'
-        : snapshot.target === 'settings' ? 'closed' : 'settings';
+export function reduceOverlay(snapshot: OverlaySnapshot, _intent: OverlayIntent): OverlaySnapshot {
+    const target: OverlayTarget = snapshot.target === 'workspace' ? 'closed' : 'workspace';
 
     return {
         target,

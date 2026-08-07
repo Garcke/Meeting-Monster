@@ -1,3 +1,8 @@
+import type {OverlayIntent, OverlaySnapshot} from './overlay-state';
+import type {AudioInputMode} from './audio-input-mode';
+
+export type {OverlayIntent, OverlayPhase, OverlaySnapshot, OverlayTarget} from './overlay-state';
+
 export const IPC_CHANNELS = {
     window: {
         getState: 'window:get-state',
@@ -14,12 +19,23 @@ export const IPC_CHANNELS = {
         setCaptureProtection: 'privacy:set-capture-protection',
         status: 'privacy:status',
     },
+    audioInput: {
+        get: 'audio-input:get',
+        set: 'audio-input:set',
+        changed: 'audio-input:changed',
+    },
+    settings: {
+        open: 'settings:open',
+        close: 'settings:close',
+        getAppVersion: 'settings:get-app-version',
+    },
     models: {
         list: 'models:list',
         getSaved: 'models:get-saved',
         save: 'models:save',
         test: 'models:test',
         progress: 'models:progress',
+        changed: 'models:changed',
     },
     chat: {send: 'chat:send', assist: 'chat:assist', cancel: 'chat:cancel', event: 'chat:event'},
     asrModels: {
@@ -53,19 +69,6 @@ type ValueOf<T> = T[keyof T];
 export type IpcChannel = ValueOf<ValueOf<typeof IPC_CHANNELS>>;
 export type WindowMode = 'capsule' | 'expanded';
 export type CaptureProtection = 'protected' | 'disabled' | 'failed' | 'unsupported';
-export type OverlayTarget = 'closed' | 'workspace' | 'settings';
-export type OverlayPhase = 'hidden' | 'opening' | 'visible' | 'closing';
-
-export interface OverlaySnapshot {
-    target: OverlayTarget;
-    phase: OverlayPhase;
-    revision: number;
-}
-
-export type OverlayIntent =
-    | {type: 'toggle-workspace'}
-    | {type: 'toggle-settings'};
-
 export type AsrModelId =
     | 'streaming-paraformer-bilingual-zh-en'
     | 'streaming-zipformer-zh-int8-2025-06-30';
@@ -210,6 +213,9 @@ export interface AsrResultEvent {
 export type Unsubscribe = () => void;
 
 export interface MeetingMonsterApi {
+    settings: {
+        open(): Promise<void>;
+    };
     window: {
         getState(): Promise<WindowState>;
         setExpanded(expanded: boolean): Promise<WindowState>;
@@ -235,12 +241,14 @@ export interface MeetingMonsterApi {
         setCaptureProtection(enabled: boolean): Promise<PrivacyStatus>;
         onStatus(callback: (status: PrivacyStatus) => void): Unsubscribe;
     };
+    audioInput: {
+        get(): Promise<AudioInputMode>;
+        set(mode: AudioInputMode): Promise<AudioInputMode>;
+        onChanged(callback: (mode: AudioInputMode) => void): Unsubscribe;
+    };
     models: {
-        list(): Promise<ModelOptions>;
         getSaved(): Promise<SavedModelConnectionSettings>;
-        save(connection: ModelConnectionInput): Promise<SavedModelConnectionSettings>;
-        test(selection: ModelSelectionInput): Promise<ModelTestResult>;
-        onTestProgress(callback: (progress: ModelTestProgress) => void): Unsubscribe;
+        onChanged(callback: () => void): Unsubscribe;
     };
     chat: {
         send(requestId: string, content: string, selection?: ModelSelectionInput): Promise<{requestId: string}>;
@@ -250,10 +258,6 @@ export interface MeetingMonsterApi {
     };
     asrModels: {
         list(): Promise<AsrModelSnapshot>;
-        select(modelId: AsrModelId): Promise<AsrModelSnapshot>;
-        download(modelId: AsrModelId): Promise<AsrModelSnapshot>;
-        cancel(modelId: AsrModelId): Promise<{cancelled: boolean}>;
-        delete(modelId: AsrModelId): Promise<AsrModelSnapshot>;
         onStatus(callback: (snapshot: AsrModelSnapshot) => void): Unsubscribe;
     };
     asr: {
@@ -264,4 +268,42 @@ export interface MeetingMonsterApi {
         onStatus(callback: (status: AsrStatus) => void): Unsubscribe;
         onResult(callback: (event: AsrResultEvent) => void): Unsubscribe;
     };
+}
+
+export interface SettingsRendererApi {
+    settings: {
+        close(): Promise<void>;
+        getAppVersion(): Promise<string>;
+    };
+    privacy: {
+        getStatus(): Promise<PrivacyStatus>;
+    };
+    audioInput: {
+        get(): Promise<AudioInputMode>;
+        set(mode: AudioInputMode): Promise<AudioInputMode>;
+        onChanged(callback: (mode: AudioInputMode) => void): Unsubscribe;
+    };
+    models: {
+        list(): Promise<ModelOptions>;
+        getSaved(): Promise<SavedModelConnectionSettings>;
+        save(connection: ModelConnectionInput): Promise<SavedModelConnectionSettings>;
+        test(selection: ModelSelectionInput): Promise<ModelTestResult>;
+        onTestProgress(callback: (progress: ModelTestProgress) => void): Unsubscribe;
+    };
+    asrModels: {
+        list(): Promise<AsrModelSnapshot>;
+        select(modelId: AsrModelId): Promise<AsrModelSnapshot>;
+        download(modelId: AsrModelId): Promise<AsrModelSnapshot>;
+        cancel(modelId: AsrModelId): Promise<{cancelled: boolean}>;
+        delete(modelId: AsrModelId): Promise<AsrModelSnapshot>;
+        onStatus(callback: (snapshot: AsrModelSnapshot) => void): Unsubscribe;
+    };
+}
+
+export interface ModelSettingsApi {
+    models: Pick<SettingsRendererApi['models'], 'list' | 'getSaved' | 'save' | 'test'>;
+}
+
+export interface AsrModelSettingsApi {
+    asrModels: SettingsRendererApi['asrModels'];
 }

@@ -13,6 +13,7 @@ test('web client is removed while Electron entrypoints remain', () => {
         false,
     );
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'overlay.html')), true);
+    assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'settings.html')), true);
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'capsule.html')), false);
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'panel.html')), false);
     assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'overlay', 'main.tsx')), true);
@@ -28,8 +29,10 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.doesNotMatch(panelCss, /\.panel-prompt\s*\{/);
     assert.match(panelApp, /className="panel-drag-handle"/);
     assert.match(panelApp, /className="panel-drag-hint"/);
-    assert.match(panelApp, /visibleTarget === 'workspace' && <span className="panel-kicker">TRANSCRIPT<\/span>/);
-    assert.match(panelApp, /visibleTarget === 'settings' && <span className="panel-title">连接与模型<\/span>/);
+    assert.match(panelApp, /<span className="panel-kicker">TRANSCRIPT<\/span>/);
+    assert.match(panelApp, /<WorkspaceMenu\s*\/>/);
+    assert.doesNotMatch(panelApp, /SettingsView|settings/);
+    assert.equal(fs.existsSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'SettingsView.tsx')), false);
     assert.doesNotMatch(workspace, /\u5f00\u59cb\u8f6c\u5199\u540e\uff0c\u5f53\u524d\u95ee\u9898\u4f1a\u663e\u793a\u5728\u8fd9\u91cc/);
     assert.match(workspace, /className="answer-scroll no-drag"/);
     assert.match(panelCss, /\.workspace-content\s*\{[^}]*display:\s*grid/s);
@@ -43,7 +46,9 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.match(workspace, /onClick=\{\(\) => \{ setAction\('followup'\); void sendText\('followup'\); \}\}/);
     assert.match(workspace, /onClick=\{\(\) => \{ setAction\('recap'\); void sendText\('recap'\); \}\}/);
     assert.match(workspace, /function submit[\s\S]*sendText\('direct'\)/);
-    assert.match(workspace, /MODEL_SETTINGS_CHANGED_EVENT/);
+    assert.match(workspace, /api\.models\.onChanged\(refreshModelSettings\)/);
+    assert.match(workspace, /api\.models\.getSaved\(\)/);
+    assert.doesNotMatch(workspace, /MODEL_SETTINGS_CHANGED_EVENT|loadModelSettings/);
     assert.match(workspace, /vision_verified === true/);
     assert.doesNotMatch(workspace, /image\/png|base64/i);
     assert.match(panelCss, /\.assist-hint\s*\{/);
@@ -57,16 +62,37 @@ test('capsule action buttons keep their labels on one centered line', () => {
     const capsuleCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'capsule.css'), 'utf8');
 
     assert.match(capsuleCss, /\.capsule-button\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*line-height:\s*1[^}]*white-space:\s*nowrap/s);
-    assert.match(capsuleCss, /\.protection-button\s*\{[^}]*min-width:\s*5[234]px/s);
+    assert.doesNotMatch(capsuleCss, /\.protection-button\s*\{/);
 });
 
-test('capsule expand button keeps its label and arrow in one button', () => {
+test('capsule expand button uses Chat when closed and chevron Hide when expanded', () => {
     const capsuleApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'CapsuleApp.tsx'), 'utf8');
     const capsuleCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'capsule.css'), 'utf8');
 
-    assert.match(
-        capsuleApp,
-        /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}[\s\S]*?\{snapshot\.target === 'workspace' \? '收起' : '展开'\} <span aria-hidden="true">⌄<\/span>[\s\S]*?<\/button>/,
-    );
+    assert.match(capsuleApp, /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}/);
+    assert.match(capsuleApp, /\{snapshot\.target === 'workspace' \? \(/);
+    assert.match(capsuleApp, /<span>Hide<\/span>/);
+    assert.match(capsuleApp, /<svg className="capsule-chat-symbol" viewBox="0 0 1259 1024" aria-hidden="true">/);
+    assert.match(capsuleApp, /<path d="M635\.211887 354\.085959c-236\.873121 0-430\.651342[\s\S]*?75\.34166z" \/>/);
+    assert.match(capsuleApp, /<span>Chat<\/span>/);
+    assert.match(capsuleApp, /<svg className="capsule-chevron" viewBox="0 0 14 14" aria-hidden="true">/);
+    assert.match(capsuleApp, /<path d="M3\.5 5\.25 7 8\.75l3\.5-3\.5" \/>/);
+    assert.doesNotMatch(capsuleApp, /\u2304/);
     assert.match(capsuleCss, /\.capsule-button\s*>\s*span\s*\{[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 auto[^}]*line-height:\s*1/s);
+    assert.match(capsuleCss, /\.capsule-button\s*\{[^}]*width:\s*70px[^}]*min-width:\s*70px/s);
+    assert.match(capsuleCss, /\.capsule-chat-symbol\s*\{[^}]*width:\s*14px[^}]*height:\s*14px[^}]*flex:\s*0 0 14px/s);
+});
+
+test('expanded panel shares the capsule translucent surface', () => {
+    const panelCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'panel.css'), 'utf8');
+
+    assert.match(panelCss, /\.panel-shell\s*\{[^}]*background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)[^}]*border:\s*1px solid rgba\(255,\s*255,\s*255,\s*0\.17\)/s);
+});
+
+test('settings chrome keeps the close control inside the dedicated titlebar', () => {
+    const settingsApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'settings', 'SettingsApp.tsx'), 'utf8');
+
+    assert.match(settingsApp, /<header className="settings-titlebar">[\s\S]*?<button className="settings-close"[\s\S]*?<\/header>/);
+    assert.match(settingsApp, /<aside className="settings-sidebar">/);
+    assert.match(settingsApp, /<section className="settings-main">/);
 });

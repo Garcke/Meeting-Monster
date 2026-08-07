@@ -1,18 +1,9 @@
 // @vitest-environment jsdom
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
-import {SettingsView} from '../../desktop/ui/panel/SettingsView';
-import type {AsrModelSnapshot, MeetingMonsterApi, ModelTestProgress, ModelTestResult, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
+import {ModelSettingsPage} from '../../desktop/ui/settings/ModelSettingsPage';
+import type {ModelTestProgress, ModelTestResult, SavedModelConnectionSettings, SettingsRendererApi} from '../../desktop/src/shared/contracts';
 
-const privacy: PrivacyStatus = {captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 1};
-const asrSnapshot: AsrModelSnapshot = {
-    currentModelId: 'streaming-paraformer-bilingual-zh-en',
-    models: [{
-        id: 'streaming-paraformer-bilingual-zh-en', label: 'Streaming Paraformer', languages: ['zh', 'en'], description: 'Paraformer',
-        estimatedBytes: 226_000_000, supportsHotwords: false, installedState: 'installed', isCurrent: true,
-        downloadedBytes: 226_000_000, totalBytes: 226_000_000,
-    }],
-};
 const saved: SavedModelConnectionSettings = {
     active_profile: 'generic_openai',
     connections: {
@@ -32,8 +23,6 @@ test('shows the active model test progress and blocks saving while the test runs
     let emitProgress!: (progress: ModelTestProgress) => void;
     const testConnection = vi.fn(() => new Promise<ModelTestResult>(() => {}));
     const api = {
-        privacy: {getStatus: vi.fn(async () => privacy)},
-        asrModels: {list: vi.fn(async () => asrSnapshot), onStatus: vi.fn(() => () => {})},
         models: {
             list: vi.fn(async () => ({active_profile: 'generic_openai', profiles: []})),
             getSaved: vi.fn(async () => saved),
@@ -44,9 +33,9 @@ test('shows the active model test progress and blocks saving while the test runs
                 return () => {};
             }),
         },
-    } as unknown as MeetingMonsterApi;
-    window.meetingMonster = api;
-    render(<SettingsView active />);
+    } as unknown as SettingsRendererApi;
+    window.meetingMonsterSettings = api;
+    render(<ModelSettingsPage active />);
 
     const testButton = await screen.findByRole('button', {name: '测试连接'});
     await waitFor(() => expect(api.models.onTestProgress).toHaveBeenCalledOnce());

@@ -5,7 +5,20 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const read = (...parts) => fs.readFileSync(path.join(projectRoot, ...parts), 'utf8');
+const read = (...parts) => fs.readFileSync(path.join(projectRoot, ...parts), 'utf8').replace(/\r\n?/g, '\n');
+
+function namespaceBlock(source, namespace, startAt = 0) {
+    const start = source.indexOf(`${namespace}: {`, startAt);
+    assert.notEqual(start, -1, `missing ${namespace} namespace`);
+    const open = source.indexOf('{', start);
+    let depth = 0;
+    for (let index = open; index < source.length; index += 1) {
+        if (source[index] === '{') depth += 1;
+        if (source[index] === '}') depth -= 1;
+        if (depth === 0) return source.slice(start, index + 1);
+    }
+    assert.fail(`unterminated ${namespace} namespace`);
+}
 
 test('preload exports one fixed nested Meeting Monster API', () => {
     const source = read('desktop', 'src', 'preload', 'index.ts');
@@ -19,6 +32,7 @@ test('preload exports one fixed nested Meeting Monster API', () => {
     assert.match(source, /window:\s*\{/);
     assert.match(source, /quit: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.window\.quit\)/);
     assert.match(source, /privacy:\s*\{/);
+    assert.match(source, /audioInput:\s*\{/);
     assert.match(source, /models:\s*\{/);
     assert.match(source, /chat:\s*\{/);
     assert.match(source, /asrModels:\s*\{/);
@@ -35,7 +49,7 @@ test('preload exports one fixed nested Meeting Monster API', () => {
     assert.match(source, /onState: \(callback: \(state: WindowState\) => void\)/);
     assert.match(source, /onStatus: \(callback: \(status: PrivacyStatus\) => void\)/);
     assert.doesNotMatch(source, /monsterOfferPrivacy|meetingMonsterDesktop/);
-    assert.match(source, /IPC_CHANNELS\.asrModels\.download/);
+    assert.doesNotMatch(source, /IPC_CHANNELS\.asrModels\.(?:select|download|cancel|delete)/);
     assert.match(source, /onStatus:.*IPC_CHANNELS\.asrModels\.status/s);
     assert.match(source, /onSnapshot:.*IPC_CHANNELS\.overlay\.snapshot/s);
     assert.match(source, /onWindowError:.*IPC_CHANNELS\.overlay\.windowError/s);
@@ -45,11 +59,45 @@ test('preload exports one fixed nested Meeting Monster API', () => {
     assert.doesNotMatch(source, /exposeInMainWorld\([^,]+,\s*\{[^}]*ipcRenderer/s);
 });
 
+test('overlay and settings preloads expose separate least-privilege APIs', () => {
+    const overlayPreloadSource = read('desktop', 'src', 'preload', 'index.ts');
+    const settingsPreloadSource = read('desktop', 'src', 'preload', 'settings.ts');
+
+    assert.match(overlayPreloadSource, /open: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.open\)/);
+    assert.match(overlayPreloadSource, /onChanged: .*IPC_CHANNELS\.models\.changed/s);
+    assert.match(overlayPreloadSource, /audioInput:\s*\{[\s\S]*?get: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.get\)[\s\S]*?set: \(mode: AudioInputMode\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.set, mode\)[\s\S]*?onChanged: \(callback: \(mode: AudioInputMode\) => void\) => subscribe\(IPC_CHANNELS\.audioInput\.changed, callback\)/);
+    assert.doesNotMatch(overlayPreloadSource, /settings\.close|settings\.getAppVersion/);
+    assert.match(settingsPreloadSource, /contextBridge\.exposeInMainWorld\('meetingMonsterSettings'/);
+    assert.match(settingsPreloadSource, /close: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.close\)/);
+    assert.match(settingsPreloadSource, /getAppVersion: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.settings\.getAppVersion\)/);
+    assert.match(settingsPreloadSource, /audioInput:\s*\{[\s\S]*?get: \(\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.get\)[\s\S]*?set: \(mode: AudioInputMode\) => ipcRenderer\.invoke\(IPC_CHANNELS\.audioInput\.set, mode\)[\s\S]*?onChanged: \(callback: \(mode: AudioInputMode\) => void\) => subscribe\(IPC_CHANNELS\.audioInput\.changed, callback\)/);
+    assert.doesNotMatch(settingsPreloadSource, /IPC_CHANNELS\.(?:window|overlay|chat|asr)\./);
+    assert.doesNotMatch(settingsPreloadSource, /writePcm|captureDisplay|assist:/);
+
+    const overlayModels = namespaceBlock(overlayPreloadSource, 'models');
+    assert.match(overlayModels, /getSaved:/);
+    assert.match(overlayModels, /onChanged:/);
+    assert.doesNotMatch(overlayModels, /\b(?:list|save|test|onTestProgress):/);
+    const overlayAsrModels = namespaceBlock(overlayPreloadSource, 'asrModels');
+    assert.match(overlayAsrModels, /list:/);
+    assert.match(overlayAsrModels, /onStatus:/);
+    assert.doesNotMatch(overlayAsrModels, /\b(?:select|download|cancel|delete):/);
+
+    const settingsModels = namespaceBlock(settingsPreloadSource, 'models');
+    for (const member of ['list', 'getSaved', 'save', 'test', 'onTestProgress']) {
+        assert.match(settingsModels, new RegExp(`\\b${member}:`));
+    }
+    const settingsAsrModels = namespaceBlock(settingsPreloadSource, 'asrModels');
+    for (const member of ['list', 'select', 'download', 'cancel', 'delete', 'onStatus']) {
+        assert.match(settingsAsrModels, new RegExp(`\\b${member}:`));
+    }
+});
+
 test('shared contracts reserve typed IPC channel families for later desktop work', () => {
     const source = read('desktop', 'src', 'shared', 'contracts.ts');
 
     assert.match(source, /export const IPC_CHANNELS/);
-    for (const family of ['window', 'privacy', 'models', 'chat', 'asrModels', 'asr', 'overlay']) {
+    for (const family of ['window', 'privacy', 'audioInput', 'models', 'chat', 'asrModels', 'asr', 'overlay']) {
         assert.match(source, new RegExp(`${family}:`));
     }
     assert.match(source, /export type IpcChannel/);
@@ -60,13 +108,25 @@ test('shared contracts reserve typed IPC channel families for later desktop work
     assert.match(source, /assist\(requestId: string, selection\?: ModelSelectionInput\): Promise<\{requestId: string\}>/);
     assert.doesNotMatch(source, /assist\(requestId: string, content:/);
     assert.match(source, /quit\(\): Promise<void>/);
+    const overlayTypeReexports = source.match(/export type \{([^}]*)\} from '\.\/overlay-state';/)?.[1] ?? '';
     for (const typeName of ['OverlayTarget', 'OverlayPhase', 'OverlaySnapshot', 'OverlayIntent']) {
-        assert.match(source, new RegExp(`export (?:type|interface) ${typeName}\\b`));
+        const directExport = new RegExp(`export (?:type|interface) ${typeName}\\b`).test(source);
+        const groupedReexport = new RegExp(`\\b${typeName}\\b`).test(overlayTypeReexports);
+        assert.equal(directExport || groupedReexport, true, `missing exported overlay type: ${typeName}`);
     }
     assert.match(source, /overlay:\s*\{[\s\S]*?intent\(intent: OverlayIntent\): Promise<OverlaySnapshot>/);
     assert.match(source, /getSnapshot\(\): Promise<OverlaySnapshot>/);
     assert.match(source, /onSnapshot\(callback: \(snapshot: OverlaySnapshot\) => void\): Unsubscribe/);
     assert.match(source, /onWindowError\(callback: \(error: string\) => void\): Unsubscribe/);
+    const overlayContract = source.match(/export interface MeetingMonsterApi\s*\{([\s\S]*?)\n\}\n\nexport interface SettingsRendererApi/)?.[1] ?? '';
+    const overlayModels = namespaceBlock(overlayContract, 'models');
+    assert.match(overlayModels, /getSaved\(\): Promise<SavedModelConnectionSettings>/);
+    assert.match(overlayModels, /onChanged\(callback: \(\) => void\): Unsubscribe/);
+    assert.doesNotMatch(overlayModels, /\b(?:list|save|test|onTestProgress)\(/);
+    const overlayAsrModels = namespaceBlock(overlayContract, 'asrModels');
+    assert.match(overlayAsrModels, /list\(\): Promise<AsrModelSnapshot>/);
+    assert.match(overlayAsrModels, /onStatus\(callback: \(snapshot: AsrModelSnapshot\) => void\): Unsubscribe/);
+    assert.doesNotMatch(overlayAsrModels, /\b(?:select|download|cancel|delete)\(/);
 });
 
 test('preload exposes a narrow Assist request without accepting screenshot bytes', () => {
@@ -113,7 +173,7 @@ test('shared contracts expose public ASR model snapshots without private downloa
 
 test('model settings IPC and preload return the version-3 non-secret vision summary map', () => {
     const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
-    const preload = read('desktop', 'src', 'preload', 'index.ts');
+    const preload = read('desktop', 'src', 'preload', 'settings.ts');
     const settings = read('desktop', 'src', 'main', 'model-connection-settings.ts');
     const summary = contracts.match(
         /export interface SavedModelConnectionSettings\s*\{([\s\S]*?)\n\}/,
@@ -157,7 +217,7 @@ test('model settings IPC and preload return the version-3 non-secret vision summ
 
 test('model-test progress is a narrow typed preload subscription with safe cleanup', () => {
     const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
-    const preload = read('desktop', 'src', 'preload', 'index.ts');
+    const preload = read('desktop', 'src', 'preload', 'settings.ts');
 
     assert.match(contracts, /progress: 'models:progress'/);
     assert.match(

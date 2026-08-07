@@ -9,26 +9,189 @@ import {createOverlayWindowController} from '../../desktop/dist/main/overlay-win
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronExe = path.join(projectRoot, 'desktop', 'node_modules', 'electron', 'dist', 'electron.exe');
-const harnessPath = path.join(projectRoot, 'tests', 'desktop', 'overlay-interaction-electron.cjs');
+const harnessPath = path.join(projectRoot, 'tests', 'desktop', 'settings-interaction-electron.cjs');
 const contractsSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'shared', 'contracts.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'preload', 'index.ts'), 'utf8');
 const mainSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'main', 'main.ts'), 'utf8');
+const electronInteractionTimeoutMs = 25_000;
 
-function runElectronInteraction() {
+function terminateElectronProcessTree(child) {
+    if (!child.pid) {
+        child.kill?.('SIGKILL');
+        return Promise.resolve();
+    }
+    if (process.platform !== 'win32') {
+        child.kill('SIGKILL');
+        return Promise.resolve();
+    }
     return new Promise((resolve, reject) => {
-        const child = spawn(electronExe, [harnessPath], {
+        const terminator = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+            windowsHide: true,
+            stdio: 'ignore',
+        });
+        const cleanup = () => {
+            terminator.off('error', onError);
+            terminator.off('exit', onExit);
+        };
+        const onError = (error) => {
+            cleanup();
+            reject(error);
+        };
+        const onExit = (code) => {
+            cleanup();
+            if (code === 0) resolve();
+            else reject(new Error(`taskkill exited with code ${code}`));
+        };
+        terminator.once('error', onError);
+        terminator.once('exit', onExit);
+    });
+}
+
+function runElectronInteraction({
+    spawnElectron = spawn,
+    terminateProcessTree = terminateElectronProcessTree,
+    timeoutMs = electronInteractionTimeoutMs,
+    harnessArgs = [],
+} = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawnElectron(electronExe, [harnessPath, ...harnessArgs], {
             cwd: projectRoot,
             env: {...process.env, ELECTRON_RUN_AS_NODE: undefined, ELECTRON_ENABLE_LOGGING: 'false'},
             windowsHide: true,
         });
         let stdout = '';
         let stderr = '';
-        child.stdout.on('data', (chunk) => { stdout += chunk; });
-        child.stderr.on('data', (chunk) => { stderr += chunk; });
-        child.once('error', reject);
-        child.once('exit', (code, signal) => resolve({code, signal, stdout, stderr}));
+        let settled = false;
+        let watchdog;
+        const onStdout = (chunk) => { stdout += chunk; };
+        const onStderr = (chunk) => { stderr += chunk; };
+        const cleanup = () => {
+            clearTimeout(watchdog);
+            child.stdout.off('data', onStdout);
+            child.stderr.off('data', onStderr);
+            child.off('error', onError);
+            child.off('exit', onExit);
+        };
+        const onError = (error) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error);
+        };
+        const onExit = (code, signal) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve({code, signal, stdout, stderr});
+        };
+        child.stdout.on('data', onStdout);
+        child.stderr.on('data', onStderr);
+        child.once('error', onError);
+        child.once('exit', onExit);
+        watchdog = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            Promise.resolve()
+                .then(() => terminateProcessTree(child))
+                .then(
+                    () => reject(new Error(`Electron settings interaction timed out after ${timeoutMs}ms`)),
+                    (error) => reject(new Error(
+                        `Electron settings interaction timed out after ${timeoutMs}ms and process-tree termination failed: ${String(error)}`,
+                        {cause: error},
+                    )),
+                );
+        }, timeoutMs);
     });
 }
+
+function createFakeElectronChild() {
+    const child = new EventEmitter();
+    child.pid = 4321;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    return child;
+}
+
+test('Electron interaction watchdog terminates the child tree and removes listeners before rejecting', async () => {
+    const child = createFakeElectronChild();
+    let terminateCalls = 0;
+
+    await assert.rejects(
+        runElectronInteraction({
+            spawnElectron: () => child,
+            terminateProcessTree: async () => { terminateCalls += 1; },
+            timeoutMs: 5,
+        }),
+        /timed out/i,
+    );
+    assert.equal(terminateCalls, 1);
+    assert.equal(child.listenerCount('error'), 0);
+    assert.equal(child.listenerCount('exit'), 0);
+    assert.equal(child.stdout.listenerCount('data'), 0);
+    assert.equal(child.stderr.listenerCount('data'), 0);
+});
+
+test('Electron interaction exit clears the watchdog and child listeners', async () => {
+    const child = createFakeElectronChild();
+    let terminateCalls = 0;
+    queueMicrotask(() => child.emit('exit', 0, null));
+
+    const result = await runElectronInteraction({
+        spawnElectron: () => child,
+        terminateProcessTree: async () => { terminateCalls += 1; },
+        timeoutMs: 5,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.deepEqual(result, {code: 0, signal: null, stdout: '', stderr: ''});
+    assert.equal(terminateCalls, 0);
+    assert.equal(child.listenerCount('error'), 0);
+    assert.equal(child.listenerCount('exit'), 0);
+    assert.equal(child.stdout.listenerCount('data'), 0);
+    assert.equal(child.stderr.listenerCount('data'), 0);
+});
+
+test('Electron interaction error clears the watchdog and child listeners', async () => {
+    const child = createFakeElectronChild();
+    const failure = new Error('spawn failed');
+    let terminateCalls = 0;
+    queueMicrotask(() => child.emit('error', failure));
+
+    await assert.rejects(
+        runElectronInteraction({
+            spawnElectron: () => child,
+            terminateProcessTree: async () => { terminateCalls += 1; },
+            timeoutMs: 5,
+        }),
+        failure,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(terminateCalls, 0);
+    assert.equal(child.listenerCount('error'), 0);
+    assert.equal(child.listenerCount('exit'), 0);
+    assert.equal(child.stdout.listenerCount('data'), 0);
+    assert.equal(child.stderr.listenerCount('data'), 0);
+});
+
+test('renderer-global wheel delivery does not hide a settings-main regression as an environment skip', {timeout: 30_000}, async () => {
+    const result = await runElectronInteraction({harnessArgs: ['--simulate-main-wheel-blocked']});
+
+    assert.equal(result.code, 2, result.stderr || result.stdout);
+    assert.match(result.stderr, /SETTINGS_INTERACTION_ERROR/);
+    assert.doesNotMatch(result.stderr, /SETTINGS_INTERACTION_ENV_UNAVAILABLE/);
+    assert.match(result.stderr, /reached the renderer but not the settings view/i);
+});
+
+test('settings-main wheel delivery without scrolling remains an ordinary interaction failure', {timeout: 30_000}, async () => {
+    const result = await runElectronInteraction({harnessArgs: ['--simulate-main-wheel-unscrolled']});
+
+    assert.equal(result.code, 2, result.stderr || result.stdout);
+    assert.match(result.stderr, /SETTINGS_INTERACTION_ERROR/);
+    assert.doesNotMatch(result.stderr, /SETTINGS_INTERACTION_ENV_UNAVAILABLE/);
+    assert.match(result.stderr, /did not scroll the settings view/i);
+});
 
 test('overlay controller readiness and renderer error channels are wired end-to-end', () => {
     assert.match(contractsSource, /rendererReady: 'overlay:renderer-ready'/);
@@ -41,7 +204,7 @@ test('overlay controller readiness and renderer error channels are wired end-to-
     assert.match(mainSource, /webContents\.send\(IPC_CHANNELS\.overlay\.windowError/);
 });
 
-test('workspace/settings switching does not append bounds calls and close waits for the current animation revision', async () => {
+test('workspace open and close keep fixed native bounds while stale animation revisions preserve the panel shape', async () => {
     class FakeWindow extends EventEmitter {
         constructor(options) { super(); this.bounds = {...options.bounds}; this.setBoundsCalls = []; this.setShapeCalls = []; this.destroyed = false; }
         getBounds() { return {...this.bounds}; }
@@ -61,39 +224,36 @@ test('workspace/settings switching does not append bounds calls and close waits 
     await controller.initialize();
     const window = controller.getWindow();
     await controller.dispatch({type: 'toggle-workspace'});
-    const callsAfterWorkspace = window.setBoundsCalls.length;
-    const shapeCallsAfterWorkspace = window.setShapeCalls.length;
-    await controller.dispatch({type: 'toggle-settings'});
-    await controller.dispatch({type: 'toggle-workspace'});
-    assert.equal(window.setBoundsCalls.length, callsAfterWorkspace);
-    assert.equal(window.setShapeCalls.length, shapeCallsAfterWorkspace);
-
-    await controller.dispatch({type: 'toggle-workspace'});
-    assert.deepEqual(window.getBounds(), {x: 76, y: 120, width: 648, height: 520});
-    await controller.panelAnimationFinished(0);
-    assert.deepEqual(window.getBounds(), {x: 76, y: 120, width: 648, height: 520});
-    await controller.panelAnimationFinished(controller.getSnapshot().revision);
-    assert.deepEqual(window.getBounds(), {x: 76, y: 120, width: 648, height: 520});
+    assert.deepEqual(window.getBounds(), {x: 20, y: 120, width: 648, height: 512});
     assert.equal(window.setBoundsCalls.length, 0);
-    assert.deepEqual(window.setShapeCalls.at(-1), [{x: 144, y: 0, width: 360, height: 56}]);
+    assert.deepEqual(window.setShapeCalls.at(-1), [
+        {x: 200, y: 0, width: 248, height: 48},
+        {x: 0, y: 62, width: 648, height: 450},
+    ]);
+    await controller.dispatch({type: 'toggle-workspace'});
+    await controller.panelAnimationFinished(0);
+    assert.deepEqual(window.setShapeCalls.at(-1), [
+        {x: 200, y: 0, width: 248, height: 48},
+        {x: 0, y: 62, width: 648, height: 450},
+    ]);
+    await controller.panelAnimationFinished(controller.getSnapshot().revision);
+    assert.deepEqual(window.getBounds(), {x: 20, y: 120, width: 648, height: 512});
+    assert.equal(window.setBoundsCalls.length, 0);
+    assert.deepEqual(window.setShapeCalls.at(-1), [{x: 200, y: 0, width: 248, height: 48}]);
 });
 
 test('Electron settings view accepts wheel scrolling and pointer focus', {timeout: 30_000}, async (t) => {
-    if (process.platform !== 'win32' || !fs.existsSync(electronExe)) {
-        t.skip(`Electron Windows runtime is unavailable at ${electronExe}`);
-        return;
-    }
     const result = await runElectronInteraction();
-    if (result.stderr.includes('OVERLAY_INTERACTION_ENV_UNAVAILABLE')) {
+    if (result.stderr.includes('SETTINGS_INTERACTION_ENV_UNAVAILABLE')) {
         t.skip(`Electron could not launch a renderer in this environment: ${result.stderr}`);
         return;
     }
     assert.equal(result.code, 0, result.stderr || result.stdout);
-    const line = result.stdout.split(/\r?\n/).find((item) => item.startsWith('OVERLAY_INTERACTION_RESULT '));
+    const line = result.stdout.split(/\r?\n/).find((item) => item.startsWith('SETTINGS_INTERACTION_RESULT '));
     assert.ok(line, `Electron harness did not return a result. stdout=${result.stdout} stderr=${result.stderr}`);
-    const state = JSON.parse(line.slice('OVERLAY_INTERACTION_RESULT '.length));
-    assert.equal(state.settingsVisible, true);
-    assert.equal(state.workspaceHidden, true);
+    const state = JSON.parse(line.slice('SETTINGS_INTERACTION_RESULT '.length));
+    assert.equal(state.modelsVisible, true);
+    assert.equal(state.speechVisible, true);
     assert.ok(state.scrollHeight > state.clientHeight, `settings view was not scrollable: ${JSON.stringify(state)}`);
     assert.ok(state.scrolled > 0, `mouse wheel did not scroll settings: ${JSON.stringify(state)}`);
     assert.equal(state.focusedId, 'modelApiKey');

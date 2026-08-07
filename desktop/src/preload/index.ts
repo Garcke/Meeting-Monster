@@ -4,21 +4,17 @@ import {
     type MeetingMonsterApi,
     type PrivacyStatus,
     type ChatStreamEvent,
-    type AsrModelId,
     type AsrModelSnapshot,
     type AsrResultEvent,
     type AsrStatus,
-    type ModelOptions,
-    type ModelConnectionInput,
     type ModelSelectionInput,
-    type ModelTestProgress,
     type SavedModelConnectionSettings,
-    type ModelTestResult,
     type OverlayIntent,
     type OverlaySnapshot,
     type Unsubscribe,
     type WindowState,
 } from '../shared/contracts';
+import type {AudioInputMode} from '../shared/audio-input-mode';
 
 let pcmPort: MessagePort | null = null;
 let pendingPcmPort: {
@@ -70,6 +66,9 @@ function subscribe<T>(channel: string, callback: (value: T) => void): Unsubscrib
 }
 
 const meetingMonster: MeetingMonsterApi = {
+    settings: {
+        open: () => ipcRenderer.invoke(IPC_CHANNELS.settings.open) as Promise<void>,
+    },
     window: {
         getState: () => ipcRenderer.invoke(IPC_CHANNELS.window.getState),
         setExpanded: (expanded) => ipcRenderer.invoke(IPC_CHANNELS.window.setExpanded, Boolean(expanded)),
@@ -97,12 +96,14 @@ const meetingMonster: MeetingMonsterApi = {
         ),
         onStatus: (callback: (status: PrivacyStatus) => void) => subscribe(IPC_CHANNELS.privacy.status, callback),
     },
+    audioInput: {
+        get: () => ipcRenderer.invoke(IPC_CHANNELS.audioInput.get) as Promise<AudioInputMode>,
+        set: (mode: AudioInputMode) => ipcRenderer.invoke(IPC_CHANNELS.audioInput.set, mode) as Promise<AudioInputMode>,
+        onChanged: (callback: (mode: AudioInputMode) => void) => subscribe(IPC_CHANNELS.audioInput.changed, callback),
+    },
     models: {
-        list: () => ipcRenderer.invoke(IPC_CHANNELS.models.list) as Promise<ModelOptions>,
         getSaved: () => ipcRenderer.invoke(IPC_CHANNELS.models.getSaved) as Promise<SavedModelConnectionSettings>,
-        save: (connection: ModelConnectionInput) => ipcRenderer.invoke(IPC_CHANNELS.models.save, connection) as Promise<SavedModelConnectionSettings>,
-        test: (selection: ModelSelectionInput) => ipcRenderer.invoke(IPC_CHANNELS.models.test, selection) as Promise<ModelTestResult>,
-        onTestProgress: (callback: (progress: ModelTestProgress) => void) => subscribe(IPC_CHANNELS.models.progress, callback),
+        onChanged: (callback: () => void) => subscribe<void>(IPC_CHANNELS.models.changed, callback),
     },
     chat: {
         send: (requestId, content, selection) => ipcRenderer.invoke(IPC_CHANNELS.chat.send, requestId, content, selection),
@@ -112,10 +113,6 @@ const meetingMonster: MeetingMonsterApi = {
     },
     asrModels: {
         list: () => ipcRenderer.invoke(IPC_CHANNELS.asrModels.list) as Promise<AsrModelSnapshot>,
-        select: (modelId: AsrModelId) => ipcRenderer.invoke(IPC_CHANNELS.asrModels.select, modelId) as Promise<AsrModelSnapshot>,
-        download: (modelId: AsrModelId) => ipcRenderer.invoke(IPC_CHANNELS.asrModels.download, modelId) as Promise<AsrModelSnapshot>,
-        cancel: (modelId: AsrModelId) => ipcRenderer.invoke(IPC_CHANNELS.asrModels.cancel, modelId) as Promise<{cancelled: boolean}>,
-        delete: (modelId: AsrModelId) => ipcRenderer.invoke(IPC_CHANNELS.asrModels.delete, modelId) as Promise<AsrModelSnapshot>,
         onStatus: (callback: (snapshot: AsrModelSnapshot) => void) => subscribe(IPC_CHANNELS.asrModels.status, callback),
     },
     asr: {

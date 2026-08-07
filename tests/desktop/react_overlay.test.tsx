@@ -2,12 +2,12 @@
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {CapsuleApp} from '../../desktop/ui/capsule/main';
-import {SettingsView} from '../../desktop/ui/panel/SettingsView';
 import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
 import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
-import {AUDIO_INPUT_MODE_EVENT, AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
-import {MODEL_SETTINGS_CHANGED_EVENT} from '../../desktop/ui/shared/services/model-settings-service';
+import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
+
+const CAPSULE_CHAT_SYMBOL_PATH = 'M635.211887 354.085959c-236.873121 0-430.651342 311.057206-430.651342 430.651342 0 236.906195 193.778221 239.254421 430.651342 239.254421 236.873121 0 430.618269-2.381299 430.618269-239.221347 0-119.62721-193.745147-430.684416-430.618269-430.684416z m0 574.256912c-184.219951 0-334.936345 0-334.936344-143.572496 0-71.769711 150.716394-334.969418 334.936344-334.969419s334.936345 263.199707 334.936345 334.936345c0 167.484709-150.716394 143.539423-334.936345 143.539423v0.066147zM139.934731 258.404035A139.702885 139.702885 0 0 0 0.000331 398.305362a139.702885 139.702885 0 0 0 139.9344 139.967474 139.702885 139.702885 0 0 0 140.000548-139.934401A139.702885 139.702885 0 0 0 139.901658 258.370961z m0 193.745147a53.314643 53.314643 0 0 1-53.810747-53.810747c0-30.196197 23.680697-53.84382 53.810747-53.84382 30.196197 0 53.876894 23.680697 53.876894 53.84382a53.347716 53.347716 0 0 1-53.876894 53.843821z m979.739245-172.247307a139.702885 139.702885 0 0 0-139.967474 139.967474 139.702885 139.702885 0 0 0 139.967474 139.9344 139.702885 139.702885 0 0 0 139.967474-139.9344 139.702885 139.702885 0 0 0-139.967474-139.967474z m0 193.811294a53.314643 53.314643 0 0 1-53.84382-53.84382c0-30.163123 23.713771-53.810747 53.84382-53.810747 30.163123 0 53.810747 23.680697 53.810747 53.810747a53.347716 53.347716 0 0 1-53.810747 53.810746zM861.236868 21.49784a139.702885 139.702885 0 0 0-139.934401 139.967474 139.702885 139.702885 0 0 0 139.934401 139.967474 139.702885 139.702885 0 0 0 140.000548-139.967474A139.702885 139.702885 0 0 0 861.236868 21.49784z m0 193.811294a53.314643 53.314643 0 0 1-53.810747-53.810746c0-30.196197 23.680697-53.84382 53.810747-53.843821 30.196197 0 53.84382 23.680697 53.84382 53.843821A53.347716 53.347716 0 0 1 861.236868 215.309134zM452.182586 0C363.876075 0 290.717272 73.158803 290.717272 161.498388c0 88.240364 73.191876 161.465314 161.498388 161.465313s161.498388-73.191876 161.498387-161.498387S540.456024 0 452.182586 0z m0 236.840048c-40.912043 0-75.34166-34.462691-75.34166-75.34166 0-40.945116 34.429617-75.407807 75.34166-75.407808 40.945116 0 75.34166 34.462691 75.341661 75.407808 0 40.912043-34.429617 75.34166-75.308587 75.34166z';
 
 const snapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', revision: 0};
 const privacy: PrivacyStatus = {captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 1};
@@ -21,8 +21,12 @@ const asrModels: AsrModelSnapshot = {
 
 function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const intents: Array<{type: string}> = [];
+    let overlayTarget: OverlaySnapshot['target'] = snapshot.target;
+    const privacyListeners = new Set<(status: PrivacyStatus) => void>();
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
+    const audioInputListeners = new Set<(mode: 'system' | 'microphone' | 'mixed') => void>();
+    const modelListeners = new Set<() => void>();
     const chatSends: Array<{requestId: string; prompt: string}> = [];
     const assistSends: Array<{requestId: string; selection?: ModelSelectionInput}> = [];
     const verifiedConnection = {
@@ -37,9 +41,14 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     };
     const api = {
         overlay: {
-            intent: vi.fn(async ({type}: {type: 'toggle-workspace' | 'toggle-settings'}) => {
+            intent: vi.fn(async ({type}: {type: 'toggle-workspace'}) => {
                 intents.push({type});
-                return {target: type === 'toggle-settings' ? 'settings' : 'workspace', phase: 'opening', revision: intents.length} as OverlaySnapshot;
+                overlayTarget = overlayTarget === 'workspace' ? 'closed' : 'workspace';
+                return {
+                    target: overlayTarget,
+                    phase: overlayTarget === 'workspace' ? 'opening' : 'closing',
+                    revision: intents.length,
+                } as OverlaySnapshot;
             }),
             getSnapshot: vi.fn(async () => snapshot),
             onSnapshot: vi.fn(() => () => {}),
@@ -50,8 +59,17 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         },
         privacy: {
             getStatus: vi.fn(async () => privacyStatus),
-            onStatus: vi.fn(() => () => {}),
+            onStatus: vi.fn((listener: (status: PrivacyStatus) => void) => { privacyListeners.add(listener); return () => privacyListeners.delete(listener); }),
             setCaptureProtection: vi.fn(async () => privacy),
+        },
+        settings: {open: vi.fn(async () => undefined)},
+        audioInput: {
+            get: vi.fn(async () => 'system' as const),
+            set: vi.fn(async (mode: 'system' | 'microphone' | 'mixed') => mode),
+            onChanged: vi.fn((listener: (mode: 'system' | 'microphone' | 'mixed') => void) => {
+                audioInputListeners.add(listener);
+                return () => audioInputListeners.delete(listener);
+            }),
         },
         asr: {
             getStatus: vi.fn(async () => ({state: 'idle' as const})),
@@ -64,12 +82,10 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         asrModels: {
             list: vi.fn(async () => asrModels),
             onStatus: vi.fn(() => () => {}),
-            select: vi.fn(async () => asrModels), download: vi.fn(async () => asrModels),
-            cancel: vi.fn(async () => ({cancelled: true})), delete: vi.fn(async () => asrModels),
         },
         models: {
-            list: vi.fn(async () => ({active_profile: 'generic_openai', profiles: []})),
-            getSaved: vi.fn(async () => ({active_profile: 'generic_openai' as const, connections: {generic_openai: verifiedConnection}})), save: vi.fn(), test: vi.fn(),
+            getSaved: vi.fn(async () => ({active_profile: 'generic_openai' as const, connections: {generic_openai: verifiedConnection}})),
+            onChanged: vi.fn((listener: () => void) => { modelListeners.add(listener); return () => modelListeners.delete(listener); }),
         },
         chat: {
             onEvent: vi.fn((listener: (event: ChatStreamEvent) => void) => { chatListeners.add(listener); return () => chatListeners.delete(listener); }),
@@ -86,6 +102,9 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         assistSends,
         emitAsrResult: (event: {type: string; text: string}) => { for (const listener of asrListeners) listener(event); },
         emitChatEvent: (event: ChatStreamEvent) => { for (const listener of chatListeners) listener(event); },
+        emitAudioInputChanged: (mode: 'system' | 'microphone' | 'mixed') => { for (const listener of audioInputListeners) listener(mode); },
+        emitModelChanged: () => { for (const listener of modelListeners) listener(); },
+        emitPrivacy: (status: PrivacyStatus) => { for (const listener of privacyListeners) listener(status); },
     };
 }
 
@@ -205,15 +224,96 @@ afterEach(() => {
     window.localStorage.clear();
 });
 
-test('capsule keeps settings and workspace as independent intents, including rapid clicks', async () => {
+test('capsule sends only the workspace overlay intent from Chat', async () => {
     const {api, intents} = fakeApi();
     window.meetingMonster = api;
     render(<CapsuleApp />);
-    await waitFor(() => expect(screen.getByRole('button', {name: '设置'})).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', {name: '设置'}));
-    fireEvent.click(screen.getByRole('button', {name: '设置'}));
-    expect(intents.map((item) => item.type)).toEqual(['toggle-settings', 'toggle-settings']);
-    expect(intents.some((item) => item.type === 'toggle-workspace')).toBe(false);
+    fireEvent.click(await screen.findByRole('button', {name: /Chat/}));
+    expect(intents).toEqual([{type: 'toggle-workspace'}]);
+    expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
+});
+
+test('capsule swaps its decorative Chat symbol for the Hide chevron with the workspace state', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<CapsuleApp />);
+
+    const chatButton = await screen.findByRole('button', {name: /Chat/});
+    expect(chatButton.getAttribute('aria-expanded')).toBe('false');
+    const chatSymbol = document.querySelector<SVGSVGElement>('.capsule-chat-symbol');
+    expect(chatSymbol?.getAttribute('viewBox')).toBe('0 0 1259 1024');
+    expect(chatSymbol?.getAttribute('aria-hidden')).toBe('true');
+    expect(chatSymbol?.querySelector('path')?.getAttribute('d')).toBe(CAPSULE_CHAT_SYMBOL_PATH);
+
+    fireEvent.click(chatButton);
+    await waitFor(() => expect(screen.getByRole('button', {name: /Hide/}).getAttribute('aria-expanded')).toBe('true'));
+    expect(document.querySelector('.capsule-chevron')).toBeTruthy();
+    expect(document.querySelector('.capsule-chat-symbol')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', {name: /Hide/}));
+    await waitFor(() => expect(screen.getByRole('button', {name: /Chat/}).getAttribute('aria-expanded')).toBe('false'));
+    expect(document.querySelector('.capsule-chevron')).toBeNull();
+    const restoredChatSymbol = document.querySelector<SVGSVGElement>('.capsule-chat-symbol');
+    expect(restoredChatSymbol?.getAttribute('viewBox')).toBe('0 0 1259 1024');
+    expect(restoredChatSymbol?.querySelector('path')?.getAttribute('d')).toBe(CAPSULE_CHAT_SYMBOL_PATH);
+});
+
+test('capsule exposes only workspace and exit actions', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<CapsuleApp />);
+
+    expect(await screen.findByRole('button', {name: /Chat/})).toBeTruthy();
+    expect((await screen.findByRole('button', {name: /Chat/})).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByRole('button', {name: '退出应用'})).toBeTruthy();
+    expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
+    expect(screen.queryByText(/已保护|未保护/)).toBeNull();
+});
+
+test('workspace menu toggles privacy and marks the visible state', async () => {
+    const {api, emitPrivacy} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /共享隐藏/});
+    expect(privacyItem.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(privacyItem);
+    expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(false);
+    act(() => emitPrivacy({...privacy, captureProtection: 'disabled', captureProtectionEnabled: false}));
+    expect(screen.getByTestId('privacy-warning-dot')).toBeTruthy();
+});
+
+test('workspace menu reports configured-but-failed sharing privacy as not enabled and retries protection', async () => {
+    const failedPrivacy = {...privacy, captureProtection: 'failed' as const, captureProtectionEnabled: true};
+    const {api} = fakeApi(failedPrivacy);
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    expect(await screen.findByTestId('privacy-warning-dot')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', {name: '更多'}));
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /共享隐藏/});
+    expect(privacyItem.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText('未开启')).toBeTruthy();
+    expect(screen.getByText(/实际效果取决于系统与录制工具/)).toBeTruthy();
+
+    fireEvent.click(privacyItem);
+    expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(true);
+});
+
+test('workspace menu closes with Escape and opens settings', async () => {
+    const {api} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    const more = await screen.findByRole('button', {name: '更多'});
+    fireEvent.click(more);
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole('menuitem', {name: /设置/}));
+    await waitFor(() => expect(api.settings.open).toHaveBeenCalledOnce());
 });
 
 test('capsule exit control quits the app instead of hiding it', async () => {
@@ -229,173 +329,6 @@ test('capsule exit control quits the app instead of hiding it', async () => {
 
     expect(quit).toHaveBeenCalledOnce();
     expect(api.window.hide).not.toHaveBeenCalled();
-});
-
-test('settings renders compact model dropdowns and does not own overlay navigation', async () => {
-    const {api} = fakeApi();
-    window.meetingMonster = api;
-    render(<SettingsView active />);
-    await waitFor(() => expect(screen.getByLabelText('API Key')).toBeTruthy());
-    expect(screen.getByLabelText('模型')).toBeTruthy();
-    expect(screen.getByLabelText('识别模型')).toBeTruthy();
-    expect(api.overlay.intent).not.toHaveBeenCalled();
-});
-
-test('settings exposes only the two compatible protocol options and keeps independent form snapshots', async () => {
-    const {api} = fakeApi();
-    api.models.getSaved = vi.fn(async () => ({
-        active_profile: 'generic_openai',
-        connections: {
-            generic_openai: {
-                profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://openai.example/v1',
-                model: 'openai-model', has_api_key: true, max_tokens: 2048, temperature: 0.2,
-            },
-        },
-    }));
-    window.meetingMonster = api;
-    render(<SettingsView active />);
-
-    const protocol = await screen.findByLabelText('API 协议') as HTMLSelectElement;
-    expect(Array.from(protocol.options).map((option) => option.textContent)).toEqual([
-        'OpenAI Compatible', 'Anthropic Compatible',
-    ]);
-    expect(screen.queryByText(/MiniMax|Moonshot|GLM|OpenRouter|Vercel|OpenCode/)).toBeNull();
-    expect((screen.getByLabelText('API Key') as HTMLInputElement).value).toBe('');
-    expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('https://openai.example/v1');
-    expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('openai-model');
-
-    fireEvent.change(protocol, {target: {value: 'generic_anthropic'}});
-    fireEvent.change(screen.getByLabelText('Base URL'), {target: {value: 'https://anthropic.example'}});
-    fireEvent.change(screen.getByLabelText('Model ID'), {target: {value: 'anthropic-model'}});
-    fireEvent.change(protocol, {target: {value: 'generic_openai'}});
-    expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('https://openai.example/v1');
-    expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('openai-model');
-});
-
-test('settings blocks save before IPC when Base URL or Model ID is invalid', async () => {
-    const {api} = fakeApi();
-    api.models.getSaved = vi.fn(async () => ({active_profile: 'generic_openai', connections: {}}));
-    api.models.save = vi.fn(async () => ({active_profile: 'generic_openai', connections: {}}));
-    window.meetingMonster = api;
-    render(<SettingsView active />);
-    await screen.findByLabelText('API 协议');
-    fireEvent.change(screen.getByLabelText('Base URL'), {target: {value: 'file:///not-http'}});
-    fireEvent.click(screen.getByRole('button', {name: '保存连接'}));
-    expect(api.models.save).not.toHaveBeenCalled();
-});
-
-test('settings broadcasts successful multimodal verification saves', async () => {
-    const {api} = fakeApi();
-    const onChanged = vi.fn();
-    api.models.save = vi.fn(async () => api.models.getSaved());
-    window.meetingMonster = api;
-    window.addEventListener(MODEL_SETTINGS_CHANGED_EVENT, onChanged);
-    try {
-        render(<SettingsView active />);
-        await screen.findByLabelText('API 协议');
-        fireEvent.click(screen.getByRole('button', {name: '保存连接'}));
-        await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
-        expect(screen.getByText('多模态能力验证成功')).toBeTruthy();
-    } finally {
-        window.removeEventListener(MODEL_SETTINGS_CHANGED_EVENT, onChanged);
-    }
-});
-
-test('settings shows a safe status-aware diagnostic when model verification fails', async () => {
-    const {api} = fakeApi();
-    api.models.test = vi.fn(async () => {
-        throw {
-            code: 'authentication_failed',
-            providerStatus: 401,
-            message: 'provider body must never be displayed',
-        };
-    });
-    window.meetingMonster = api;
-    render(<SettingsView active />);
-
-    await screen.findByLabelText('API 协议');
-    fireEvent.click(screen.getByRole('button', {name: '测试连接'}));
-
-    expect(await screen.findByText('认证失败（HTTP 401）：请检查 API Key 或账号区域')).toBeTruthy();
-    expect(screen.queryByText('provider body must never be displayed')).toBeNull();
-});
-
-test('settings renders the Windows audio-source selector with system audio selected by default', async () => {
-    const {api} = fakeApi();
-    window.meetingMonster = api;
-    render(<SettingsView active />);
-
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-
-    expect(select.id).toBe('asrAudioInputSelect');
-    expect(select.value).toBe('system');
-    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['系统音频', '麦克风', '系统音频＋麦克风']);
-});
-
-test('settings persists a mixed Windows audio source and broadcasts the change', async () => {
-    const {api} = fakeApi();
-    const onAudioInputModeChange = vi.fn();
-    window.meetingMonster = api;
-    window.addEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
-    render(<SettingsView active />);
-
-    const select = await screen.findByLabelText('音频来源');
-    fireEvent.change(select, {target: {value: 'mixed'}});
-
-    expect(window.localStorage.getItem(AUDIO_INPUT_MODE_STORAGE_KEY)).toBe('mixed');
-    expect(onAudioInputModeChange).toHaveBeenCalledTimes(1);
-    window.removeEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
-});
-
-test('settings ignores audio-source changes while the privacy platform is still resolving', async () => {
-    let resolvePrivacyStatus!: (status: PrivacyStatus) => void;
-    const delayedPrivacyStatus = new Promise<PrivacyStatus>((resolve) => { resolvePrivacyStatus = resolve; });
-    const {api} = fakeApi();
-    const onAudioInputModeChange = vi.fn();
-    api.privacy.getStatus = vi.fn(() => delayedPrivacyStatus);
-    window.meetingMonster = api;
-    window.addEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
-
-    try {
-        render(<SettingsView active />);
-        const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-
-        expect(select.disabled).toBe(true);
-        fireEvent.change(select, {target: {value: 'mixed'}});
-        expect(window.localStorage.getItem(AUDIO_INPUT_MODE_STORAGE_KEY)).toBeNull();
-        expect(onAudioInputModeChange).not.toHaveBeenCalled();
-
-        act(() => resolvePrivacyStatus({...privacy, platform: 'darwin'}));
-        await waitFor(() => expect(select.value).toBe('microphone'));
-    } finally {
-        window.removeEventListener(AUDIO_INPUT_MODE_EVENT, onAudioInputModeChange);
-    }
-});
-
-test('settings falls back to microphone when the privacy platform cannot be loaded', async () => {
-    const {api} = fakeApi();
-    api.privacy.getStatus = vi.fn(async () => { throw new Error('privacy status unavailable'); });
-    window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
-    render(<SettingsView active />);
-
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('microphone'));
-    expect(select.options[0]?.disabled).toBe(true);
-    expect(select.options[2]?.disabled).toBe(true);
-    expect(screen.getByText('无法确定系统平台，当前使用麦克风。')).toBeTruthy();
-});
-
-test('settings normalizes macOS to microphone and disables unavailable audio sources', async () => {
-    const {api} = fakeApi({...privacy, platform: 'darwin'});
-    window.meetingMonster = api;
-    render(<SettingsView active />);
-
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('microphone'));
-    expect(select.options[0]?.disabled).toBe(true);
-    expect(select.options[2]?.disabled).toBe(true);
-    expect(screen.getByText('系统音频当前仅支持 Windows；当前使用麦克风。')).toBeTruthy();
 });
 
 test('workspace header omits the prompt pill while retaining drag affordances', async () => {
@@ -585,29 +518,28 @@ test('workspace shows capture then generation status for screenshot Assist', asy
     expect((screen.getByRole('button', {name: '✦ Assist'}) as HTMLButtonElement).disabled).toBe(false);
 });
 
-test('workspace reloads verified model capability after settings changes', async () => {
-    const {api, chatSends, emitAsrResult, emitChatEvent} = fakeApi();
-    const unverified = {
-        profile_id: 'generic_openai' as const, protocol: 'openai' as const, base_url: 'https://openai.example/v1',
-        model: 'vision-model', has_api_key: true, max_tokens: 2048, temperature: 0.3, vision_verified: false,
-    };
-    const verified = {...unverified, vision_verified: true};
-    api.models.getSaved = vi.fn()
-        .mockResolvedValueOnce({active_profile: 'generic_openai', connections: {generic_openai: unverified}})
-        .mockResolvedValue({active_profile: 'generic_openai', connections: {generic_openai: verified}});
+test('workspace reloads verified model capability after main-process model change', async () => {
+    const {api, emitModelChanged} = fakeApi();
     window.meetingMonster = api;
     render(<WorkspaceView active />);
-    act(() => emitAsrResult({type: 'final', text: 'Question'}));
-    await waitFor(() => expect(document.querySelector('.question-row')).toBeTruthy());
-    fireEvent.submit(document.querySelector('form')!);
-    await waitFor(() => expect(chatSends).toHaveLength(1));
-    act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
-    const assist = await screen.findByRole('button', {name: '✦ Assist'}) as HTMLButtonElement;
-    await waitFor(() => expect(assist.disabled).toBe(true));
-
-    act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
-    await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(assist.disabled).toBe(false));
+    await screen.findByText(/当前：/);
+    api.models.getSaved = vi.fn(async () => ({
+        active_profile: 'generic_anthropic' as const,
+        connections: {
+            generic_anthropic: {
+                profile_id: 'generic_anthropic' as const,
+                protocol: 'anthropic' as const,
+                base_url: 'https://provider.example/v1',
+                model: 'test-model',
+                has_api_key: false,
+                max_tokens: 2048,
+                temperature: 0.3,
+                vision_verified: true,
+            },
+        },
+    }));
+    act(() => emitModelChanged());
+    await waitFor(() => expect(screen.getByText(/Anthropic Compatible/)).toBeTruthy());
 });
 
 test('workspace ignores an older model settings refresh that resolves after the latest one', async () => {
@@ -615,7 +547,7 @@ test('workspace ignores an older model settings refresh that resolves after the 
     let resolveLatest!: (value: SavedModelConnectionSettings) => void;
     const older = new Promise<SavedModelConnectionSettings>((resolve) => { resolveOlder = resolve; });
     const latest = new Promise<SavedModelConnectionSettings>((resolve) => { resolveLatest = resolve; });
-    const {api} = fakeApi();
+    const {api, emitModelChanged} = fakeApi();
     const unverified = {
         profile_id: 'generic_openai' as const, protocol: 'openai' as const, base_url: 'https://openai.example/v1',
         model: 'vision-model', has_api_key: true, max_tokens: 2048, temperature: 0.3, vision_verified: false,
@@ -628,7 +560,7 @@ test('workspace ignores an older model settings refresh that resolves after the 
     render(<WorkspaceView active />);
     await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledOnce());
 
-    act(() => window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED_EVENT)));
+    act(() => emitModelChanged());
     await waitFor(() => expect(api.models.getSaved).toHaveBeenCalledTimes(2));
     await act(async () => resolveLatest({active_profile: 'generic_openai', connections: {generic_openai: verified}}));
     await waitFor(() => expect(screen.queryByText('请在设置中验证图片能力')).toBeNull());
@@ -696,15 +628,17 @@ test('workspace keeps incomplete reasoning hidden and does not execute raw HTML'
     expect(container.textContent).not.toContain('still thinking');
 });
 
-test('workspace uses the stored mixed input mode for a new recording session', async () => {
+test('workspace migrates the legacy input preference once and uses the saved mode for recording', async () => {
     const media = installWorkspaceAudioFakes();
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'mixed');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'mixed');
     const {container} = render(<WorkspaceView active />);
     const {start, stop} = workspaceRecordButtons(container);
 
     await waitFor(() => expect(start.disabled).toBe(false));
+    await waitFor(() => expect(api.audioInput.set).toHaveBeenCalledWith('mixed'));
+    expect(window.localStorage.getItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY)).toBeNull();
     fireEvent.click(start);
 
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledWith(16000));
@@ -722,7 +656,7 @@ test('workspace maps a denied system capture to a safe permission message', asyn
     installWorkspaceAudioFakes({displayError: audioPermissionError(rawMessage)});
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -741,7 +675,7 @@ test('workspace maps a denied microphone capture to a safe permission message', 
     installWorkspaceAudioFakes({microphoneError: audioPermissionError(rawMessage)});
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -755,11 +689,10 @@ test('workspace maps a denied microphone capture to a safe permission message', 
     expect(alert.textContent).not.toContain('RAW STACK');
 });
 
-test('workspace applies a renderer-local input mode event to the next idle session', async () => {
+test('workspace uses a later audio input change for the next idle session', async () => {
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitAudioInputChanged} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start, stop} = workspaceRecordButtons(container);
 
@@ -769,8 +702,7 @@ test('workspace applies a renderer-local input mode event to the next idle sessi
     fireEvent.click(stop);
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledTimes(1));
 
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
-    act(() => window.dispatchEvent(new Event(AUDIO_INPUT_MODE_EVENT)));
+    act(() => emitAudioInputChanged('microphone'));
     await waitFor(() => expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone'));
 
     fireEvent.click(start);
@@ -779,11 +711,27 @@ test('workspace applies a renderer-local input mode event to the next idle sessi
     expect(media.getUserMedia).toHaveBeenCalledOnce();
 });
 
+test('workspace does not let a delayed saved mode overwrite a newer audio input change', async () => {
+    let resolveSavedMode!: (mode: 'system' | 'microphone' | 'mixed') => void;
+    const {api, emitAudioInputChanged} = fakeApi();
+    api.audioInput.get = vi.fn(() => new Promise((resolve) => { resolveSavedMode = resolve; }));
+    window.meetingMonster = api;
+    const {container} = render(<WorkspaceView active />);
+
+    await waitFor(() => expect(api.audioInput.onChanged).toHaveBeenCalledOnce());
+    act(() => emitAudioInputChanged('microphone'));
+    await waitFor(() => expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone'));
+
+    await act(async () => { resolveSavedMode('system'); });
+
+    expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone');
+});
+
 test('workspace stops local capture and ASR once when an input track ends, while retaining the error', async () => {
     const media = installWorkspaceAudioFakes();
     const {api} = fakeApi();
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -807,7 +755,7 @@ test('workspace retains the input-ended error when pending ASR start rejects aft
     const {api} = fakeApi();
     api.asr.start = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectAsrStart = reject; }));
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start} = workspaceRecordButtons(container);
 
@@ -834,12 +782,12 @@ test('workspace retains the input-ended error when pending ASR start rejects aft
 test('workspace ignores a stale ASR start rejection after the next session begins', async () => {
     let rejectFirstAsrStart!: (error: Error) => void;
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitAudioInputChanged} = fakeApi();
     api.asr.start = vi.fn()
         .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectFirstAsrStart = reject; }))
         .mockResolvedValueOnce(undefined);
     window.meetingMonster = api;
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
+    window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
     const {start, stop} = workspaceRecordButtons(container);
 
@@ -850,8 +798,7 @@ test('workspace ignores a stale ASR start rejection after the next session begin
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
     await waitFor(() => expect(start.disabled).toBe(false));
 
-    window.localStorage.setItem(AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
-    act(() => window.dispatchEvent(new Event(AUDIO_INPUT_MODE_EVENT)));
+    act(() => emitAudioInputChanged('microphone'));
     fireEvent.click(start);
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(stop.disabled).toBe(false));

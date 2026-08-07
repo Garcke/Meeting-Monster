@@ -6,10 +6,10 @@ import {
 } from './overlay-state-machine';
 import type {OverlayIntent, OverlaySnapshot} from '../shared/overlay-state';
 
-export const CAPSULE_BOUNDS = {width: 360, height: 56} as const;
+export const CAPSULE_BOUNDS = {width: 248, height: 48} as const;
 export const PANEL_BOUNDS = {width: 648, height: 450} as const;
-export const OVERLAY_BOUNDS = {width: 648, height: 520} as const;
-export const PANEL_OFFSET = {x: -144, y: 70} as const;
+export const OVERLAY_BOUNDS = {width: 648, height: 512} as const;
+export const PANEL_OFFSET = {x: -200, y: 62} as const;
 export const CAPSULE_SHAPE = {x: -PANEL_OFFSET.x, y: 0, ...CAPSULE_BOUNDS} as const;
 export const PANEL_SHAPE = {x: 0, y: PANEL_OFFSET.y, ...PANEL_BOUNDS} as const;
 
@@ -205,6 +205,6 @@ export function createOverlayWindowController(
     };
 }
 
-export function rendererFile(root: string, entry: 'overlay' | 'capsule' | 'panel'): string {
+export function rendererFile(root: string, entry: 'overlay'): string {
     return path.join(root, `${entry}.html`);
 }

@@ -3,13 +3,10 @@ import {describeAsrModel, formatAsrModelStatus, isAsrModelReady} from '../../des
 import {canStartRecording, canStopRecording, createAudioInputPlan, PcmAudioRecorder} from '../../desktop/ui/shared/services/audio-recorder';
 import {QuestionStore} from '../../desktop/ui/shared/services/question-store';
 import {
-    AUDIO_INPUT_MODE_STORAGE_KEY,
     getDefaultAudioInputMode,
     normalizeAudioInputMode,
-    readAudioInputMode,
-    writeAudioInputMode,
 } from '../../desktop/ui/shared/services/audio-input-mode';
-import {BUILT_IN_MODEL_PROFILES, MODEL_SETTINGS_CHANGED_EVENT, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
+import {BUILT_IN_MODEL_PROFILES, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
 import type {MeetingMonsterApi, ModelTestResult} from '../../desktop/src/shared/contracts';
 import {stripAssistantThinking} from '../../desktop/ui/shared/services/assistant-markdown';
 
@@ -128,10 +125,6 @@ it('exposes exactly the two fixed protocol profiles', () => {
         {id: 'generic_openai', label: 'OpenAI Compatible', protocol: 'openai'},
         {id: 'generic_anthropic', label: 'Anthropic Compatible', protocol: 'anthropic'},
     ]);
-});
-
-it('uses one stable renderer event for saved model capability changes', () => {
-    expect(MODEL_SETTINGS_CHANGED_EVENT).toBe('meeting-monster:model-settings-changed');
 });
 
 it('builds a complete typed model selection from form values', () => {
@@ -378,30 +371,4 @@ describe('React session services', () => {
         expect(normalizeAudioInputMode('invalid', 'win32')).toBe('system');
     });
 
-    it('normalizes invalid persisted audio input modes by platform', () => {
-        const values = new Map<string, string>();
-        values.set(AUDIO_INPUT_MODE_STORAGE_KEY, 'invalid');
-        const storage = {
-            getItem: (key: string) => values.get(key) ?? null,
-            setItem: (key: string, value: string) => values.set(key, value),
-        };
-
-        expect(readAudioInputMode(storage, 'win32')).toBe('system');
-        expect(readAudioInputMode(storage, 'darwin')).toBe('microphone');
-    });
-
-    it('reads and writes normalized audio input modes through a storage adapter', () => {
-        const values = new Map<string, string>();
-        const storage = {
-            getItem: (key: string) => values.get(key) ?? null,
-            setItem: (key: string, value: string) => values.set(key, value),
-        };
-
-        writeAudioInputMode(storage, 'mixed', 'win32');
-        expect(values.get(AUDIO_INPUT_MODE_STORAGE_KEY)).toBe('mixed');
-        expect(readAudioInputMode(storage, 'win32')).toBe('mixed');
-
-        writeAudioInputMode(storage, 'mixed', 'darwin');
-        expect(values.get(AUDIO_INPUT_MODE_STORAGE_KEY)).toBe('microphone');
-    });
 });
