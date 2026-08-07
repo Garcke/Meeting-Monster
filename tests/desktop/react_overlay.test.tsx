@@ -227,6 +227,10 @@ function audioPermissionError(rawMessage: string) {
     return error;
 }
 
+function waitForWorkspaceRecordingReady(container: HTMLElement) {
+    return waitFor(() => expect(container.querySelector<HTMLButtonElement>('.record-action')?.disabled).toBe(false));
+}
+
 afterEach(() => {
     cleanup();
     restoreProperty(navigator, 'mediaDevices', originalMediaDevices);
@@ -475,6 +479,19 @@ test('workspace toggles transcription from workspace commands', async () => {
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledWith(16000));
     act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
+});
+
+test('capsule reflects a renderer-originated transcription failure', async () => {
+    installWorkspaceAudioFakes({displayError: audioPermissionError('display capture denied')});
+    const {api, emitWorkspaceCommand} = fakeApi();
+    window.meetingMonster = api;
+    render(<><WorkspaceView active /><CapsuleApp /></>);
+
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    await screen.findByText('就绪');
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
+
+    await screen.findByText('Local ASR fail');
 });
 
 test('workspace clears chat from a command without stopping transcription', async () => {
@@ -810,9 +827,10 @@ test('workspace stops local capture and ASR once when an input track ends, while
     const {api, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
-    render(<WorkspaceView active />);
+    const {container} = render(<WorkspaceView active />);
 
     await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    await waitForWorkspaceRecordingReady(container);
     act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledOnce());
     act(() => media.displayStream.getAudioTracks()[0]!.end());

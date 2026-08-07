@@ -1,20 +1,21 @@
 import {useEffect, useState} from 'react';
-import type {AsrStatus, OverlaySnapshot} from '../../src/shared/contracts';
+import type {OverlaySnapshot} from '../../src/shared/contracts';
 import logoUrl from '../../renderer/favicon.png';
+import {publishTranscriptionStatus, useTranscriptionStatus} from '../shared/services/transcription-status-store';
 import './capsule.css';
 
 const initialSnapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', revision: 0};
 
 export function CapsuleApp() {
     const [snapshot, setSnapshot] = useState<OverlaySnapshot>(initialSnapshot);
-    const [asr, setAsr] = useState<AsrStatus>({state: 'idle'});
+    const asr = useTranscriptionStatus();
 
     useEffect(() => {
         const api = window.meetingMonster;
         const unsubscribeOverlay = api.overlay.onSnapshot(setSnapshot);
-        const unsubscribeAsr = api.asr.onStatus(setAsr);
+        const unsubscribeAsr = api.asr.onStatus(publishTranscriptionStatus);
         void api.overlay.getSnapshot().then(setSnapshot).catch(() => undefined);
-        void api.asr.getStatus().then(setAsr).catch(() => undefined);
+        void api.asr.getStatus().then(publishTranscriptionStatus).catch(() => undefined);
         return () => {
             unsubscribeOverlay();
             unsubscribeAsr();
