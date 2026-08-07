@@ -75,10 +75,6 @@ export function WorkspaceMenu() {
 
     const toggleTranscription = () => window.meetingMonster.workspaceCommands.dispatch({type: 'toggle-transcription'});
     const clearChat = () => window.meetingMonster.workspaceCommands.dispatch({type: 'clear-chat'});
-    const hideWindow = () => {
-        setOpen(false);
-        void window.meetingMonster.window.hide().catch(() => setPanelError('窗口无法隐藏'));
-    };
 
     return (
         <div className="workspace-menu no-drag" ref={rootRef}>
@@ -90,9 +86,10 @@ export function WorkspaceMenu() {
                 <div className="workspace-menu-popover" role="menu" aria-label="工作区菜单">
                     <section className="workspace-menu-section" aria-label="窗口">
                         <span className="workspace-menu-section-label">窗口</span>
-                        <button className="workspace-menu-item" type="button" role="menuitem" onClick={hideWindow}>
-                            <span className="workspace-menu-item-label">显示/隐藏窗口</span><kbd>{'Ctrl+\\'}</kbd>
-                        </button>
+                        <div className="workspace-menu-reference">
+                            <span>显示/隐藏窗口</span>
+                            <kbd>{'Ctrl+\\'}</kbd>
+                        </div>
                         <div className="workspace-menu-reference"><span>移动悬浮窗</span><kbd>Ctrl+↑↓←→</kbd></div>
                         <div className="workspace-menu-reference"><span>滚动聊天</span><kbd>Ctrl+Shift+↑↓</kbd></div>
                     </section>
@@ -112,7 +109,7 @@ export function WorkspaceMenu() {
                     <div className="workspace-menu-separator" role="separator" />
                     <section className="workspace-menu-section" aria-label="隐私与设置">
                         <button className="workspace-menu-item workspace-menu-privacy-item" type="button" role="menuitemcheckbox" aria-checked={privacyActive} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
-                            <span className="workspace-menu-item-label">截图保护</span>
+                            <span className="workspace-menu-item-label">应用隐藏</span>
                             <span className={`workspace-menu-switch ${privacyActive ? 'is-on' : ''}`} aria-hidden="true" />
                             <span className="workspace-menu-privacy-copy">开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。</span>
                         </button>

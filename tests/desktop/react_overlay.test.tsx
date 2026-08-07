@@ -324,7 +324,9 @@ test('workspace menu dispatches transcription and chat commands while exposing c
     act(() => emitAsrStatus({state: 'idle'}));
 
     fireEvent.click(await screen.findByRole('button', {name: '更多'}));
-    expect(screen.getByText('显示/隐藏窗口')).toBeTruthy();
+    const visibilityReference = screen.getByText('显示/隐藏窗口');
+    expect(visibilityReference.closest('.workspace-menu-reference')).toBeTruthy();
+    expect(screen.queryByRole('menuitem', {name: /显示\/隐藏窗口/})).toBeNull();
     expect(screen.getByText('移动悬浮窗')).toBeTruthy();
     expect(screen.getByText('滚动聊天')).toBeTruthy();
     expect(screen.getByText('Ctrl+\\')).toBeTruthy();
@@ -334,7 +336,8 @@ test('workspace menu dispatches transcription and chat commands while exposing c
     expect(transcription).toBeTruthy();
     expect(screen.getByRole('menuitem', {name: /清空聊天/})).toBeTruthy();
     expect(screen.getByText('Ctrl+R')).toBeTruthy();
-    expect(screen.getByRole('menuitemcheckbox', {name: /截图保护/})).toBeTruthy();
+    expect(screen.getByRole('menuitemcheckbox', {name: /应用隐藏/})).toBeTruthy();
+    expect(screen.queryByText('截图保护')).toBeNull();
     expect(screen.getByText('开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。')).toBeTruthy();
     expect(screen.queryByText(/Ask/)).toBeNull();
     expect(screen.queryByText(/Stop session/)).toBeNull();
@@ -362,7 +365,7 @@ test('workspace menu reports configured-but-failed screenshot protection as not 
     expect(await screen.findByTestId('privacy-warning-dot')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', {name: '更多'}));
-    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /截图保护/});
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /应用隐藏/});
     expect(privacyItem.getAttribute('aria-checked')).toBe('false');
 
     fireEvent.click(privacyItem);
