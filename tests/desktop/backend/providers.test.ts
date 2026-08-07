@@ -157,6 +157,22 @@ describe('ProviderCache', () => {
         await cache.dispose();
         expect(created.map((value) => value.disposeCount)).toEqual([1, 1]);
     });
+
+    it('contains rejected eviction disposal and waits for it at shutdown', async () => {
+        let rejectEviction: ((reason?: unknown) => void) | undefined;
+        const evicted = provider('one');
+        evicted.dispose = async () => new Promise<void>((_resolve, reject) => { rejectEviction = reject; });
+        const cache = new ProviderCache((selection) => selection.model === 'one' ? evicted : provider(selection.model), 1);
+        cache.get({...openAiSelection, model: 'one'});
+        cache.get({...openAiSelection, model: 'two'});
+
+        let finished = false;
+        const shutdown = cache.dispose().then(() => { finished = true; });
+        await Promise.resolve();
+        expect(finished).toBe(false);
+        rejectEviction?.(new Error('network cleanup failed'));
+        await expect(shutdown).resolves.toBeUndefined();
+    });
 });
 
 function provider(key: string): BackendProvider & {disposeCount: number} {

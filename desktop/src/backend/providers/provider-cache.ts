@@ -2,6 +2,7 @@ import type {BackendModelSelection, BackendProvider} from '../types';
 
 export class ProviderCache {
     private readonly providers = new Map<string, BackendProvider>();
+    private readonly evictionDisposals = new Set<Promise<void>>();
     private disposed = false;
 
     constructor(
@@ -25,7 +26,7 @@ export class ProviderCache {
         if (this.providers.size > this.maxEntries) {
             const oldest = this.providers.entries().next().value as [string, BackendProvider];
             this.providers.delete(oldest[0]);
-            void oldest[1].dispose();
+            this.disposeEvicted(oldest[1]);
         }
         return provider;
     }
@@ -35,7 +36,17 @@ export class ProviderCache {
         this.disposed = true;
         const providers = [...this.providers.values()];
         this.providers.clear();
-        await Promise.all(providers.map((provider) => provider.dispose()));
+        await Promise.all([
+            ...providers.map((provider) => provider.dispose().catch(() => undefined)),
+            ...this.evictionDisposals,
+        ]);
+    }
+
+    private disposeEvicted(provider: BackendProvider): void {
+        const task = provider.dispose().catch(() => undefined).finally(() => {
+            this.evictionDisposals.delete(task);
+        });
+        this.evictionDisposals.add(task);
     }
 }
 
