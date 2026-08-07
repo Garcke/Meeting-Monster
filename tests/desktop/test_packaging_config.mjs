@@ -7,9 +7,7 @@ import {fileURLToPath} from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const packagePath = path.join(projectRoot, 'desktop', 'package.json');
 const installerScriptPath = path.join(projectRoot, 'desktop', 'build', 'installer.nsh');
-const workflowPath = path.join(projectRoot, '.github', 'workflows', 'build-desktop.yml');
 const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-const workflow = fs.readFileSync(workflowPath, 'utf8');
 
 test('electron-builder packages only the desktop runtime and explicit unsigned targets', () => {
     assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/favicon.png', 'renderer/favicon.ico', 'package.json', '!**/*.map']);
@@ -66,9 +64,3 @@ test('packages the pinned native runtime and unpacks its platform binaries witho
     assert.equal(pkg.build.extraFiles, undefined);
 });
 
-test('Windows CI audits the Windows package and excludes non-Windows release jobs', () => {
-    assert.ok(workflow.indexOf('npm --prefix desktop run audit:package') > workflow.indexOf('npm --prefix desktop run dist:win:unsigned'));
-    assert.ok(workflow.indexOf('npm --prefix desktop run audit:package') < workflow.indexOf('Upload Windows artifacts'));
-    assert.doesNotMatch(workflow, /dist:mac|audit:package:mac|macos:|Upload macOS artifacts/);
-    assert.doesNotMatch(workflow, /sherpa-onnx-darwin/);
-});

@@ -1,6 +1,6 @@
 {
   "name": "meeting-monster-desktop",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "private": true,
   "description": "Meeting-Monster Windows privacy desktop shell",
   "main": "dist/main/main.js",
