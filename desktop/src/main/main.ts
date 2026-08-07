@@ -20,9 +20,11 @@ import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordi
 import {LocalAsrEngine, type SherpaBinding} from './local-asr-engine';
 import {captureCurrentDisplay} from './screen-capture';
 import {runModelTestWithVisionRetries} from './model-test-coordinator';
+import {classifyWebShortcut, type WebShortcutSurface} from './web-shortcut-policy';
 import {
     createOverlayWindowController,
     CAPSULE_BOUNDS,
+    CAPSULE_SHAPE,
     type BrowserWindowLike,
     type OverlayWindowController,
 } from './overlay-window-controller';
@@ -43,6 +45,7 @@ import {
     type OverlaySnapshot,
     type PrivacyPolicy,
     type WindowState,
+    type WorkspaceCommand,
 } from '../shared/contracts';
 import {normalizeAudioInputMode, type AudioInputMode} from '../shared/audio-input-mode';
 
@@ -50,6 +53,7 @@ const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 const LOCAL_ASR_ERROR = 'Local ASR failed';
 const ASR_MODEL_ERROR = 'ASR model operation failed';
 const ASSIST_SCREENSHOT_PROMPT = '请分析这张截图，并直接回答截图中显示的问题；如果有多个问题，请按顺序回答。';
+const OVERLAY_MOVE_STEP = 24;
 
 // Some Windows environments cannot start Chromium's out-of-process GPU DLL.
 // Keep the transparent overlay on the software/in-process rendering path so
@@ -610,6 +614,27 @@ function requireOverlayIntent(value: unknown): OverlayIntent {
     return {type: 'toggle-workspace'};
 }
 
+function requireWorkspaceCommand(value: unknown): WorkspaceCommand {
+    if (!value || typeof value !== 'object' || !('type' in value)) {
+        throw new TypeError('Invalid workspace command');
+    }
+    const candidate = value as {type?: unknown; direction?: unknown};
+    if (candidate.type === 'toggle-transcription' || candidate.type === 'clear-chat') {
+        return {type: candidate.type};
+    }
+    if (candidate.type === 'scroll-chat'
+        && (candidate.direction === 'up' || candidate.direction === 'down')) {
+        return {type: 'scroll-chat', direction: candidate.direction};
+    }
+    throw new TypeError('Invalid workspace command');
+}
+
+function sendWorkspaceCommand(command: WorkspaceCommand): void {
+    const overlay = getLiveOverlayWindows()[0];
+    if (!overlay) return;
+    overlay.webContents.send(IPC_CHANNELS.workspaceCommands.event, command);
+}
+
 async function dispatchOverlayIntent(intent: OverlayIntent): Promise<OverlaySnapshot> {
     if (!overlayController) throw new Error('Overlay controller is not ready');
     const snapshot = await overlayController.dispatch(intent);
@@ -683,6 +708,7 @@ function registerIpcHandlers(): void {
         ...Object.values(IPC_CHANNELS.overlay).filter((channel) => (
             channel !== IPC_CHANNELS.overlay.snapshot && channel !== IPC_CHANNELS.overlay.windowError
         )),
+        IPC_CHANNELS.workspaceCommands.dispatch,
     ];
     for (const channel of handledChannels) ipcMain.removeHandler(channel);
 
@@ -785,6 +811,10 @@ function registerIpcHandlers(): void {
         broadcastOverlaySnapshot(snapshot);
         broadcastWindowState();
         return snapshot;
+    });
+    ipcMain.handle(IPC_CHANNELS.workspaceCommands.dispatch, (event, command: unknown) => {
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized workspace command request');
+        sendWorkspaceCommand(requireWorkspaceCommand(command));
     });
     ipcMain.handle(IPC_CHANNELS.models.list, async (event) => {
         if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
@@ -985,8 +1015,26 @@ function broadcastOverlayWindowError(message: string): void {
     for (const win of getLiveOverlayWindows()) win.webContents.send(IPC_CHANNELS.overlay.windowError, message);
 }
 
+function configureWebShortcutPolicy(win: BrowserWindow, surface: WebShortcutSurface): void {
+    win.webContents.on('before-input-event', (event, input) => {
+        const action = classifyWebShortcut(
+            input,
+            surface,
+            getOverlaySnapshot().target === 'workspace',
+        );
+        if (action === 'allow') return;
+        event.preventDefault();
+        if (action === 'toggle-transcription') {
+            sendWorkspaceCommand({type: 'toggle-transcription'});
+        } else if (action === 'clear-chat') {
+            sendWorkspaceCommand({type: 'clear-chat'});
+        }
+    });
+}
+
 function configureOverlayWindow(win: BrowserWindow, manager: WindowPrivacyManager): void {
     manager.registerWindow(win);
+    configureWebShortcutPolicy(win, 'overlay');
     win.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.webContents.on('did-finish-load', () => {
@@ -1011,6 +1059,7 @@ function configureOverlayWindow(win: BrowserWindow, manager: WindowPrivacyManage
 
 function configureSettingsWindow(win: BrowserWindow, manager: WindowPrivacyManager): void {
     manager.registerWindow(win);
+    configureWebShortcutPolicy(win, 'settings');
     win.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.webContents.on('did-finish-load', () => {
@@ -1082,6 +1131,36 @@ function createMainWindow(): void {
     });
 }
 
+function registerGlobalShortcut(accelerator: string, callback: () => void): void {
+    if (!globalShortcut.register(accelerator, callback)) {
+        console.warn(`[desktop] global shortcut unavailable: ${accelerator}`);
+    }
+}
+
+function moveOverlayBy(delta: {x: number; y: number}): void {
+    const controller = overlayController;
+    const overlay = controller?.getWindow() as BrowserWindow | null;
+    if (!controller || !overlay || overlay.isDestroyed()) return;
+
+    const nativeBounds = overlay.getBounds();
+    const expanded = getOverlaySnapshot().target === 'workspace';
+    const displayBounds = expanded
+        ? nativeBounds
+        : {
+            x: nativeBounds.x + CAPSULE_SHAPE.x,
+            y: nativeBounds.y + CAPSULE_SHAPE.y,
+            ...CAPSULE_BOUNDS,
+        };
+    const workArea = screen.getDisplayMatching(displayBounds).workArea;
+    controller.moveBy(delta, workArea);
+}
+
+function scrollExpandedWorkspace(direction: 'up' | 'down'): void {
+    const overlay = getLiveOverlayWindows()[0];
+    if (!overlay?.isVisible() || getOverlaySnapshot().target !== 'workspace') return;
+    sendWorkspaceCommand({type: 'scroll-chat', direction});
+}
+
 async function startApplication(): Promise<void> {
     privacyManager = new WindowPrivacyManager({onStatus: broadcastPrivacyStatus});
     modelConnectionStore = new ModelConnectionStore({
@@ -1104,14 +1183,20 @@ async function startApplication(): Promise<void> {
     configureDisplayMediaCapture();
     createMainWindow();
 
-    globalShortcut.register('CommandOrControl+Shift+P', () => {
+    registerGlobalShortcut('CommandOrControl+Shift+P', () => {
         const manager = getPrivacyManager();
         manager.setCaptureProtection(!manager.getStatus().captureProtectionEnabled);
     });
-    globalShortcut.register('CommandOrControl+Shift+M', () => {
+    registerGlobalShortcut('CommandOrControl+\\', () => {
         const visible = getLiveOverlayWindows().some((win) => win.isVisible());
         setOverlayVisibility(!visible);
     });
+    registerGlobalShortcut('CommandOrControl+Up', () => moveOverlayBy({x: 0, y: -OVERLAY_MOVE_STEP}));
+    registerGlobalShortcut('CommandOrControl+Down', () => moveOverlayBy({x: 0, y: OVERLAY_MOVE_STEP}));
+    registerGlobalShortcut('CommandOrControl+Left', () => moveOverlayBy({x: -OVERLAY_MOVE_STEP, y: 0}));
+    registerGlobalShortcut('CommandOrControl+Right', () => moveOverlayBy({x: OVERLAY_MOVE_STEP, y: 0}));
+    registerGlobalShortcut('CommandOrControl+Shift+Up', () => scrollExpandedWorkspace('up'));
+    registerGlobalShortcut('CommandOrControl+Shift+Down', () => scrollExpandedWorkspace('down'));
 }
 
 if (hasSingleInstanceLock) {

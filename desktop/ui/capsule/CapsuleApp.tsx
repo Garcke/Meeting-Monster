@@ -1,20 +1,28 @@
 import {useEffect, useState} from 'react';
-import type {AsrStatus, OverlaySnapshot} from '../../src/shared/contracts';
+import type {AsrState, OverlaySnapshot} from '../../src/shared/contracts';
 import logoUrl from '../../renderer/favicon.png';
+import {publishTranscriptionStatus, useTranscriptionStatus} from '../shared/services/transcription-status-store';
 import './capsule.css';
 
 const initialSnapshot: OverlaySnapshot = {target: 'closed', phase: 'hidden', revision: 0};
+const STATUS_LABELS: Record<AsrState, string> = {
+    idle: '就绪',
+    connecting: '正在启动',
+    recording: '正在转写',
+    stopping: '正在停止',
+    error: '转写异常',
+};
 
 export function CapsuleApp() {
     const [snapshot, setSnapshot] = useState<OverlaySnapshot>(initialSnapshot);
-    const [asr, setAsr] = useState<AsrStatus>({state: 'idle'});
+    const asr = useTranscriptionStatus();
 
     useEffect(() => {
         const api = window.meetingMonster;
         const unsubscribeOverlay = api.overlay.onSnapshot(setSnapshot);
-        const unsubscribeAsr = api.asr.onStatus(setAsr);
+        const unsubscribeAsr = api.asr.onStatus(publishTranscriptionStatus);
         void api.overlay.getSnapshot().then(setSnapshot).catch(() => undefined);
-        void api.asr.getStatus().then(setAsr).catch(() => undefined);
+        void api.asr.getStatus().then(publishTranscriptionStatus).catch(() => undefined);
         return () => {
             unsubscribeOverlay();
             unsubscribeAsr();
@@ -30,9 +38,7 @@ export function CapsuleApp() {
     };
 
     const isRecording = asr.state === 'recording';
-    const statusLabel = asr.state === 'error'
-        ? 'Local ASR fail'
-        : isRecording ? '正在实时转写' : '就绪';
+    const statusLabel = STATUS_LABELS[asr.state];
 
     return (
         <main className="capsule-shell" aria-label="Meeting-Monster 悬浮胶囊">
@@ -40,7 +46,10 @@ export function CapsuleApp() {
                 <span className={`capsule-avatar ${isRecording ? 'is-recording' : ''}`} aria-hidden="true">
                     <img className="capsule-avatar-image" src={logoUrl} alt="" />
                 </span>
-                <span className={`capsule-dot ${isRecording ? 'is-recording' : ''}`} aria-hidden="true" />
+                <span className="capsule-state-indicator" data-state={asr.state} aria-hidden="true">
+                    {asr.state === 'recording' && <><i /><i /><i /></>}
+                    {asr.state === 'error' && '!'}
+                </span>
                 <span className="capsule-status">{statusLabel}</span>
             </div>
             <button className="capsule-button" type="button" aria-expanded={snapshot.target === 'workspace'} onClick={() => void sendIntent()}>
@@ -60,8 +69,8 @@ export function CapsuleApp() {
                     </>
                 )}
             </button>
-            <button className="capsule-stop" type="button" aria-label="退出应用" title="退出应用" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
-                <span aria-hidden="true">■</span>
+            <button className="capsule-stop" type="button" aria-label="退出 Meeting-Monster" title="退出 Meeting-Monster" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
+                <span aria-hidden="true">×</span>
             </button>
         </main>
     );

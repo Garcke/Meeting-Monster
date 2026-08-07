@@ -1,7 +1,7 @@
 import {FormEvent, useEffect, useRef, useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type {AsrStatus, ChatStreamEvent} from '../../src/shared/contracts';
+import type {ChatStreamEvent, WorkspaceCommand} from '../../src/shared/contracts';
 import {normalizeAudioInputMode, type AudioInputMode, type AudioInputPlatform} from '../../src/shared/audio-input-mode';
 import {isAsrModelReady} from '../shared/services/asr-model-service';
 import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../shared/services/audio-input-mode';
@@ -9,6 +9,7 @@ import {canStartRecording, canStopRecording, PcmAudioRecorder, type RecordingPha
 import {stripAssistantThinking} from '../shared/services/assistant-markdown';
 import {findInitialProfile} from '../shared/services/model-settings-service';
 import {QuestionStore} from '../shared/services/question-store';
+import {publishTranscriptionStatus} from '../shared/services/transcription-status-store';
 
 function isPermissionDenied(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'name' in error
@@ -45,13 +46,14 @@ export function WorkspaceView({active}: {active: boolean}) {
     const api = window.meetingMonster;
     const storeRef = useRef(new QuestionStore());
     const recorderRef = useRef<PcmAudioRecorder | null>(null);
+    const answerScrollRef = useRef<HTMLDivElement>(null);
+    const workspaceCommandHandlerRef = useRef<(command: WorkspaceCommand) => void>(() => undefined);
     const recordingPhaseRef = useRef<RecordingPhase>('idle');
     const platformRef = useRef<AudioInputPlatform | null>(null);
     const [questions, setQuestions] = useState(storeRef.current.getQuestions());
     const [partial, setPartial] = useState('');
     const [answer, setAnswer] = useState('');
     const [input, setInput] = useState('');
-    const [asr, setAsr] = useState<AsrStatus>({state: 'idle'});
     const [asrReady, setAsrReady] = useState(false);
     const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>('idle');
     const [platform, setPlatform] = useState<AudioInputPlatform | null>(null);
@@ -70,7 +72,7 @@ export function WorkspaceView({active}: {active: boolean}) {
     };
 
     useEffect(() => {
-        const unsubscribeStatus = api.asr.onStatus(setAsr);
+        const unsubscribeStatus = api.asr.onStatus(publishTranscriptionStatus);
         const unsubscribeResult = api.asr.onResult((event) => {
             if (event.type === 'partial') setPartial(event.text);
             if (event.type === 'final') {
@@ -78,7 +80,7 @@ export function WorkspaceView({active}: {active: boolean}) {
                 setPartial('');
                 refresh();
             }
-            if (event.type === 'error') setAsr({state: 'error', message: event.text});
+            if (event.type === 'error') publishTranscriptionStatus({state: 'error', message: event.text});
         });
         const unsubscribeChat = api.chat.onEvent(handleChatEvent);
         const unsubscribeModels = api.asrModels.onStatus((next) => setAsrReady(isAsrModelReady(next, next.currentModelId)));
@@ -115,6 +117,10 @@ export function WorkspaceView({active}: {active: boolean}) {
             }
         };
     }, [api]);
+
+    useEffect(() => api.workspaceCommands.onCommand((command) => {
+        workspaceCommandHandlerRef.current(command);
+    }), [api]);
 
     useEffect(() => {
         let disposed = false;
@@ -159,11 +165,11 @@ export function WorkspaceView({active}: {active: boolean}) {
         updateRecordingPhase('stopping');
         recorderRef.current = null;
         setAudioError(message);
-        setAsr({state: 'error', message});
+        publishTranscriptionStatus({state: 'error', message});
         await holder.stop().catch(() => undefined);
         await api.asr.stop().catch(() => undefined);
         updateRecordingPhase('idle');
-        setAsr({state: 'error', message});
+        publishTranscriptionStatus({state: 'error', message});
     }
 
     async function startRecording() {
@@ -171,14 +177,14 @@ export function WorkspaceView({active}: {active: boolean}) {
         if (platform === null) {
             const message = '音频来源尚未准备，请稍后重试';
             setAudioError(message);
-            setAsr({state: 'error', message});
+            publishTranscriptionStatus({state: 'error', message});
             return;
         }
 
         const mode = audioInputMode;
         setAudioError(null);
         updateRecordingPhase('connecting');
-        setAsr({state: 'connecting'});
+        publishTranscriptionStatus({state: 'connecting'});
         let holder!: PcmAudioRecorder;
         holder = new PcmAudioRecorder({
             inputMode: mode,
@@ -201,7 +207,7 @@ export function WorkspaceView({active}: {active: boolean}) {
             const message = formatAudioCaptureError(mode, error);
             updateRecordingPhase('idle');
             setAudioError(message);
-            setAsr({state: 'error', message});
+            publishTranscriptionStatus({state: 'error', message});
         }
     }
 
@@ -210,12 +216,12 @@ export function WorkspaceView({active}: {active: boolean}) {
         const holder = recorderRef.current;
         recorderRef.current = null;
         updateRecordingPhase('stopping');
-        setAsr({state: 'stopping'});
+        publishTranscriptionStatus({state: 'stopping'});
         await holder?.stop().catch(() => undefined);
         await api.asr.stop().catch(() => undefined);
         updateRecordingPhase('idle');
         setAudioError(null);
-        setAsr({state: 'idle'});
+        publishTranscriptionStatus({state: 'idle'});
     }
 
     function cancelActiveRequest() {
@@ -224,6 +230,25 @@ export function WorkspaceView({active}: {active: boolean}) {
         activeRequest.current = null;
         setRequestPhase('idle');
         void api.chat.cancel(request.id).catch(() => undefined);
+    }
+
+    function clearChat() {
+        cancelActiveRequest();
+        storeRef.current.clear();
+        setPartial('');
+        setAnswer('');
+        refresh();
+    }
+
+    function scrollChat(direction: 'up' | 'down') {
+        const target = answerScrollRef.current;
+        if (!target) return;
+        const distance = Math.max(120, Math.round(target.clientHeight * 0.6));
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+        target.scrollBy({
+            top: direction === 'up' ? -distance : distance,
+            behavior: reduced ? 'auto' : 'smooth',
+        });
     }
 
     async function sendText(requestedAction: 'direct' | 'followup' | 'recap') {
@@ -313,6 +338,19 @@ export function WorkspaceView({active}: {active: boolean}) {
         if (question) void sendText('direct');
     }
 
+    workspaceCommandHandlerRef.current = (command) => {
+        if (command.type === 'toggle-transcription') {
+            if (recordingPhaseRef.current === 'idle') void startRecording();
+            else if (recordingPhaseRef.current === 'recording') void stopRecording();
+            return;
+        }
+        if (command.type === 'clear-chat') {
+            clearChat();
+            return;
+        }
+        scrollChat(command.direction);
+    };
+
     const selectedQuestions = storeRef.current.getSelectedQuestions();
     const selectedIds = new Set(storeRef.current.getSelectedIds());
     const current = selectedQuestions[selectedQuestions.length - 1] ?? null;
@@ -334,7 +372,7 @@ export function WorkspaceView({active}: {active: boolean}) {
             </div>
             <div className="workspace-answer no-drag">
                 <div className="answer-heading"><span>AI REPLY</span><em>{requestPhase === 'capturing' ? '正在截图' : requestPhase === 'generating' ? '等待生成' : current?.answerStatus === 'error' ? '失败' : `当前：${remoteModelLabel}`}</em></div>
-                <div className="answer-scroll no-drag">
+                <div ref={answerScrollRef} className="answer-scroll no-drag">
                     {visibleAnswer ? (
                         <div className="answer-markdown">
                             <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
@@ -351,10 +389,6 @@ export function WorkspaceView({active}: {active: boolean}) {
                 {!visionVerified && <p className="assist-hint">请在设置中验证图片能力</p>}
                 {audioError && <p className="audio-error" role="alert">{audioError}</p>}
                 <div className="composer-actions">
-                    <button type="button" className="record-action is-recording" onClick={() => void startRecording()} disabled={!canStartRecording(asrReady, recordingPhase)}>● 开始转写</button>
-                    <button type="button" className="record-action" onClick={() => void stopRecording()} disabled={!canStopRecording(recordingPhase)}>停止</button>
-                    <button type="button" className="record-action" onClick={() => { cancelActiveRequest(); void stopRecording(); storeRef.current.clear(); setPartial(''); setAnswer(''); refresh(); }}>清空</button>
-                    <span className="composer-divider" aria-hidden="true" />
                     <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={!visionVerified || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</button>
                     <button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('followup'); void sendText('followup'); }}>↗ 追问</button>
                     <button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('recap'); void sendText('recap'); }}>↻ 重述</button>
