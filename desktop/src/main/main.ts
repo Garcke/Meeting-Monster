@@ -43,6 +43,7 @@ import {
     type OverlaySnapshot,
     type PrivacyPolicy,
     type WindowState,
+    type WorkspaceCommand,
 } from '../shared/contracts';
 import {normalizeAudioInputMode, type AudioInputMode} from '../shared/audio-input-mode';
 
@@ -610,6 +611,27 @@ function requireOverlayIntent(value: unknown): OverlayIntent {
     return {type: 'toggle-workspace'};
 }
 
+function requireWorkspaceCommand(value: unknown): WorkspaceCommand {
+    if (!value || typeof value !== 'object' || !('type' in value)) {
+        throw new TypeError('Invalid workspace command');
+    }
+    const candidate = value as {type?: unknown; direction?: unknown};
+    if (candidate.type === 'toggle-transcription' || candidate.type === 'clear-chat') {
+        return {type: candidate.type};
+    }
+    if (candidate.type === 'scroll-chat'
+        && (candidate.direction === 'up' || candidate.direction === 'down')) {
+        return {type: 'scroll-chat', direction: candidate.direction};
+    }
+    throw new TypeError('Invalid workspace command');
+}
+
+function sendWorkspaceCommand(command: WorkspaceCommand): void {
+    const overlay = getLiveOverlayWindows()[0];
+    if (!overlay) return;
+    overlay.webContents.send(IPC_CHANNELS.workspaceCommands.event, command);
+}
+
 async function dispatchOverlayIntent(intent: OverlayIntent): Promise<OverlaySnapshot> {
     if (!overlayController) throw new Error('Overlay controller is not ready');
     const snapshot = await overlayController.dispatch(intent);
@@ -683,6 +705,7 @@ function registerIpcHandlers(): void {
         ...Object.values(IPC_CHANNELS.overlay).filter((channel) => (
             channel !== IPC_CHANNELS.overlay.snapshot && channel !== IPC_CHANNELS.overlay.windowError
         )),
+        IPC_CHANNELS.workspaceCommands.dispatch,
     ];
     for (const channel of handledChannels) ipcMain.removeHandler(channel);
 
@@ -785,6 +808,10 @@ function registerIpcHandlers(): void {
         broadcastOverlaySnapshot(snapshot);
         broadcastWindowState();
         return snapshot;
+    });
+    ipcMain.handle(IPC_CHANNELS.workspaceCommands.dispatch, (event, command: unknown) => {
+        if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized workspace command request');
+        sendWorkspaceCommand(requireWorkspaceCommand(command));
     });
     ipcMain.handle(IPC_CHANNELS.models.list, async (event) => {
         if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');

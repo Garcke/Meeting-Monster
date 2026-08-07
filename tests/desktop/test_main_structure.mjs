@@ -131,10 +131,21 @@ test('main authorizes each IPC family to the narrowest application window', () =
     for (const channel of [
         'window.getState', 'window.setExpanded', 'window.toggleExpanded', 'window.hide', 'window.quit', 'window.show',
         'overlay.intent', 'overlay.getSnapshot', 'overlay.rendererReady', 'overlay.animationFinished',
+        'workspaceCommands.dispatch',
         'chat.send', 'chat.assist', 'chat.cancel', 'asr.start', 'asr.stop', 'asr.getStatus',
     ]) {
         assert.match(ipcHandler(source, channel), /isOverlayWebContents\(event\.sender\)/, `${channel} must be overlay-only`);
     }
+});
+
+test('main validates and relays workspace commands only from the overlay', () => {
+    const source = mainSource();
+
+    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.workspaceCommands\.dispatch,[\s\S]*isOverlayWebContents\(event\.sender\)/);
+    assert.match(source, /function requireWorkspaceCommand\(/);
+    assert.match(source, /function sendWorkspaceCommand\(/);
+    assert.match(source, /candidate\.type === 'toggle-transcription'[\s\S]*candidate\.type === 'clear-chat'[\s\S]*candidate\.type === 'scroll-chat'[\s\S]*candidate\.direction === 'up'[\s\S]*candidate\.direction === 'down'/);
+    assert.match(source, /function sendWorkspaceCommand\([\s\S]*getLiveOverlayWindows\(\)\[0\][\s\S]*IPC_CHANNELS\.workspaceCommands\.event/);
 });
 
 test('main authorizes Windows system-audio loopback display capture', () => {
