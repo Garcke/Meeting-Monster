@@ -58,7 +58,6 @@ export function PanelApp() {
         <main className={`${className} ${snapshot.target === 'closed' && snapshot.phase === 'hidden' ? 'is-hidden' : ''}`} data-target={snapshot.target} aria-label="Meeting-Monster 面板">
             <header className="panel-drag-handle" data-drag-handle>
                 <span className="panel-kicker">TRANSCRIPT</span>
-                <span className="panel-drag-hint">拖动面板</span>
                 <WorkspaceMenu />
             </header>
             {error && <div className="panel-error no-drag" role="alert">{error}</div>}

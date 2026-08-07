@@ -408,16 +408,17 @@ test('workspace header omits the prompt pill while retaining drag affordances', 
 
     await waitFor(() => expect(container.querySelector('.panel-drag-handle')).toBeTruthy());
     const header = container.querySelector('.panel-drag-handle');
-    const dragHint = container.querySelector('.panel-drag-hint');
     const transcript = container.querySelector('.workspace-transcript');
     const title = container.querySelector('.panel-kicker');
 
     expect(container.querySelector('.panel-prompt')).toBeNull();
     expect(header).toBeTruthy();
+    expect(header?.hasAttribute('data-drag-handle')).toBe(true);
     expect(title?.textContent).toBe('TRANSCRIPT');
     expect(title?.className).toBe('panel-kicker');
     expect(title?.closest('.panel-drag-handle')).toBe(header);
-    expect(dragHint?.closest('.panel-drag-handle')).toBe(header);
+    expect(container.querySelector('.panel-drag-hint')).toBeNull();
+    expect(screen.queryByText('\u62d6\u52a8\u9762\u677f')).toBeNull();
     expect(transcript?.querySelector('.panel-prompt')).toBeNull();
     expect(transcript?.querySelector('.empty-copy')).toBeNull();
     expect(transcript?.textContent).not.toContain('\u5f00\u59cb\u8f6c\u5199\u540e\uff0c\u5f53\u524d\u95ee\u9898\u4f1a\u663e\u793a\u5728\u8fd9\u91cc');
