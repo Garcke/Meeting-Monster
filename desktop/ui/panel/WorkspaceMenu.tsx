@@ -1,5 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import type {PrivacyStatus} from '../../src/shared/contracts';
+import {isAsrModelReady} from '../shared/services/asr-model-service';
+import {useTranscriptionStatus} from '../shared/services/transcription-status-store';
 
 export function WorkspaceMenu() {
     const [open, setOpen] = useState(false);
@@ -7,9 +9,14 @@ export function WorkspaceMenu() {
     const [privacyError, setPrivacyError] = useState('');
     const [panelError, setPanelError] = useState('');
     const [privacyPending, setPrivacyPending] = useState(false);
+    const [asrReady, setAsrReady] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const asr = useTranscriptionStatus();
     const privacyActive = privacy?.captureProtectionEnabled === true && privacy.captureProtection === 'protected';
+    const recording = asr.state === 'recording';
+    const pending = asr.state === 'connecting' || asr.state === 'stopping';
+    const transcriptionDisabled = !asrReady || pending;
 
     useEffect(() => {
         const api = window.meetingMonster;
@@ -32,6 +39,16 @@ export function WorkspaceMenu() {
             document.removeEventListener('keydown', onKeyDown);
         };
     }, [open]);
+
+    useEffect(() => {
+        const api = window.meetingMonster;
+        const onModelStatus = (snapshot: Parameters<typeof isAsrModelReady>[0]) => {
+            setAsrReady(isAsrModelReady(snapshot, snapshot?.currentModelId ?? null));
+        };
+        const unsubscribe = api.asrModels.onStatus(onModelStatus);
+        void api.asrModels.list().then(onModelStatus).catch(() => setAsrReady(false));
+        return unsubscribe;
+    }, []);
 
     const togglePrivacy = async () => {
         if (!privacy || privacyPending) return;
@@ -56,6 +73,13 @@ export function WorkspaceMenu() {
         }
     };
 
+    const toggleTranscription = () => window.meetingMonster.workspaceCommands.dispatch({type: 'toggle-transcription'});
+    const clearChat = () => window.meetingMonster.workspaceCommands.dispatch({type: 'clear-chat'});
+    const hideWindow = () => {
+        setOpen(false);
+        void window.meetingMonster.window.hide().catch(() => setPanelError('窗口无法隐藏'));
+    };
+
     return (
         <div className="workspace-menu no-drag" ref={rootRef}>
             <button ref={triggerRef} className="workspace-menu-trigger" type="button" aria-label="更多" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((visible) => !visible)}>
@@ -64,12 +88,34 @@ export function WorkspaceMenu() {
             </button>
             {open && (
                 <div className="workspace-menu-popover" role="menu" aria-label="工作区菜单">
-                    <button className="workspace-menu-item workspace-privacy-item" type="button" role="menuitemcheckbox" aria-checked={privacyActive} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
-                        <span className="workspace-menu-item-label">共享隐藏</span>
-                        <span className="workspace-menu-item-state">{privacyActive ? '已开启' : '未开启'}</span>
-                        <span className="workspace-menu-help">开启后会尽量让悬浮窗口避开常见的屏幕共享和录屏画面，实际效果取决于系统与录制工具。</span>
-                    </button>
-                    <button className="workspace-menu-item" type="button" role="menuitem" onClick={() => void openSettings()}>设置</button>
+                    <section className="workspace-menu-section" aria-label="窗口">
+                        <span className="workspace-menu-section-label">窗口</span>
+                        <button className="workspace-menu-item" type="button" role="menuitem" onClick={hideWindow}>
+                            <span className="workspace-menu-item-label">显示/隐藏窗口</span><kbd>Ctrl+\\</kbd>
+                        </button>
+                        <div className="workspace-menu-reference"><span>移动悬浮窗</span><kbd>拖动</kbd></div>
+                        <div className="workspace-menu-reference"><span>滚动聊天</span><kbd>Ctrl+↑↓</kbd></div>
+                    </section>
+                    <div className="workspace-menu-separator" role="separator" />
+                    <section className="workspace-menu-section" aria-label="会话">
+                        <span className="workspace-menu-section-label">会话</span>
+                        <button className="workspace-menu-item" type="button" role="menuitemcheckbox" aria-checked={recording} disabled={transcriptionDisabled} onClick={() => void toggleTranscription()}>
+                            <span className="workspace-menu-item-label">实时转写</span>
+                            <kbd>Ctrl+S</kbd>
+                            <span className={`workspace-menu-switch ${recording ? 'is-on' : ''}`} aria-hidden="true" />
+                        </button>
+                        <button className="workspace-menu-item" type="button" role="menuitem" onClick={() => void clearChat()}>
+                            <span className="workspace-menu-item-label">清空聊天</span>
+                        </button>
+                    </section>
+                    <div className="workspace-menu-separator" role="separator" />
+                    <section className="workspace-menu-section" aria-label="隐私与设置">
+                        <button className="workspace-menu-item" type="button" role="menuitemcheckbox" aria-checked={privacyActive} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
+                            <span className="workspace-menu-item-label">截图保护</span>
+                            <span className={`workspace-menu-switch ${privacyActive ? 'is-on' : ''}`} aria-hidden="true" />
+                        </button>
+                        <button className="workspace-menu-item" type="button" role="menuitem" onClick={() => void openSettings()}>设置</button>
+                    </section>
                     {privacyError && <div className="workspace-menu-status" role="status">{privacyError}</div>}
                 </div>
             )}

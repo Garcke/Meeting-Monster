@@ -75,7 +75,7 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(chatSymbol, /flex:\s*0\s+0\s+14px/);
 });
 
-test('workspace menu owns privacy controls and warning state', () => {
+test('workspace menu owns compact controls and warning state', () => {
     const source = read('desktop', 'ui', 'panel', 'WorkspaceMenu.tsx');
     const styles = read('desktop', 'ui', 'panel', 'panel.css');
 
@@ -83,10 +83,17 @@ test('workspace menu owns privacy controls and warning state', () => {
     assert.match(source, /role="menu"/);
     assert.match(source, /role="menuitemcheckbox"/);
     assert.match(source, /aria-checked/);
+    assert.match(source, /useTranscriptionStatus/);
+    assert.match(source, /isAsrModelReady/);
+    assert.match(source, /toggle-transcription/);
+    assert.match(source, /clear-chat/);
+    assert.match(source, /截图保护/);
+    assert.match(source, /显示\/隐藏窗口/);
     assert.match(source, /settings\.open\(\)/);
     assert.match(source, /privacy\.setCaptureProtection/);
     assert.match(source, /privacy-warning-dot/);
-    assert.match(styles, /\.workspace-menu-popover\s*\{[^}]*width:\s*214px/s);
+    assert.match(styles, /\.workspace-menu-popover\s*\{[^}]*width:\s*272px/s);
+    assert.match(styles, /\.workspace-menu-switch\s*\{[^}]*width:\s*30px[^}]*height:\s*17px/s);
     assert.match(styles, /\.privacy-warning-dot\s*\{[^}]*#F3A35C/s);
 });
 
@@ -122,7 +129,7 @@ test('panel keeps transparent shell, transform-only states, and worklet asset', 
     assert.doesNotMatch(enter, /opacity:\s*0\.15/);
     assert.doesNotMatch(exit, /opacity:\s*0\.15/);
     assert.match(styles, /\.composer-ai-action\s*\{[^}]*font-size:\s*12px/s);
-    assert.match(styles, /\.record-action\s*\{[^}]*font-size:\s*11\.5px/s);
+    assert.doesNotMatch(styles, /\.record-action\s*\{/);
     assert.match(styles, /\.send-button\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s);
     assert.match(panel, /snapshot\.phase\s*!==\s*'opening'/);
     assert.match(panel, /rendererReady\(snapshot\.revision\)/);

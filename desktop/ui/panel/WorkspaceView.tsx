@@ -389,10 +389,6 @@ export function WorkspaceView({active}: {active: boolean}) {
                 {!visionVerified && <p className="assist-hint">请在设置中验证图片能力</p>}
                 {audioError && <p className="audio-error" role="alert">{audioError}</p>}
                 <div className="composer-actions">
-                    <button type="button" className="record-action is-recording" onClick={() => void startRecording()} disabled={!canStartRecording(asrReady, recordingPhase)}>● 开始转写</button>
-                    <button type="button" className="record-action" onClick={() => void stopRecording()} disabled={!canStopRecording(recordingPhase)}>停止</button>
-                    <button type="button" className="record-action" onClick={clearChat}>清空</button>
-                    <span className="composer-divider" aria-hidden="true" />
                     <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={!visionVerified || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</button>
                     <button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('followup'); void sendText('followup'); }}>↗ 追问</button>
                     <button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('recap'); void sendText('recap'); }}>↻ 重述</button>
