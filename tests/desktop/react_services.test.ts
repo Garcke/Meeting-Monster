@@ -344,7 +344,7 @@ describe('React session services', () => {
         expect(canStopRecording('stopping')).toBe(false);
     });
 
-    it('gates recording on the current installed ASR model and exposes hotword capability', () => {
+    it('gates recording on the current installed ASR model and describes only language and size', () => {
         const snapshot = {
             currentModelId: 'streaming-paraformer-bilingual-zh-en' as const,
             models: [{
@@ -356,7 +356,7 @@ describe('React session services', () => {
         };
         expect(isAsrModelReady(snapshot, snapshot.currentModelId)).toBe(true);
         expect(formatAsrModelStatus(snapshot, snapshot.currentModelId, null)).toBe('已安装');
-        expect(describeAsrModel(snapshot.models[0])).toContain('不支持热词');
+        expect(describeAsrModel(snapshot.models[0])).toBe('zh · en · 1 MB');
     });
     it('defaults to system audio input on Windows and microphone elsewhere', () => {
         expect(getDefaultAudioInputMode('win32')).toBe('system');

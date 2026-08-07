@@ -27,7 +27,7 @@ button, input, select, textarea, .no-drag, .workspace-content { -webkit-app-regi
 .panel-shell.panel-visible { opacity: 1; transform: translateY(0); }
 .panel-shell.panel-exit { opacity: 1; transform: translateY(-6px); }
 .panel-shell.is-hidden { visibility: hidden; pointer-events: none; opacity: 0; }
-.panel-drag-handle { display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: move; -webkit-app-region: drag; }
+.panel-drag-handle { display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: default; -webkit-app-region: drag; }
 .panel-kicker, .answer-heading span { color: #79b9ff; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; }
 .panel-title { color: #f7f8fc; font-size: 16px; font-weight: 800; }
 .panel-drag-hint { margin-left: auto; color: rgba(235, 241, 250, 0.45); font-size: 11px; -webkit-app-region: no-drag; }

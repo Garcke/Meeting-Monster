@@ -21,7 +21,7 @@ export function formatAsrModelStatus(snapshot: AsrModelSnapshot | null, selected
 
 export function describeAsrModel(model: AsrModelSnapshot['models'][number]): string {
     const size = `${Math.max(1, Math.round(model.estimatedBytes / 1_000_000))} MB`;
-    return `${model.languages.join(' · ')} · ${size} · ${model.supportsHotwords ? '支持热词' : '不支持热词'}`;
+    return `${model.languages.join(' · ')} · ${size}${model.supportsHotwords ? ' · 支持热词' : ''}`;
 }
 
 export function createAsrModelActions(api: AsrModelSettingsApi) {
