@@ -30,6 +30,13 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(source, /<path\s+d="M3\.5 5\.25 7 8\.75l3\.5-3\.5"\s*\/>/);
     assert.match(source, /<svg\s+className="capsule-chat-symbol"\s+viewBox="0 0 1259 1024"\s+aria-hidden="true">/);
     assert.match(source, /<path\s+d="M635\.211887 354\.085959c-236\.873121 0-430\.651342 311\.057206-430\.651342 430\.651342[\s\S]*?75\.34166z"\s*\/>/);
+    assert.match(source, /const STATUS_LABELS: Record<AsrState, string>/);
+    for (const [state, label] of Object.entries({idle: '就绪', connecting: '正在启动', recording: '正在转写', stopping: '正在停止', error: '转写异常'})) {
+        assert.match(source, new RegExp(`${state}: '${label}'`));
+    }
+    assert.match(source, /className="capsule-state-indicator"\s+data-state=\{asr\.state\}/);
+    assert.match(source, /aria-label="退出 Meeting-Monster"/);
+    assert.match(source, /<span aria-hidden="true">×<\/span>/);
     assert.doesNotMatch(source, /\u2304/);
     assert.doesNotMatch(source, /toggle-settings|settings/);
     assert.doesNotMatch(source, /privacy|PrivacyStatus|setCaptureProtection/);
@@ -39,7 +46,7 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(styles, /background:\s*transparent/);
     assert.doesNotMatch(styles, /box-shadow/);
     const avatar = styles.match(/\.capsule-avatar\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const dot = styles.match(/\.capsule-dot\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const dot = styles.match(/\.capsule-state-indicator\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     assert.match(avatar, /flex:\s*0\s+0\s+32px/);
     assert.match(avatar, /aspect-ratio:\s*1/);
     assert.match(avatar, /width:\s*32px/);
@@ -52,6 +59,7 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleButton, /font-size:\s*11px/);
     assert.match(capsuleStop, /width:\s*30px/);
     assert.match(capsuleStop, /height:\s*30px/);
+    assert.match(styles, /\.capsule-stop\s*\{[\s\S]*?color:\s*#ff626d/);
     const capsuleShell = styles.match(/\.capsule-shell\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const sharedControls = styles.match(/\.capsule-button,\s*\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const chevron = styles.match(/\.capsule-chevron\s*\{([\s\S]*?)\}/)?.[1] ?? '';
@@ -73,6 +81,14 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(chatSymbol, /width:\s*14px/);
     assert.match(chatSymbol, /height:\s*14px/);
     assert.match(chatSymbol, /flex:\s*0\s+0\s+14px/);
+    const status = styles.match(/\.capsule-status\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    assert.match(status, /width:\s*66px/);
+    assert.match(status, /flex:\s*0\s+0\s+66px/);
+    assert.match(styles, /\.capsule-state-indicator\[data-state="idle"\][\s\S]*?#74e8a4/);
+    assert.match(styles, /\.capsule-state-indicator\[data-state="connecting"\][\s\S]*?#f3a35c/);
+    assert.match(styles, /\.capsule-state-indicator\[data-state="recording"\][\s\S]*?#ff7088/);
+    assert.match(styles, /\.capsule-state-indicator\[data-state="error"\][\s\S]*?#ff626d/);
+    assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none/);
 });
 
 test('workspace menu owns compact controls and warning state', () => {

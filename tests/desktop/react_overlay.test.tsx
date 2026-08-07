@@ -115,7 +115,7 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
             assist: vi.fn(async (requestId: string, selection?: ModelSelectionInput) => { assistSends.push({requestId, selection}); return {requestId}; }),
             cancel: vi.fn(async () => undefined),
         },
-        window: {hide: vi.fn(), show: vi.fn(), getState: vi.fn(), setExpanded: vi.fn(), toggleExpanded: vi.fn(), onState: vi.fn()},
+        window: {hide: vi.fn(), show: vi.fn(), getState: vi.fn(), setExpanded: vi.fn(), toggleExpanded: vi.fn(), onState: vi.fn(), quit: vi.fn(async () => undefined)},
     } as unknown as MeetingMonsterApi;
     return {
         api,
@@ -288,9 +288,33 @@ test('capsule exposes only workspace and exit actions', async () => {
 
     expect(await screen.findByRole('button', {name: /Chat/})).toBeTruthy();
     expect((await screen.findByRole('button', {name: /Chat/})).getAttribute('aria-expanded')).toBe('false');
-    expect(screen.getByRole('button', {name: '退出应用'})).toBeTruthy();
+    const quit = screen.getByRole('button', {name: '退出 Meeting-Monster'});
+    expect(quit).toBeTruthy();
+    expect(quit.textContent).toBe('×');
+    fireEvent.click(quit);
+    expect(api.window.quit).toHaveBeenCalledOnce();
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
     expect(screen.queryByText(/已保护|未保护/)).toBeNull();
+});
+
+test('capsule renders each transcription state with its fixed label and indicator', async () => {
+    const {api, emitAsrStatus} = fakeApi();
+    window.meetingMonster = api;
+    render(<CapsuleApp />);
+
+    const expected: Record<AsrStatus['state'], string> = {
+        idle: '就绪',
+        connecting: '正在启动',
+        recording: '正在转写',
+        stopping: '正在停止',
+        error: '转写异常',
+    };
+
+    for (const [state, label] of Object.entries(expected) as Array<[AsrStatus['state'], string]>) {
+        act(() => emitAsrStatus({state}));
+        await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
+        expect(document.querySelector('.capsule-state-indicator')?.getAttribute('data-state')).toBe(state);
+    }
 });
 
 test('workspace menu dispatches transcription and chat commands while exposing compact shortcut rows', async () => {
@@ -362,7 +386,7 @@ test('capsule exit control quits the app instead of hiding it', async () => {
     window.meetingMonster = api;
     render(<CapsuleApp />);
 
-    const exit = await screen.findByRole('button', {name: '退出应用'});
+    const exit = await screen.findByRole('button', {name: '退出 Meeting-Monster'});
     fireEvent.click(exit);
 
     expect(quit).toHaveBeenCalledOnce();
@@ -507,13 +531,13 @@ test('capsule reflects a renderer-originated transcription failure', async () =>
     installWorkspaceAudioFakes({displayError: audioPermissionError('display capture denied')});
     const {api, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
-    render(<><WorkspaceView active /><CapsuleApp /></>);
+    render(<OverlayApp />);
 
-    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalled());
     await screen.findByText('就绪');
     act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
 
-    await screen.findByText('Local ASR fail');
+    await screen.findByText('转写异常');
 });
 
 test('workspace clears chat from a command without stopping transcription', async () => {
