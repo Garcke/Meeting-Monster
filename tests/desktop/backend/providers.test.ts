@@ -173,6 +173,14 @@ describe('ProviderCache', () => {
         rejectEviction?.(new Error('network cleanup failed'));
         await expect(shutdown).resolves.toBeUndefined();
     });
+
+    it('propagates a retained provider disposal failure to the caller', async () => {
+        const retained = provider('retained');
+        retained.dispose = async () => { throw new Error('retained cleanup failed'); };
+        const cache = new ProviderCache(() => retained);
+        cache.get(openAiSelection);
+        await expect(cache.dispose()).rejects.toThrow('retained cleanup failed');
+    });
 });
 
 function provider(key: string): BackendProvider & {disposeCount: number} {

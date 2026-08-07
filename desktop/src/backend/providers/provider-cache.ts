@@ -36,10 +36,12 @@ export class ProviderCache {
         this.disposed = true;
         const providers = [...this.providers.values()];
         this.providers.clear();
-        await Promise.all([
-            ...providers.map((provider) => provider.dispose().catch(() => undefined)),
+        const results = await Promise.allSettled([
+            ...providers.map((provider) => provider.dispose()),
             ...this.evictionDisposals,
         ]);
+        const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failure) throw failure.reason;
     }
 
     private disposeEvicted(provider: BackendProvider): void {
