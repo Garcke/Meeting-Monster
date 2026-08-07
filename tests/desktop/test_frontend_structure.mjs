@@ -30,6 +30,7 @@ test('workspace header omits the What should I say prompt pill', () => {
     assert.match(panelApp, /className="panel-drag-handle" data-drag-handle/);
     assert.doesNotMatch(panelApp, /panel-drag-hint|\u62d6\u52a8\u9762\u677f/);
     assert.doesNotMatch(panelCss, /\.panel-drag-hint\s*\{/);
+    assert.match(panelCss, /\.workspace-menu\s*\{[^}]*margin-left:\s*auto/s);
     assert.match(panelApp, /<span className="panel-kicker">TRANSCRIPT<\/span>/);
     assert.match(panelApp, /<WorkspaceMenu\s*\/>/);
     assert.doesNotMatch(panelApp, /SettingsView|settings/);

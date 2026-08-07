@@ -30,7 +30,7 @@ button, input, select, textarea, .no-drag, .workspace-content { -webkit-app-regi
 .panel-drag-handle { display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: default; -webkit-app-region: drag; }
 .panel-kicker, .answer-heading span { color: #79b9ff; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; }
 .panel-title { color: #f7f8fc; font-size: 16px; font-weight: 800; }
-.workspace-menu { position: relative; flex: 0 0 auto; -webkit-app-region: no-drag; }
+.workspace-menu { position: relative; flex: 0 0 auto; margin-left: auto; -webkit-app-region: no-drag; }
 .workspace-menu-trigger { position: relative; display: grid; width: 32px; height: 32px; padding: 0; place-items: center; color: #eef2f8; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.17); border-radius: 10px; cursor: pointer; letter-spacing: 1px; -webkit-app-region: no-drag; }
 .workspace-menu-trigger:hover { background: rgba(121, 185, 255, 0.2); }
 .workspace-menu-trigger:focus-visible, .workspace-menu-item:focus-visible { outline: 2px solid #79b9ff; outline-offset: 2px; }
