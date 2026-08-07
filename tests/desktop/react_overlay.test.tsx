@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {CapsuleApp} from '../../desktop/ui/capsule/main';
+import {WorkspaceMenu} from '../../desktop/ui/panel/WorkspaceMenu';
 import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
 import type {AsrModelSnapshot, AsrStatus, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings, WorkspaceCommand} from '../../desktop/src/shared/contracts';
@@ -905,9 +906,11 @@ test('workspace ignores a stale ASR start rejection after the next session begin
         .mockResolvedValueOnce(undefined);
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
-    const {container} = render(<WorkspaceView active />);
+    render(<><WorkspaceMenu /><WorkspaceView active /></>);
 
-    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/}) as HTMLButtonElement;
+    await waitFor(() => expect(transcription.disabled).toBe(false));
     act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(1));
     act(() => media.displayStream.getAudioTracks()[0]!.end());
