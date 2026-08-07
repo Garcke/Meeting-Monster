@@ -110,7 +110,7 @@ describe('ChatService', () => {
             {media_type: 'image/png', data: png}))).resolves.toEqual([
             {type: 'chunk', text: 'hello '}, {type: 'chunk', text: 'world'}, {type: 'done'},
         ]);
-        expect(provider.received).toEqual([[ 
+        expect(provider.received).toEqual([[
             {role: 'system', content: 'System rule'},
             {role: 'user', content: 'Question', image: {media_type: 'image/png', data: png}},
         ]]);
@@ -148,6 +148,25 @@ describe('ChatService', () => {
         expect(history.snapshot()).toEqual([{role: 'user', content: 'Question'}]);
     });
 
+    it('emits a sanitized terminal error after disposal', async () => {
+        const service = new ChatService({providers: new ProviderCache(() => new FakeProvider('disposed'))});
+        await service.dispose();
+
+        await expect(collect(service.stream('Question', selection, new AbortController().signal))).resolves.toEqual([
+            {type: 'error', text: expect.not.stringContaining('test-key')}, {type: 'done'},
+        ]);
+    });
+
+    it('emits a sanitized terminal error when provider creation fails', async () => {
+        const service = new ChatService({providers: new ProviderCache(() => {
+            throw new Error(`failed for ${selection.api_key}`);
+        })});
+
+        await expect(collect(service.stream('Question', selection, new AbortController().signal))).resolves.toEqual([
+            {type: 'error', text: expect.not.stringContaining('test-key')}, {type: 'done'},
+        ]);
+    });
+
     it('keeps reset history empty when an in-flight stream finishes later', async () => {
         const provider = new BlockingProvider('reset');
         const history = new ConversationStore();
@@ -182,7 +201,7 @@ describe('ChatService', () => {
         await firstIterator.next();
         await firstIterator.next();
         await expect(secondEvents).resolves.toEqual([{type: 'chunk', text: 'answer'}, {type: 'done'}]);
-        expect(second.received).toEqual([[ 
+        expect(second.received).toEqual([[
             {role: 'user', content: 'one'}, {role: 'assistant', content: 'firstsecond'}, {role: 'user', content: 'two'},
         ]]);
     });

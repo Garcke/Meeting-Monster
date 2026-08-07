@@ -38,22 +38,19 @@ export class ChatService {
             const messages = this.history.appendUser(content.trim(), image);
             const provider = this.options.providers.get(selection);
             let assistant = '';
-            try {
-                for await (const text of provider.streamText(messages, signal)) {
-                    if (signal.aborted) return;
-                    if (!text) continue;
-                    assistant += text;
-                    yield {type: 'chunk', text};
-                }
-            } catch (error) {
+            for await (const text of provider.streamText(messages, signal)) {
                 if (signal.aborted) return;
-                yield {type: 'error', text: sanitizeProviderError(error, selection, image)};
-                release();
-                yield {type: 'done'};
-                return;
+                if (!text) continue;
+                assistant += text;
+                yield {type: 'chunk', text};
             }
             if (signal.aborted) return;
             if (assistant) this.history.commitAssistant(assistant);
+            release();
+            yield {type: 'done'};
+        } catch (error) {
+            if (signal.aborted) return;
+            yield {type: 'error', text: sanitizeProviderError(error, selection, image)};
             release();
             yield {type: 'done'};
         } finally {
