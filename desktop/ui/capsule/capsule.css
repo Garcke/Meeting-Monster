@@ -194,22 +194,22 @@ button { font: inherit; }
 
 .capsule-stop {
     display: grid;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     place-items: center;
     border-radius: 50%;
-    border-color: rgba(255, 255, 255, 0.42);
-    color: #ffffff;
-    background: #e5484d;
-    font-size: 18px;
-    font-weight: 800;
+    border-color: rgba(255, 104, 116, 0.42);
+    color: #ff7580;
+    background: rgba(61, 34, 43, 0.72);
+    font-size: 14px;
+    font-weight: 700;
     line-height: 1;
 }
 
 .capsule-stop:hover {
-    background: #f2555a;
-    border-color: rgba(255, 255, 255, 0.56);
+    background: rgba(120, 48, 62, 0.58);
+    border-color: rgba(255, 104, 116, 0.68);
 }
 
 .capsule-stop:focus-visible {
