@@ -36,6 +36,8 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     }
     assert.match(source, /className="capsule-state-indicator"\s+data-state=\{asr\.state\}/);
     assert.match(source, /aria-label="退出 Meeting-Monster"/);
+    assert.match(source, /title="退出 Meeting-Monster"/);
+    assert.match(source, /onClick=\{\(\) => void window\.meetingMonster\.window\.quit\(\)\.catch\(\(\) => undefined\)\}/);
     assert.match(source, /<span aria-hidden="true">×<\/span>/);
     assert.doesNotMatch(source, /\u2304/);
     assert.doesNotMatch(source, /toggle-settings|settings/);
@@ -55,11 +57,16 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(dot, /width:\s*7px/);
     assert.match(dot, /height:\s*7px/);
     const capsuleButton = styles.match(/\.capsule-button\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const capsuleStop = styles.match(/\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const capsuleStop = [...styles.matchAll(/(?:^|\n)\.capsule-stop\s*\{([\s\S]*?)\}/g)].at(-1)?.[1] ?? '';
     assert.match(capsuleButton, /font-size:\s*11px/);
-    assert.match(capsuleStop, /width:\s*30px/);
-    assert.match(capsuleStop, /height:\s*30px/);
-    assert.match(styles, /\.capsule-stop\s*\{[\s\S]*?color:\s*#ff626d/);
+    assert.match(capsuleStop, /width:\s*34px/);
+    assert.match(capsuleStop, /height:\s*34px/);
+    assert.match(capsuleStop, /color:\s*#ffffff/);
+    assert.match(capsuleStop, /background:\s*#e5484d/);
+    assert.match(capsuleStop, /font-size:\s*18px/);
+    assert.match(capsuleStop, /font-weight:\s*800/);
+    assert.match(styles, /\.capsule-stop:hover\s*\{[\s\S]*?background:\s*#f2555a/);
+    assert.match(styles, /\.capsule-stop:focus-visible\s*\{[\s\S]*?outline:\s*2px\s+solid/);
     const capsuleShell = styles.match(/\.capsule-shell\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const sharedControls = styles.match(/\.capsule-button,\s*\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const chevron = styles.match(/\.capsule-chevron\s*\{([\s\S]*?)\}/)?.[1] ?? '';

@@ -194,19 +194,27 @@ button { font: inherit; }
 
 .capsule-stop {
     display: grid;
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     padding: 0;
     place-items: center;
     border-radius: 50%;
-    color: #ff626d;
-    background: rgba(51, 30, 39, 0.68);
-    font-size: 12px;
+    border-color: rgba(255, 255, 255, 0.42);
+    color: #ffffff;
+    background: #e5484d;
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1;
 }
 
 .capsule-stop:hover {
-    background: rgba(120, 48, 62, 0.58);
-    border-color: rgba(255, 98, 109, 0.55);
+    background: #f2555a;
+    border-color: rgba(255, 255, 255, 0.56);
+}
+
+.capsule-stop:focus-visible {
+    outline: 2px solid #ffb3b8;
+    outline-offset: 2px;
 }
 
 @keyframes capsule-connecting-pulse {
