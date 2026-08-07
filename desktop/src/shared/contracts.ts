@@ -62,6 +62,10 @@ export const IPC_CHANNELS = {
         animationFinished: 'overlay:animation-finished',
         windowError: 'overlay:window-error',
     },
+    workspaceCommands: {
+        dispatch: 'workspace-commands:dispatch',
+        event: 'workspace-commands:event',
+    },
 } as const;
 
 type ValueOf<T> = T[keyof T];
@@ -210,6 +214,11 @@ export interface AsrResultEvent {
     text: string;
 }
 
+export type WorkspaceCommand =
+    | {type: 'toggle-transcription'}
+    | {type: 'clear-chat'}
+    | {type: 'scroll-chat'; direction: 'up' | 'down'};
+
 export type Unsubscribe = () => void;
 
 export interface MeetingMonsterApi {
@@ -234,6 +243,10 @@ export interface MeetingMonsterApi {
         animationFinished(revision: number): Promise<OverlaySnapshot>;
         onSnapshot(callback: (snapshot: OverlaySnapshot) => void): Unsubscribe;
         onWindowError(callback: (error: string) => void): Unsubscribe;
+    };
+    workspaceCommands: {
+        dispatch(command: WorkspaceCommand): Promise<void>;
+        onCommand(callback: (command: WorkspaceCommand) => void): Unsubscribe;
     };
     privacy: {
         getStatus(): Promise<PrivacyStatus>;

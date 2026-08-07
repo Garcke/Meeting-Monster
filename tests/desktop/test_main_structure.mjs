@@ -73,7 +73,7 @@ test('main preserves secured overlay BrowserWindow options and taskbar policy', 
         /skipTaskbar: true/,
         /icon: options\.windowIconPath/,
         /CommandOrControl\+Shift\+P/,
-        /CommandOrControl\+Shift\+M/,
+        /CommandOrControl\+\\/,
         /setWindowOpenHandler\(\(\) => \(\{action: 'deny'\}\)\)/,
         /will-navigate[\s\S]*preventDefault\(\)/,
     ]) {
@@ -131,10 +131,66 @@ test('main authorizes each IPC family to the narrowest application window', () =
     for (const channel of [
         'window.getState', 'window.setExpanded', 'window.toggleExpanded', 'window.hide', 'window.quit', 'window.show',
         'overlay.intent', 'overlay.getSnapshot', 'overlay.rendererReady', 'overlay.animationFinished',
+        'workspaceCommands.dispatch',
         'chat.send', 'chat.assist', 'chat.cancel', 'asr.start', 'asr.stop', 'asr.getStatus',
     ]) {
         assert.match(ipcHandler(source, channel), /isOverlayWebContents\(event\.sender\)/, `${channel} must be overlay-only`);
     }
+});
+
+test('main validates and relays workspace commands only from the overlay', () => {
+    const source = mainSource();
+
+    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.workspaceCommands\.dispatch,[\s\S]*isOverlayWebContents\(event\.sender\)/);
+    assert.match(source, /function requireWorkspaceCommand\(/);
+    assert.match(source, /function sendWorkspaceCommand\(/);
+    assert.match(source, /candidate\.type === 'toggle-transcription'[\s\S]*candidate\.type === 'clear-chat'[\s\S]*candidate\.type === 'scroll-chat'[\s\S]*candidate\.direction === 'up'[\s\S]*candidate\.direction === 'down'/);
+    assert.match(source, /function sendWorkspaceCommand\([\s\S]*getLiveOverlayWindows\(\)\[0\][\s\S]*IPC_CHANNELS\.workspaceCommands\.event/);
+});
+
+test('main applies local web shortcut policy to both windows without global Ctrl+S/R bindings', () => {
+    const source = mainSource();
+    const policy = source.match(/function configureWebShortcutPolicy[\s\S]*?\n\}/)?.[0] ?? '';
+    const overlay = source.match(/function configureOverlayWindow[\s\S]*?\n\}/)?.[0] ?? '';
+    const settings = source.match(/function configureSettingsWindow[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(source, /import \{classifyWebShortcut, type WebShortcutSurface\} from '\.\/web-shortcut-policy'/);
+    assert.match(overlay, /configureWebShortcutPolicy\(win, 'overlay'\)/);
+    assert.match(settings, /configureWebShortcutPolicy\(win, 'settings'\)/);
+    assert.match(policy, /webContents\.on\('before-input-event'/);
+    assert.match(policy, /getOverlaySnapshot\(\)\.target === 'workspace'/);
+    assert.match(policy, /if \(action === 'allow'\) return;[\s\S]*event\.preventDefault\(\)/);
+    assert.match(policy, /action === 'toggle-transcription'[\s\S]*sendWorkspaceCommand\(\{type: 'toggle-transcription'\}\)/);
+    assert.match(policy, /action === 'clear-chat'[\s\S]*sendWorkspaceCommand\(\{type: 'clear-chat'\}\)/);
+    assert.doesNotMatch(source, /globalShortcut\.register\('CommandOrControl\+S'/);
+    assert.doesNotMatch(source, /globalShortcut\.register\('CommandOrControl\+R'/);
+});
+
+test('main registers checked global movement, visibility, and workspace scroll controls', () => {
+    const source = mainSource();
+
+    assert.match(source, /function registerGlobalShortcut\(accelerator: string, callback: \(\) => void\): void/);
+    assert.match(source, /globalShortcut\.register\(accelerator, callback\)[\s\S]*console\.warn\(`\[desktop\] global shortcut unavailable: \$\{accelerator\}`\)/);
+    for (const accelerator of [
+        'CommandOrControl+Shift+P',
+        'CommandOrControl+\\',
+        'CommandOrControl+Up',
+        'CommandOrControl+Down',
+        'CommandOrControl+Left',
+        'CommandOrControl+Right',
+        'CommandOrControl+Shift+Up',
+        'CommandOrControl+Shift+Down',
+    ]) {
+        assert.match(source, new RegExp(`registerGlobalShortcut\\('${accelerator.replace(/[+\\]/g, '\\$&')}`));
+    }
+    assert.doesNotMatch(source, /CommandOrControl\+Shift\+M/);
+    assert.match(source, /controller\.moveBy\(/);
+    assert.match(source, /screen\.getDisplayMatching\(/);
+    assert.match(source, /CAPSULE_SHAPE/);
+    assert.match(source, /scrollExpandedWorkspace\('up'\)/);
+    assert.match(source, /scrollExpandedWorkspace\('down'\)/);
+    assert.match(source, /isVisible\(\)[\s\S]*getOverlaySnapshot\(\)\.target !== 'workspace'/);
+    assert.match(source, /globalShortcut\.unregisterAll\(\)/);
 });
 
 test('main authorizes Windows system-audio loopback display capture', () => {

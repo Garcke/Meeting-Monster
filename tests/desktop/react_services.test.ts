@@ -9,6 +9,11 @@ import {
 import {BUILT_IN_MODEL_PROFILES, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
 import type {MeetingMonsterApi, ModelTestResult} from '../../desktop/src/shared/contracts';
 import {stripAssistantThinking} from '../../desktop/ui/shared/services/assistant-markdown';
+import {
+    getTranscriptionStatus,
+    publishTranscriptionStatus,
+    subscribeTranscriptionStatus,
+} from '../../desktop/ui/shared/services/transcription-status-store';
 
 class FakeTrack {
     public onended: (() => void) | null = null;
@@ -188,6 +193,25 @@ it('removes standalone closing thinking tags without changing surrounding Markdo
     expect(stripAssistantThinking('Plain **text**')).toBe('Plain **text**');
 });
 
+it('publishes immutable transcription status snapshots and supports unsubscribe', () => {
+    const notifications: Array<{state: string; message?: string}> = [];
+    const unsubscribe = subscribeTranscriptionStatus(() => notifications.push(getTranscriptionStatus()));
+    const connecting = {state: 'connecting' as const};
+
+    publishTranscriptionStatus(connecting);
+    publishTranscriptionStatus({state: 'error', message: 'capture failed'});
+    connecting.state = 'idle';
+
+    expect(notifications).toEqual([
+        {state: 'connecting'},
+        {state: 'error', message: 'capture failed'},
+    ]);
+    expect(notifications[0]).not.toBe(connecting);
+    unsubscribe();
+    publishTranscriptionStatus({state: 'idle'});
+    expect(notifications).toHaveLength(2);
+});
+
 it('rejects invalid Base URL, empty Model ID, and mismatched protocol in the renderer', () => {
     const profile = BUILT_IN_MODEL_PROFILES[0];
     const baseValues = {model: 'demo-model', apiKey: '', maxTokens: '2048', temperature: '0.3'};
@@ -344,7 +368,7 @@ describe('React session services', () => {
         expect(canStopRecording('stopping')).toBe(false);
     });
 
-    it('gates recording on the current installed ASR model and exposes hotword capability', () => {
+    it('gates recording on the current installed ASR model and describes only language and size', () => {
         const snapshot = {
             currentModelId: 'streaming-paraformer-bilingual-zh-en' as const,
             models: [{
@@ -356,7 +380,7 @@ describe('React session services', () => {
         };
         expect(isAsrModelReady(snapshot, snapshot.currentModelId)).toBe(true);
         expect(formatAsrModelStatus(snapshot, snapshot.currentModelId, null)).toBe('已安装');
-        expect(describeAsrModel(snapshot.models[0])).toContain('不支持热词');
+        expect(describeAsrModel(snapshot.models[0])).toBe('zh · en · 1 MB');
     });
     it('defaults to system audio input on Windows and microphone elsewhere', () => {
         expect(getDefaultAudioInputMode('win32')).toBe('system');

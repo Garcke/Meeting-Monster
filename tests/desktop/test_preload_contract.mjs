@@ -59,6 +59,20 @@ test('preload exports one fixed nested Meeting Monster API', () => {
     assert.doesNotMatch(source, /exposeInMainWorld\([^,]+,\s*\{[^}]*ipcRenderer/s);
 });
 
+test('overlay preload exposes typed workspace command dispatch and subscriptions only', () => {
+    const contracts = read('desktop', 'src', 'shared', 'contracts.ts');
+    const preload = read('desktop', 'src', 'preload', 'index.ts');
+    const settingsPreload = read('desktop', 'src', 'preload', 'settings.ts');
+
+    assert.match(contracts, /export type WorkspaceCommand\s*=\s*[\s\S]*toggle-transcription[\s\S]*clear-chat[\s\S]*scroll-chat/);
+    assert.match(contracts, /workspaceCommands:\s*\{[\s\S]*dispatch: 'workspace-commands:dispatch'[\s\S]*event: 'workspace-commands:event'/);
+    assert.match(contracts, /workspaceCommands:\s*\{[\s\S]*dispatch\(command: WorkspaceCommand\): Promise<void>;[\s\S]*onCommand\(callback: \(command: WorkspaceCommand\) => void\): Unsubscribe;/);
+    assert.match(preload, /workspaceCommands:\s*\{[\s\S]*dispatch:[\s\S]*onCommand:/);
+    assert.match(preload, /dispatch: \(command: WorkspaceCommand\) => ipcRenderer\.invoke\([\s\S]*IPC_CHANNELS\.workspaceCommands\.dispatch,[\s\S]*command,[\s\S]*\) as Promise<void>/);
+    assert.match(preload, /onCommand: \(callback: \(command: WorkspaceCommand\) => void\) => subscribe\([\s\S]*IPC_CHANNELS\.workspaceCommands\.event,[\s\S]*callback,[\s\S]*\)/);
+    assert.doesNotMatch(settingsPreload, /workspaceCommands/);
+});
+
 test('overlay and settings preloads expose separate least-privilege APIs', () => {
     const overlayPreloadSource = read('desktop', 'src', 'preload', 'index.ts');
     const settingsPreloadSource = read('desktop', 'src', 'preload', 'settings.ts');

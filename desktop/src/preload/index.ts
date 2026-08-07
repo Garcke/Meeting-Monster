@@ -13,6 +13,7 @@ import {
     type OverlaySnapshot,
     type Unsubscribe,
     type WindowState,
+    type WorkspaceCommand,
 } from '../shared/contracts';
 import type {AudioInputMode} from '../shared/audio-input-mode';
 
@@ -86,6 +87,16 @@ const meetingMonster: MeetingMonsterApi = {
         animationFinished: (revision) => ipcRenderer.invoke(IPC_CHANNELS.overlay.animationFinished, revision),
         onSnapshot: (callback: (snapshot: OverlaySnapshot) => void) => subscribe(IPC_CHANNELS.overlay.snapshot, callback),
         onWindowError: (callback: (error: string) => void) => subscribe(IPC_CHANNELS.overlay.windowError, callback),
+    },
+    workspaceCommands: {
+        dispatch: (command: WorkspaceCommand) => ipcRenderer.invoke(
+            IPC_CHANNELS.workspaceCommands.dispatch,
+            command,
+        ) as Promise<void>,
+        onCommand: (callback: (command: WorkspaceCommand) => void) => subscribe(
+            IPC_CHANNELS.workspaceCommands.event,
+            callback,
+        ),
     },
     privacy: {
         getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.privacy.getStatus),

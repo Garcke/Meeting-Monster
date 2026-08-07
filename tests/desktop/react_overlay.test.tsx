@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {CapsuleApp} from '../../desktop/ui/capsule/main';
+import {WorkspaceMenu} from '../../desktop/ui/panel/WorkspaceMenu';
 import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
-import type {AsrModelSnapshot, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings} from '../../desktop/src/shared/contracts';
+import type {AsrModelSnapshot, AsrStatus, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings, WorkspaceCommand} from '../../desktop/src/shared/contracts';
 import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const panelStyles = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'panel.css'), 'utf8');
 
 const CAPSULE_CHAT_SYMBOL_PATH = 'M635.211887 354.085959c-236.873121 0-430.651342 311.057206-430.651342 430.651342 0 236.906195 193.778221 239.254421 430.651342 239.254421 236.873121 0 430.618269-2.381299 430.618269-239.221347 0-119.62721-193.745147-430.684416-430.618269-430.684416z m0 574.256912c-184.219951 0-334.936345 0-334.936344-143.572496 0-71.769711 150.716394-334.969418 334.936344-334.969419s334.936345 263.199707 334.936345 334.936345c0 167.484709-150.716394 143.539423-334.936345 143.539423v0.066147zM139.934731 258.404035A139.702885 139.702885 0 0 0 0.000331 398.305362a139.702885 139.702885 0 0 0 139.9344 139.967474 139.702885 139.702885 0 0 0 140.000548-139.934401A139.702885 139.702885 0 0 0 139.901658 258.370961z m0 193.745147a53.314643 53.314643 0 0 1-53.810747-53.810747c0-30.196197 23.680697-53.84382 53.810747-53.84382 30.196197 0 53.876894 23.680697 53.876894 53.84382a53.347716 53.347716 0 0 1-53.876894 53.843821z m979.739245-172.247307a139.702885 139.702885 0 0 0-139.967474 139.967474 139.702885 139.702885 0 0 0 139.967474 139.9344 139.702885 139.702885 0 0 0 139.967474-139.9344 139.702885 139.702885 0 0 0-139.967474-139.967474z m0 193.811294a53.314643 53.314643 0 0 1-53.84382-53.84382c0-30.163123 23.713771-53.810747 53.84382-53.810747 30.163123 0 53.810747 23.680697 53.810747 53.810747a53.347716 53.347716 0 0 1-53.810747 53.810746zM861.236868 21.49784a139.702885 139.702885 0 0 0-139.934401 139.967474 139.702885 139.702885 0 0 0 139.934401 139.967474 139.702885 139.702885 0 0 0 140.000548-139.967474A139.702885 139.702885 0 0 0 861.236868 21.49784z m0 193.811294a53.314643 53.314643 0 0 1-53.810747-53.810746c0-30.196197 23.680697-53.84382 53.810747-53.843821 30.196197 0 53.84382 23.680697 53.84382 53.843821A53.347716 53.347716 0 0 1 861.236868 215.309134zM452.182586 0C363.876075 0 290.717272 73.158803 290.717272 161.498388c0 88.240364 73.191876 161.465314 161.498388 161.465313s161.498388-73.191876 161.498387-161.498387S540.456024 0 452.182586 0z m0 236.840048c-40.912043 0-75.34166-34.462691-75.34166-75.34166 0-40.945116 34.429617-75.407807 75.34166-75.407808 40.945116 0 75.34166 34.462691 75.341661 75.407808 0 40.912043-34.429617 75.34166-75.308587 75.34166z';
 
@@ -23,10 +30,13 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
     const intents: Array<{type: string}> = [];
     let overlayTarget: OverlaySnapshot['target'] = snapshot.target;
     const privacyListeners = new Set<(status: PrivacyStatus) => void>();
+    const asrStatusListeners = new Set<(status: AsrStatus) => void>();
+    const asrModelListeners = new Set<(snapshot: AsrModelSnapshot) => void>();
     const asrListeners = new Set<(event: {type: string; text: string}) => void>();
     const chatListeners = new Set<(event: ChatStreamEvent) => void>();
     const audioInputListeners = new Set<(mode: 'system' | 'microphone' | 'mixed') => void>();
     const modelListeners = new Set<() => void>();
+    const workspaceCommandListeners = new Set<(command: WorkspaceCommand) => void>();
     const chatSends: Array<{requestId: string; prompt: string}> = [];
     const assistSends: Array<{requestId: string; selection?: ModelSelectionInput}> = [];
     const verifiedConnection = {
@@ -57,6 +67,15 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
             animationFinished: vi.fn(async (revision: number) => ({...snapshot, revision})),
             onWindowError: vi.fn(() => () => {}),
         },
+        workspaceCommands: {
+            dispatch: vi.fn(async (command: WorkspaceCommand) => {
+                for (const listener of workspaceCommandListeners) listener(command);
+            }),
+            onCommand: vi.fn((listener: (command: WorkspaceCommand) => void) => {
+                workspaceCommandListeners.add(listener);
+                return () => workspaceCommandListeners.delete(listener);
+            }),
+        },
         privacy: {
             getStatus: vi.fn(async () => privacyStatus),
             onStatus: vi.fn((listener: (status: PrivacyStatus) => void) => { privacyListeners.add(listener); return () => privacyListeners.delete(listener); }),
@@ -73,15 +92,18 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
         },
         asr: {
             getStatus: vi.fn(async () => ({state: 'idle' as const})),
-            onStatus: vi.fn(() => () => {}),
+            onStatus: vi.fn((listener: (status: AsrStatus) => void) => { asrStatusListeners.add(listener); return () => asrStatusListeners.delete(listener); }),
             onResult: vi.fn((listener: (event: {type: string; text: string}) => void) => { asrListeners.add(listener); return () => asrListeners.delete(listener); }),
             start: vi.fn(async () => undefined),
             stop: vi.fn(async () => undefined),
             writePcm: vi.fn(),
         },
         asrModels: {
-            list: vi.fn(async () => asrModels),
-            onStatus: vi.fn(() => () => {}),
+            list: vi.fn(async () => {
+                for (const listener of asrModelListeners) listener(asrModels);
+                return asrModels;
+            }),
+            onStatus: vi.fn((listener: (snapshot: AsrModelSnapshot) => void) => { asrModelListeners.add(listener); return () => asrModelListeners.delete(listener); }),
         },
         models: {
             getSaved: vi.fn(async () => ({active_profile: 'generic_openai' as const, connections: {generic_openai: verifiedConnection}})),
@@ -93,18 +115,20 @@ function fakeApi(privacyStatus: PrivacyStatus = privacy) {
             assist: vi.fn(async (requestId: string, selection?: ModelSelectionInput) => { assistSends.push({requestId, selection}); return {requestId}; }),
             cancel: vi.fn(async () => undefined),
         },
-        window: {hide: vi.fn(), show: vi.fn(), getState: vi.fn(), setExpanded: vi.fn(), toggleExpanded: vi.fn(), onState: vi.fn()},
+        window: {hide: vi.fn(), show: vi.fn(), getState: vi.fn(), setExpanded: vi.fn(), toggleExpanded: vi.fn(), onState: vi.fn(), quit: vi.fn(async () => undefined)},
     } as unknown as MeetingMonsterApi;
     return {
         api,
         intents,
         chatSends,
         assistSends,
+        emitAsrStatus: (status: AsrStatus) => { for (const listener of asrStatusListeners) listener(status); },
         emitAsrResult: (event: {type: string; text: string}) => { for (const listener of asrListeners) listener(event); },
         emitChatEvent: (event: ChatStreamEvent) => { for (const listener of chatListeners) listener(event); },
         emitAudioInputChanged: (mode: 'system' | 'microphone' | 'mixed') => { for (const listener of audioInputListeners) listener(mode); },
         emitModelChanged: () => { for (const listener of modelListeners) listener(); },
         emitPrivacy: (status: PrivacyStatus) => { for (const listener of privacyListeners) listener(status); },
+        emitWorkspaceCommand: (command: WorkspaceCommand) => { for (const listener of workspaceCommandListeners) listener(command); },
     };
 }
 
@@ -210,9 +234,8 @@ function audioPermissionError(rawMessage: string) {
     return error;
 }
 
-function workspaceRecordButtons(container: HTMLElement) {
-    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('.record-action'));
-    return {start: buttons[0]!, stop: buttons[1]!};
+function waitForWorkspaceRecordingReady() {
+    return act(async () => { await Promise.resolve(); });
 }
 
 afterEach(() => {
@@ -265,26 +288,75 @@ test('capsule exposes only workspace and exit actions', async () => {
 
     expect(await screen.findByRole('button', {name: /Chat/})).toBeTruthy();
     expect((await screen.findByRole('button', {name: /Chat/})).getAttribute('aria-expanded')).toBe('false');
-    expect(screen.getByRole('button', {name: '退出应用'})).toBeTruthy();
+    const quit = screen.getByRole('button', {name: '退出 Meeting-Monster'});
+    expect(quit).toBeTruthy();
+    expect(quit.textContent).toBe('×');
+    fireEvent.click(quit);
+    expect(api.window.quit).toHaveBeenCalledOnce();
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
     expect(screen.queryByText(/已保护|未保护/)).toBeNull();
 });
 
-test('workspace menu toggles privacy and marks the visible state', async () => {
-    const {api, emitPrivacy} = fakeApi();
+test('capsule renders each transcription state with its fixed label and indicator', async () => {
+    const {api, emitAsrStatus} = fakeApi();
     window.meetingMonster = api;
-    render(<OverlayApp />);
+    render(<CapsuleApp />);
 
-    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
-    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /共享隐藏/});
-    expect(privacyItem.getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(privacyItem);
-    expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(false);
-    act(() => emitPrivacy({...privacy, captureProtection: 'disabled', captureProtectionEnabled: false}));
-    expect(screen.getByTestId('privacy-warning-dot')).toBeTruthy();
+    const expected: Record<AsrStatus['state'], string> = {
+        idle: '就绪',
+        connecting: '正在启动',
+        recording: '正在转写',
+        stopping: '正在停止',
+        error: '转写异常',
+    };
+
+    for (const [state, label] of Object.entries(expected) as Array<[AsrStatus['state'], string]>) {
+        act(() => emitAsrStatus({state}));
+        await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
+        expect(document.querySelector('.capsule-state-indicator')?.getAttribute('data-state')).toBe(state);
+    }
 });
 
-test('workspace menu reports configured-but-failed sharing privacy as not enabled and retries protection', async () => {
+test('workspace menu dispatches transcription and chat commands while exposing compact shortcut rows', async () => {
+    const {api, emitAsrStatus} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+    act(() => emitAsrStatus({state: 'idle'}));
+
+    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    const visibilityReference = screen.getByText('显示/隐藏窗口');
+    expect(visibilityReference.closest('.workspace-menu-reference')).toBeTruthy();
+    expect(screen.queryByRole('menuitem', {name: /显示\/隐藏窗口/})).toBeNull();
+    expect(screen.getByText('移动悬浮窗')).toBeTruthy();
+    expect(screen.getByText('滚动聊天')).toBeTruthy();
+    expect(screen.getByText('Ctrl+\\')).toBeTruthy();
+    expect(screen.getByText('Ctrl+↑↓←→')).toBeTruthy();
+    expect(screen.getByText('Ctrl+Shift+↑↓')).toBeTruthy();
+    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/});
+    expect(transcription).toBeTruthy();
+    expect(screen.getByRole('menuitem', {name: /清空聊天/})).toBeTruthy();
+    expect(screen.getByText('Ctrl+R')).toBeTruthy();
+    expect(screen.getByRole('menuitemcheckbox', {name: /应用隐藏/})).toBeTruthy();
+    expect(screen.queryByText('截图保护')).toBeNull();
+    expect(screen.getByText('开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。')).toBeTruthy();
+    expect(screen.queryByText(/Ask/)).toBeNull();
+    expect(screen.queryByText(/Stop session/)).toBeNull();
+
+    await waitFor(() => expect(transcription.disabled).toBe(false));
+    fireEvent.click(transcription);
+    expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'toggle-transcription'});
+    fireEvent.click(screen.getByRole('menuitem', {name: /清空聊天/}));
+    expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'clear-chat'});
+
+    act(() => emitAsrStatus({state: 'recording'}));
+    await waitFor(() => expect(transcription.getAttribute('aria-checked')).toBe('true'));
+    act(() => emitAsrStatus({state: 'connecting'}));
+    await waitFor(() => expect(transcription.disabled).toBe(true));
+    act(() => emitAsrStatus({state: 'stopping'}));
+    await waitFor(() => expect(transcription.disabled).toBe(true));
+});
+
+test('workspace menu reports configured-but-failed screenshot protection as not enabled and retries protection', async () => {
     const failedPrivacy = {...privacy, captureProtection: 'failed' as const, captureProtectionEnabled: true};
     const {api} = fakeApi(failedPrivacy);
     window.meetingMonster = api;
@@ -293,10 +365,8 @@ test('workspace menu reports configured-but-failed sharing privacy as not enable
     expect(await screen.findByTestId('privacy-warning-dot')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', {name: '更多'}));
-    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /共享隐藏/});
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /应用隐藏/});
     expect(privacyItem.getAttribute('aria-checked')).toBe('false');
-    expect(screen.getByText('未开启')).toBeTruthy();
-    expect(screen.getByText(/实际效果取决于系统与录制工具/)).toBeTruthy();
 
     fireEvent.click(privacyItem);
     expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(true);
@@ -324,7 +394,7 @@ test('capsule exit control quits the app instead of hiding it', async () => {
     window.meetingMonster = api;
     render(<CapsuleApp />);
 
-    const exit = await screen.findByRole('button', {name: '退出应用'});
+    const exit = await screen.findByRole('button', {name: '退出 Meeting-Monster'});
     fireEvent.click(exit);
 
     expect(quit).toHaveBeenCalledOnce();
@@ -338,19 +408,40 @@ test('workspace header omits the prompt pill while retaining drag affordances', 
 
     await waitFor(() => expect(container.querySelector('.panel-drag-handle')).toBeTruthy());
     const header = container.querySelector('.panel-drag-handle');
-    const dragHint = container.querySelector('.panel-drag-hint');
     const transcript = container.querySelector('.workspace-transcript');
     const title = container.querySelector('.panel-kicker');
 
     expect(container.querySelector('.panel-prompt')).toBeNull();
     expect(header).toBeTruthy();
+    expect(header?.hasAttribute('data-drag-handle')).toBe(true);
     expect(title?.textContent).toBe('TRANSCRIPT');
     expect(title?.className).toBe('panel-kicker');
     expect(title?.closest('.panel-drag-handle')).toBe(header);
-    expect(dragHint?.closest('.panel-drag-handle')).toBe(header);
+    expect(container.querySelector('.panel-drag-hint')).toBeNull();
+    expect(screen.queryByText('\u62d6\u52a8\u9762\u677f')).toBeNull();
     expect(transcript?.querySelector('.panel-prompt')).toBeNull();
     expect(transcript?.querySelector('.empty-copy')).toBeNull();
     expect(transcript?.textContent).not.toContain('\u5f00\u59cb\u8f6c\u5199\u540e\uff0c\u5f53\u524d\u95ee\u9898\u4f1a\u663e\u793a\u5728\u8fd9\u91cc');
+});
+
+test('panel drag handle uses the standard cursor', async () => {
+    const style = document.createElement('style');
+    style.textContent = panelStyles;
+    document.head.append(style);
+    try {
+        const {api} = fakeApi();
+        window.meetingMonster = api;
+        const {container} = render(<OverlayApp />);
+        const header = await waitFor(() => {
+            const element = container.querySelector('.panel-drag-handle');
+            expect(element).toBeTruthy();
+            return element as Element;
+        });
+
+        expect(window.getComputedStyle(header).cursor).toBe('default');
+    } finally {
+        style.remove();
+    }
 });
 
 test('workspace automatically selects ASR fragments and waits for manual submission', async () => {
@@ -432,7 +523,70 @@ test('workspace keeps screenshot Assist separate from a selected transcript answ
     expect(await screen.findByText('Transcript answer')).toBeTruthy();
 });
 
-test('workspace places AI actions after recording controls in the composer row', async () => {
+test('workspace toggles transcription from workspace commands', async () => {
+    installWorkspaceAudioFakes();
+    const {api, emitWorkspaceCommand} = fakeApi();
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
+    await waitFor(() => expect(api.asr.start).toHaveBeenCalledWith(16000));
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
+    await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
+});
+
+test('capsule reflects a renderer-originated transcription failure', async () => {
+    installWorkspaceAudioFakes({displayError: audioPermissionError('display capture denied')});
+    const {api, emitWorkspaceCommand} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalled());
+    await screen.findByText('就绪');
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
+
+    await screen.findByText('转写异常');
+});
+
+test('workspace clears chat from a command without stopping transcription', async () => {
+    installWorkspaceAudioFakes();
+    const {api, chatSends, emitAsrResult, emitWorkspaceCommand} = fakeApi();
+    window.meetingMonster = api;
+    const {container} = render(<WorkspaceView active />);
+
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
+    await waitFor(() => expect(api.asr.start).toHaveBeenCalledWith(16000));
+    act(() => emitAsrResult({type: 'final', text: 'Question'}));
+    await waitFor(() => expect(container.querySelector('.question-row')).toBeTruthy());
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+
+    act(() => emitWorkspaceCommand({type: 'clear-chat'}));
+
+    expect(container.querySelector('.question-row')).toBeNull();
+    expect(api.chat.cancel).toHaveBeenCalledOnce();
+    expect(api.asr.stop).not.toHaveBeenCalled();
+});
+
+test('workspace scroll commands move the answer in opposite directions', async () => {
+    const {api, emitWorkspaceCommand} = fakeApi();
+    window.meetingMonster = api;
+    const {container} = render(<WorkspaceView active />);
+    const answerScroll = container.querySelector<HTMLDivElement>('.answer-scroll')!;
+    const scrollBy = vi.fn();
+    Object.defineProperty(answerScroll, 'clientHeight', {configurable: true, value: 300});
+    Object.defineProperty(answerScroll, 'scrollBy', {configurable: true, value: scrollBy});
+
+    act(() => emitWorkspaceCommand({type: 'scroll-chat', direction: 'up'}));
+    act(() => emitWorkspaceCommand({type: 'scroll-chat', direction: 'down'}));
+
+    expect(scrollBy).toHaveBeenNthCalledWith(1, expect.objectContaining({top: -180}));
+    expect(scrollBy).toHaveBeenNthCalledWith(2, expect.objectContaining({top: 180}));
+});
+
+test('workspace keeps only AI actions in the composer row', async () => {
     const {api, chatSends, assistSends, emitAsrResult, emitChatEvent} = fakeApi();
     window.meetingMonster = api;
     const {container} = render(<WorkspaceView active />);
@@ -444,13 +598,15 @@ test('workspace places AI actions after recording controls in the composer row',
     act(() => emitChatEvent({type: 'done', requestId: chatSends[0]!.requestId}));
 
     const actions = container.querySelector('.composer-actions')!;
-    const buttons = Array.from(actions.querySelectorAll<HTMLButtonElement>('button'));
     const aiButtons = Array.from(actions.querySelectorAll<HTMLButtonElement>('.composer-ai-action'));
-    const clearIndex = buttons.findIndex((button) => button.textContent?.trim() === '清空');
 
     expect(container.querySelector('.workspace-toolbar')).toBeNull();
     expect(aiButtons).toHaveLength(3);
-    expect(aiButtons.every((button) => button.type === 'button' && buttons.indexOf(button) > clearIndex)).toBe(true);
+    expect(actions.querySelector('.record-action')).toBeNull();
+    expect(actions.textContent).not.toContain('开始转写');
+    expect(actions.textContent).not.toContain('停止');
+    expect(actions.textContent).not.toContain('清空');
+    expect(aiButtons.every((button) => button.type === 'button')).toBe(true);
 
     fireEvent.click(aiButtons[0]!);
     await waitFor(() => expect(assistSends).toHaveLength(1));
@@ -630,16 +786,15 @@ test('workspace keeps incomplete reasoning hidden and does not execute raw HTML'
 
 test('workspace migrates the legacy input preference once and uses the saved mode for recording', async () => {
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'mixed');
-    const {container} = render(<WorkspaceView active />);
-    const {start, stop} = workspaceRecordButtons(container);
+    render(<WorkspaceView active />);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
     await waitFor(() => expect(api.audioInput.set).toHaveBeenCalledWith('mixed'));
     expect(window.localStorage.getItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY)).toBeNull();
-    fireEvent.click(start);
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
 
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledWith(16000));
     expect(media.getDisplayMedia).toHaveBeenCalledOnce();
@@ -647,21 +802,20 @@ test('workspace migrates the legacy input preference once and uses the saved mod
     expect(media.getDisplayMedia.mock.invocationCallOrder[0]).toBeLessThan(api.asr.start.mock.invocationCallOrder[0]);
     expect(media.getUserMedia.mock.invocationCallOrder[0]).toBeLessThan(api.asr.start.mock.invocationCallOrder[0]);
 
-    fireEvent.click(stop);
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
 });
 
 test('workspace maps a denied system capture to a safe permission message', async () => {
     const rawMessage = 'display capture secret stack details';
     installWorkspaceAudioFakes({displayError: audioPermissionError(rawMessage)});
-    const {api} = fakeApi();
+    const {api, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
-    const {container} = render(<WorkspaceView active />);
-    const {start} = workspaceRecordButtons(container);
+    render(<WorkspaceView active />);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.click(start);
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('系统音频');
@@ -673,14 +827,13 @@ test('workspace maps a denied system capture to a safe permission message', asyn
 test('workspace maps a denied microphone capture to a safe permission message', async () => {
     const rawMessage = 'microphone capture secret stack details';
     installWorkspaceAudioFakes({microphoneError: audioPermissionError(rawMessage)});
-    const {api} = fakeApi();
+    const {api, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'microphone');
-    const {container} = render(<WorkspaceView active />);
-    const {start} = workspaceRecordButtons(container);
+    render(<WorkspaceView active />);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.click(start);
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('麦克风');
@@ -691,21 +844,20 @@ test('workspace maps a denied microphone capture to a safe permission message', 
 
 test('workspace uses a later audio input change for the next idle session', async () => {
     const media = installWorkspaceAudioFakes();
-    const {api, emitAudioInputChanged} = fakeApi();
+    const {api, emitAudioInputChanged, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
     const {container} = render(<WorkspaceView active />);
-    const {start, stop} = workspaceRecordButtons(container);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.click(start);
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(1));
-    fireEvent.click(stop);
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledTimes(1));
 
     act(() => emitAudioInputChanged('microphone'));
     await waitFor(() => expect(container.querySelector('.workspace-content')?.getAttribute('data-audio-input-mode')).toBe('microphone'));
 
-    fireEvent.click(start);
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(2));
     expect(media.getDisplayMedia).toHaveBeenCalledOnce();
     expect(media.getUserMedia).toHaveBeenCalledOnce();
@@ -729,14 +881,14 @@ test('workspace does not let a delayed saved mode overwrite a newer audio input 
 
 test('workspace stops local capture and ASR once when an input track ends, while retaining the error', async () => {
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitWorkspaceCommand} = fakeApi();
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
     const {container} = render(<WorkspaceView active />);
-    const {start} = workspaceRecordButtons(container);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.click(start);
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    await waitForWorkspaceRecordingReady();
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledOnce());
     act(() => media.displayStream.getAudioTracks()[0]!.end());
 
@@ -745,22 +897,21 @@ test('workspace stops local capture and ASR once when an input track ends, while
     expect(alert.textContent).toContain('已结束');
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
     expect(media.displayStream.getAudioTracks()[0]!.stopCalls).toBe(1);
-    await waitFor(() => expect(start.disabled).toBe(false));
+    await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
     expect(screen.getByRole('alert')).toBe(alert);
 });
 
 test('workspace retains the input-ended error when pending ASR start rejects after cleanup', async () => {
     let rejectAsrStart!: (error: Error) => void;
     const media = installWorkspaceAudioFakes();
-    const {api} = fakeApi();
+    const {api, emitWorkspaceCommand} = fakeApi();
     api.asr.start = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectAsrStart = reject; }));
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
-    const {container} = render(<WorkspaceView active />);
-    const {start} = workspaceRecordButtons(container);
+    render(<WorkspaceView active />);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.click(start);
+    await waitFor(() => expect(api.asrModels.list).toHaveBeenCalledOnce());
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledOnce());
     act(() => media.displayStream.getAudioTracks()[0]!.end());
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
@@ -782,26 +933,27 @@ test('workspace retains the input-ended error when pending ASR start rejects aft
 test('workspace ignores a stale ASR start rejection after the next session begins', async () => {
     let rejectFirstAsrStart!: (error: Error) => void;
     const media = installWorkspaceAudioFakes();
-    const {api, emitAudioInputChanged} = fakeApi();
+    const {api, emitAudioInputChanged, emitWorkspaceCommand} = fakeApi();
     api.asr.start = vi.fn()
         .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectFirstAsrStart = reject; }))
         .mockResolvedValueOnce(undefined);
     window.meetingMonster = api;
     window.localStorage.setItem(LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY, 'system');
-    const {container} = render(<WorkspaceView active />);
-    const {start, stop} = workspaceRecordButtons(container);
+    render(<><WorkspaceMenu /><WorkspaceView active /></>);
 
-    await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.click(start);
+    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/}) as HTMLButtonElement;
+    await waitFor(() => expect(transcription.disabled).toBe(false));
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(1));
     act(() => media.displayStream.getAudioTracks()[0]!.end());
     await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
-    await waitFor(() => expect(start.disabled).toBe(false));
+    await waitFor(() => expect(api.asr.stop).toHaveBeenCalledOnce());
 
     act(() => emitAudioInputChanged('microphone'));
-    fireEvent.click(start);
+    act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(stop.disabled).toBe(false));
+    await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('alert')).toBeNull();
 
     await act(async () => {
@@ -811,7 +963,7 @@ test('workspace ignores a stale ASR start rejection after the next session begin
     });
 
     expect(api.asr.stop).toHaveBeenCalledOnce();
-    expect(stop.disabled).toBe(false);
+    expect(api.asr.start).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(media.microphoneStream.getAudioTracks()[0]!.stopCalls).toBe(0);
 });
