@@ -47,21 +47,47 @@ describe('parseSse', () => {
         await expect(collect(parseSse(responseFromChunks([encoder.encode('data: ignored\n\n')]), controller.signal)))
             .resolves.toEqual([]);
     });
+
+    it('cancels a pending read immediately when its signal aborts', async () => {
+        let cancelled = false;
+        const response = new Response(new ReadableStream<Uint8Array>({
+            pull: () => new Promise<void>(() => undefined),
+            cancel: () => { cancelled = true; },
+        }));
+        const controller = new AbortController();
+        const iterator = parseSse(response, controller.signal);
+        const pending = iterator.next();
+        await Promise.resolve();
+        controller.abort();
+
+        await expect(pending).resolves.toEqual({done: true, value: undefined});
+        expect(cancelled).toBe(true);
+    });
 });
 
 describe('provider diagnostics', () => {
     it.each([
-        [401, 'authentication'], [403, 'authentication'], [404, 'not_found'], [400, 'invalid_request'],
-        [422, 'invalid_request'], [429, 'rate_limited'], [408, 'timeout'], [504, 'timeout'],
-        [500, 'upstream'], [599, 'upstream'],
-    ] as const)('classifies provider HTTP status %i as %s', (status, kind) => {
+        [401, 'authentication', '认证失败（HTTP 401）：请检查 API Key 或账户区域'],
+        [403, 'authentication', '认证失败（HTTP 403）：请检查 API Key 或账户区域'],
+        [404, 'not_found', '模型不存在（HTTP 404）：请检查 Model ID'],
+        [400, 'invalid_request', '请求无效（HTTP 400）：请检查模型连接配置'],
+        [422, 'invalid_request', '请求无效（HTTP 422）：请检查模型连接配置'],
+        [429, 'rate_limited', '请求过于频繁（HTTP 429）：请稍后重试'],
+        [408, 'timeout', '连接超时（HTTP 408）：请稍后重试'],
+        [504, 'timeout', '连接超时（HTTP 504）：请稍后重试'],
+        [500, 'upstream', '模型服务暂时不可用（HTTP 500）：请稍后重试'],
+        [599, 'upstream', '模型服务暂时不可用（HTTP 599）：请稍后重试'],
+    ] as const)('classifies provider HTTP status %i as %s', (status, kind, message) => {
         expect(classifyProviderError({status})).toMatchObject({status, kind});
+        expect(sanitizeProviderError({status}, selection)).toBe(message);
     });
 
     it('classifies network and unknown errors without trusting their text', () => {
         const network = new Error('socket disconnected');
         network.name = 'NetworkError';
         expect(classifyProviderError(network).kind).toBe('unreachable');
+        const nativeFetchError = Object.assign(new TypeError('fetch failed'), {cause: {code: 'ECONNREFUSED'}});
+        expect(classifyProviderError(nativeFetchError).kind).toBe('unreachable');
         expect(classifyProviderError(new Error('provider-secret upstream detail')).kind).toBe('unknown');
     });
 

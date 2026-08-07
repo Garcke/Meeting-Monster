@@ -49,7 +49,7 @@ export async function* parseSse(response: Response, signal: AbortSignal): AsyncG
 
     try {
         while (!signal.aborted) {
-            const {done, value} = await reader.read();
+            const {done, value} = await readWithAbort(reader, signal);
             if (signal.aborted || done) break;
             if (value) buffered += decoder.decode(value, {stream: true});
             for (const event of consume()) yield event;
@@ -61,5 +61,25 @@ export async function* parseSse(response: Response, signal: AbortSignal): AsyncG
     } finally {
         if (signal.aborted) await reader.cancel().catch(() => undefined);
         reader.releaseLock();
+    }
+}
+
+async function readWithAbort(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+    if (signal.aborted) return {done: true, value: undefined};
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+        onAbort = () => {
+            void reader.cancel().catch(() => undefined);
+            resolve({done: true, value: undefined});
+        };
+        signal.addEventListener('abort', onAbort, {once: true});
+    });
+    try {
+        return await Promise.race([reader.read(), aborted]);
+    } finally {
+        if (onAbort) signal.removeEventListener('abort', onAbort);
     }
 }
