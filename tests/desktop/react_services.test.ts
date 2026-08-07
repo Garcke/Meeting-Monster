@@ -9,6 +9,11 @@ import {
 import {BUILT_IN_MODEL_PROFILES, buildModelSelection} from '../../desktop/ui/shared/services/model-settings-service';
 import type {MeetingMonsterApi, ModelTestResult} from '../../desktop/src/shared/contracts';
 import {stripAssistantThinking} from '../../desktop/ui/shared/services/assistant-markdown';
+import {
+    getTranscriptionStatus,
+    publishTranscriptionStatus,
+    subscribeTranscriptionStatus,
+} from '../../desktop/ui/shared/services/transcription-status-store';
 
 class FakeTrack {
     public onended: (() => void) | null = null;
@@ -186,6 +191,25 @@ it('hides an incomplete trailing thinking block during streaming', () => {
 it('removes standalone closing thinking tags without changing surrounding Markdown', () => {
     expect(stripAssistantThinking('</think>\n- item')).toBe('- item');
     expect(stripAssistantThinking('Plain **text**')).toBe('Plain **text**');
+});
+
+it('publishes immutable transcription status snapshots and supports unsubscribe', () => {
+    const notifications: Array<{state: string; message?: string}> = [];
+    const unsubscribe = subscribeTranscriptionStatus(() => notifications.push(getTranscriptionStatus()));
+    const connecting = {state: 'connecting' as const};
+
+    publishTranscriptionStatus(connecting);
+    publishTranscriptionStatus({state: 'error', message: 'capture failed'});
+    connecting.state = 'idle';
+
+    expect(notifications).toEqual([
+        {state: 'connecting'},
+        {state: 'error', message: 'capture failed'},
+    ]);
+    expect(notifications[0]).not.toBe(connecting);
+    unsubscribe();
+    publishTranscriptionStatus({state: 'idle'});
+    expect(notifications).toHaveLength(2);
 });
 
 it('rejects invalid Base URL, empty Model ID, and mismatched protocol in the renderer', () => {
