@@ -2,7 +2,7 @@ import type {BackendImage, BackendModelSelection} from './types';
 import type {NormalizedProviderError} from './providers/provider';
 
 const MESSAGES: Record<NormalizedProviderError['kind'], {label: string; guidance: string}> = {
-    authentication: {label: '认证失败', guidance: '请检查 API Key 或账户区域'},
+    authentication: {label: '认证失败', guidance: '请检查 API Key 或账号区域'},
     not_found: {label: '模型不存在', guidance: '请检查 Model ID'},
     invalid_request: {label: '请求无效', guidance: '请检查模型连接配置'},
     rate_limited: {label: '请求过于频繁', guidance: '请稍后重试'},

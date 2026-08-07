@@ -67,8 +67,8 @@ describe('parseSse', () => {
 
 describe('provider diagnostics', () => {
     it.each([
-        [401, 'authentication', '认证失败（HTTP 401）：请检查 API Key 或账户区域'],
-        [403, 'authentication', '认证失败（HTTP 403）：请检查 API Key 或账户区域'],
+        [401, 'authentication', '认证失败（HTTP 401）：请检查 API Key 或账号区域'],
+        [403, 'authentication', '认证失败（HTTP 403）：请检查 API Key 或账号区域'],
         [404, 'not_found', '模型不存在（HTTP 404）：请检查 Model ID'],
         [400, 'invalid_request', '请求无效（HTTP 400）：请检查模型连接配置'],
         [422, 'invalid_request', '请求无效（HTTP 422）：请检查模型连接配置'],
