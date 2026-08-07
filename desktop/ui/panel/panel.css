@@ -47,6 +47,8 @@ button, input, select, textarea, .no-drag, .workspace-content { -webkit-app-regi
 .workspace-menu-item:hover:not(:disabled) { background: rgba(121, 185, 255, 0.17); }
 .workspace-menu-item:disabled { cursor: wait; opacity: 0.55; }
 .workspace-menu-item-label { font-weight: 700; }
+.workspace-menu-privacy-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; }
+.workspace-menu-privacy-copy { grid-column: 1 / -1; color: rgba(230, 237, 248, 0.62); font-size: 11px; font-weight: 500; line-height: 1.35; }
 .workspace-menu-switch { position: relative; width: 30px; height: 17px; margin-left: auto; flex: 0 0 auto; background: rgba(230, 237, 248, 0.26); border-radius: 999px; transition: background 120ms ease; }
 .workspace-menu-switch::after { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; content: ''; background: #f5f8fc; border-radius: 50%; transition: transform 120ms ease; }
 .workspace-menu-switch.is-on { background: #3a88ee; }

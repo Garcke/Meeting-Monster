@@ -103,13 +103,16 @@ test('workspace menu owns compact controls and warning state', () => {
     assert.match(source, /isAsrModelReady/);
     assert.match(source, /toggle-transcription/);
     assert.match(source, /clear-chat/);
+    assert.match(source, /Ctrl\+R/);
     assert.match(source, /截图保护/);
+    assert.match(source, /开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。/);
     assert.match(source, /显示\/隐藏窗口/);
     assert.match(source, /settings\.open\(\)/);
     assert.match(source, /privacy\.setCaptureProtection/);
     assert.match(source, /privacy-warning-dot/);
     assert.match(styles, /\.workspace-menu-popover\s*\{[^}]*width:\s*272px/s);
     assert.match(styles, /\.workspace-menu-switch\s*\{[^}]*width:\s*30px[^}]*height:\s*17px/s);
+    assert.match(styles, /\.workspace-menu-privacy-copy\s*\{/);
     assert.match(styles, /\.privacy-warning-dot\s*\{[^}]*#F3A35C/s);
 });
 

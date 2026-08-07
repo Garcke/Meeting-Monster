@@ -333,7 +333,9 @@ test('workspace menu dispatches transcription and chat commands while exposing c
     const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/});
     expect(transcription).toBeTruthy();
     expect(screen.getByRole('menuitem', {name: /清空聊天/})).toBeTruthy();
+    expect(screen.getByText('Ctrl+R')).toBeTruthy();
     expect(screen.getByRole('menuitemcheckbox', {name: /截图保护/})).toBeTruthy();
+    expect(screen.getByText('开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。')).toBeTruthy();
     expect(screen.queryByText(/Ask/)).toBeNull();
     expect(screen.queryByText(/Stop session/)).toBeNull();
 

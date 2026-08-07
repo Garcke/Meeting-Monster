@@ -106,13 +106,15 @@ export function WorkspaceMenu() {
                         </button>
                         <button className="workspace-menu-item" type="button" role="menuitem" onClick={() => void clearChat()}>
                             <span className="workspace-menu-item-label">清空聊天</span>
+                            <kbd>Ctrl+R</kbd>
                         </button>
                     </section>
                     <div className="workspace-menu-separator" role="separator" />
                     <section className="workspace-menu-section" aria-label="隐私与设置">
-                        <button className="workspace-menu-item" type="button" role="menuitemcheckbox" aria-checked={privacyActive} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
+                        <button className="workspace-menu-item workspace-menu-privacy-item" type="button" role="menuitemcheckbox" aria-checked={privacyActive} disabled={!privacy || privacyPending} onClick={() => void togglePrivacy()}>
                             <span className="workspace-menu-item-label">截图保护</span>
                             <span className={`workspace-menu-switch ${privacyActive ? 'is-on' : ''}`} aria-hidden="true" />
+                            <span className="workspace-menu-privacy-copy">开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。</span>
                         </button>
                         <button className="workspace-menu-item" type="button" role="menuitem" onClick={() => void openSettings()}>设置</button>
                     </section>
