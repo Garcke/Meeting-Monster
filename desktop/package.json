@@ -10,7 +10,7 @@
     "build": "npm run build:main && npm run build:renderer",
     "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
     "typecheck": "npm run typecheck:renderer && tsc -p tsconfig.json --noEmit",
-    "unit-test": "vitest run --root .. --config desktop/vitest.config.ts ../tests/desktop/react_overlay.test.tsx ../tests/desktop/react_services.test.ts ../tests/desktop/overlay-state.test.ts ../tests/desktop/model_test_coordinator.test.ts ../tests/desktop/settings_model_test_progress.test.tsx ../tests/desktop/settings_renderer.test.tsx",
+    "unit-test": "vitest run --root .. --config desktop/vitest.config.ts ../tests/desktop/react_overlay.test.tsx ../tests/desktop/react_services.test.ts ../tests/desktop/overlay-state.test.ts ../tests/desktop/model_test_coordinator.test.ts ../tests/desktop/settings_model_test_progress.test.tsx ../tests/desktop/settings_renderer.test.tsx ../tests/desktop/web-shortcut-policy.test.ts",
     "start": "npm run build && electron .",
     "check": "npm run typecheck",
     "desktop-test": "npm run build && node --test ../tests/desktop/*.mjs",

@@ -148,6 +148,24 @@ test('main validates and relays workspace commands only from the overlay', () =>
     assert.match(source, /function sendWorkspaceCommand\([\s\S]*getLiveOverlayWindows\(\)\[0\][\s\S]*IPC_CHANNELS\.workspaceCommands\.event/);
 });
 
+test('main applies local web shortcut policy to both windows without global Ctrl+S/R bindings', () => {
+    const source = mainSource();
+    const policy = source.match(/function configureWebShortcutPolicy[\s\S]*?\n\}/)?.[0] ?? '';
+    const overlay = source.match(/function configureOverlayWindow[\s\S]*?\n\}/)?.[0] ?? '';
+    const settings = source.match(/function configureSettingsWindow[\s\S]*?\n\}/)?.[0] ?? '';
+
+    assert.match(source, /import \{classifyWebShortcut, type WebShortcutSurface\} from '\.\/web-shortcut-policy'/);
+    assert.match(overlay, /configureWebShortcutPolicy\(win, 'overlay'\)/);
+    assert.match(settings, /configureWebShortcutPolicy\(win, 'settings'\)/);
+    assert.match(policy, /webContents\.on\('before-input-event'/);
+    assert.match(policy, /getOverlaySnapshot\(\)\.target === 'workspace'/);
+    assert.match(policy, /if \(action === 'allow'\) return;[\s\S]*event\.preventDefault\(\)/);
+    assert.match(policy, /action === 'toggle-transcription'[\s\S]*sendWorkspaceCommand\(\{type: 'toggle-transcription'\}\)/);
+    assert.match(policy, /action === 'clear-chat'[\s\S]*sendWorkspaceCommand\(\{type: 'clear-chat'\}\)/);
+    assert.doesNotMatch(source, /globalShortcut\.register\('CommandOrControl\+S'/);
+    assert.doesNotMatch(source, /globalShortcut\.register\('CommandOrControl\+R'/);
+});
+
 test('main authorizes Windows system-audio loopback display capture', () => {
     const source = mainSource();
 

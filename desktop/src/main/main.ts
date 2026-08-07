@@ -20,6 +20,7 @@ import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordi
 import {LocalAsrEngine, type SherpaBinding} from './local-asr-engine';
 import {captureCurrentDisplay} from './screen-capture';
 import {runModelTestWithVisionRetries} from './model-test-coordinator';
+import {classifyWebShortcut, type WebShortcutSurface} from './web-shortcut-policy';
 import {
     createOverlayWindowController,
     CAPSULE_BOUNDS,
@@ -1012,8 +1013,26 @@ function broadcastOverlayWindowError(message: string): void {
     for (const win of getLiveOverlayWindows()) win.webContents.send(IPC_CHANNELS.overlay.windowError, message);
 }
 
+function configureWebShortcutPolicy(win: BrowserWindow, surface: WebShortcutSurface): void {
+    win.webContents.on('before-input-event', (event, input) => {
+        const action = classifyWebShortcut(
+            input,
+            surface,
+            getOverlaySnapshot().target === 'workspace',
+        );
+        if (action === 'allow') return;
+        event.preventDefault();
+        if (action === 'toggle-transcription') {
+            sendWorkspaceCommand({type: 'toggle-transcription'});
+        } else if (action === 'clear-chat') {
+            sendWorkspaceCommand({type: 'clear-chat'});
+        }
+    });
+}
+
 function configureOverlayWindow(win: BrowserWindow, manager: WindowPrivacyManager): void {
     manager.registerWindow(win);
+    configureWebShortcutPolicy(win, 'overlay');
     win.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.webContents.on('did-finish-load', () => {
@@ -1038,6 +1057,7 @@ function configureOverlayWindow(win: BrowserWindow, manager: WindowPrivacyManage
 
 function configureSettingsWindow(win: BrowserWindow, manager: WindowPrivacyManager): void {
     manager.registerWindow(win);
+    configureWebShortcutPolicy(win, 'settings');
     win.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.webContents.on('did-finish-load', () => {
