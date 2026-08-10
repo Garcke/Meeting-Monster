@@ -44,13 +44,14 @@ button, input, select, textarea, .no-drag, .workspace-content { -webkit-app-regi
 .workspace-menu-popover .ant-menu-item:hover { color: #eef2f8; background: rgba(121, 185, 255, 0.17); }
 .workspace-menu-popover .ant-menu-item-disabled, .workspace-menu-popover .ant-menu-item-disabled:hover { color: rgba(230, 237, 248, 0.48) !important; background: transparent !important; cursor: default; }
 .workspace-menu-popover .ant-menu-item-divider { margin: 4px 6px; border-color: rgba(255,255,255,0.12); }
-.workspace-menu-reference, .workspace-menu-switch-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; }
+.workspace-menu-reference, .workspace-menu-checkbox-row { display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; }
 .workspace-menu-reference { color: inherit; }
-.workspace-menu-reference kbd, .workspace-menu-switch-item kbd { margin-left: auto; color: rgba(230, 237, 248, 0.52); font: inherit; font-size: 11px; }
+.workspace-menu-reference kbd, .workspace-menu-checkbox-row kbd { margin-left: auto; color: rgba(230, 237, 248, 0.52); font: inherit; font-size: 11px; }
 .workspace-menu-item-label { font-weight: 700; }
-.workspace-menu-switch-item .ant-switch { margin-left: auto; }
-.workspace-menu-privacy-item { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
-.workspace-menu-privacy-copy { grid-column: 1 / -1; color: rgba(230, 237, 248, 0.62); font-size: 11px; font-weight: 500; line-height: 1.35; }
+.workspace-menu-checkbox-item { display: grid; width: 100%; min-width: 0; row-gap: 2px; }
+.workspace-menu-check { display: inline-grid; width: 18px; height: 18px; margin-left: auto; place-items: center; flex: 0 0 18px; color: #0f213b; background: rgba(230, 237, 248, 0.14); border: 1px solid rgba(230, 237, 248, 0.34); border-radius: 5px; font-size: 12px; font-weight: 900; line-height: 1; }
+.workspace-menu-check[data-checked="true"] { color: #0f213b; background: #79b9ff; border-color: #79b9ff; }
+.workspace-menu-privacy-copy { color: rgba(230, 237, 248, 0.62); font-size: 11px; font-weight: 500; line-height: 1.35; }
 .workspace-menu-alert.ant-alert { margin: 4px 4px 2px; color: #ffc98a; background: rgba(151, 39, 61, 0.35); border-color: rgba(255, 120, 143, 0.35); }
 .workspace-menu-panel-alert.ant-alert { position: absolute; z-index: 10; top: calc(100% + 8px); right: 0; width: 214px; color: #ffb6c1; background: #151B25; border-color: rgba(255, 120, 143, 0.45); border-radius: 13px; }
 .panel-error { margin: 2px 0 8px; padding: 7px 10px; color: #ffb6c1; background: rgba(151, 39, 61, 0.35); border: 1px solid rgba(255, 120, 143, 0.35); border-radius: 10px; }

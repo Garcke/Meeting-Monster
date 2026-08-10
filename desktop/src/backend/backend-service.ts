@@ -6,6 +6,7 @@ import type {
     SelectableModelProfile,
 } from '../shared/contracts';
 import {MAX_MODEL_TEST_ATTEMPTS} from '../shared/contracts';
+import {formatModelConnectionError} from '../shared/model-connection-diagnostics';
 import {
     mergeModelConnectionWithSaved,
     type ModelConnection,
@@ -117,12 +118,12 @@ export class BackendService {
                     };
                 }
             }
-            throw modelTestError('vision_verification_failed', 'Model vision verification failed');
+            throw modelTestError('vision_verification_failed');
         } catch (error) {
             if (isModelTestError(error)) throw error;
             abortIfNeeded(controller.signal);
             const diagnostic = classifyProviderError(error);
-            throw modelTestError(diagnosticCode(diagnostic.kind), diagnostic.message, diagnostic.status);
+            throw modelTestError(diagnosticCode(diagnostic.kind), diagnostic.status);
         } finally {
             this.modelTests.delete(controller);
         }
@@ -233,8 +234,12 @@ class InternalModelTestError extends Error {
     }
 }
 
-function modelTestError(code: ModelDiagnosticCode, message: string, providerStatus?: number): Error {
-    return new InternalModelTestError(code, message, providerStatus);
+function modelTestError(code: ModelDiagnosticCode, providerStatus?: number): Error {
+    return new InternalModelTestError(
+        code,
+        formatModelConnectionError({code, providerStatus}),
+        providerStatus,
+    );
 }
 
 function isModelTestError(error: unknown): boolean {

@@ -121,6 +121,7 @@ test('unit-test script runs the complete native backend suite', () => {
     assert.equal(typeof unitTest, 'string');
     assert.match(unitTest, /(?:^|\s)tests\/desktop\/backend(?:\s|$)/);
     assert.doesNotMatch(unitTest, /backend\/types-and-validation\.test\.ts/);
+    assert.doesNotMatch(unitTest, /model_test_coordinator\.test\.ts/);
 });
 
 test('official provider SDKs and Ant Design remain runtime dependencies without an SSE module', () => {
@@ -131,6 +132,10 @@ test('official provider SDKs and Ant Design remain runtime dependencies without 
     assert.match(packageJson.dependencies.antd, /.+/);
     assert.equal(fs.existsSync(path.join(desktopRoot, 'src', 'backend', 'sse.ts')), false);
     assert.equal(fs.existsSync(path.join(desktopRoot, 'dist', 'backend', 'sse.js')), false);
+    assert.equal(packageJson.devDependencies.electron, '37.10.3');
+    assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3');
+    assert.equal(fs.existsSync(path.join(desktopRoot, 'src', 'main', 'model-test-coordinator.ts')), false);
+    assert.equal(fs.existsSync(path.join(desktopRoot, 'dist', 'main', 'model-test-coordinator.js')), false);
 });
 
 test('ASR catalog and manager names remain in the main-process source tree', () => {
@@ -152,6 +157,8 @@ test('README files describe the Electron main-process TypeScript backend boundar
     assert.match(rootReadme, /浏览器工作区已移除|browser client has been removed/i);
     assert.match(rootReadme, /EXE[\s\S]{0,100}Electron 主进程[\s\S]{0,100}TypeScript 后端/i);
     assert.match(rootReadme, /不需要 Python、虚拟环境、`start\.bat` 或单独启动的本地 HTTP 服务/i);
+    assert.match(rootReadme, /官方 OpenAI 和 Anthropic SDK[\s\S]{0,120}Electron 主进程[\s\S]{0,120}fetch transport/i);
+    assert.match(rootReadme, /工作区菜单[\s\S]{0,120}应用隐藏/);
     assert.match(rootReadme, /本地语音转写不需要 Python ASR|no Python ASR model or LOCAL_ASR_MODEL_DIR is needed/i);
     assert.match(rootReadme, /<img[^>]+src="desktop\/renderer\/favicon\.png"/i);
     assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
@@ -162,6 +169,8 @@ test('README files describe the Electron main-process TypeScript backend boundar
     assert.match(desktopReadme, /no Python WebSocket ASR path/i);
     assert.match(desktopReadme, /EXE[\s\S]{0,100}TypeScript backend[\s\S]{0,100}Electron main process/i);
     assert.match(desktopReadme, /no Python runtime[\s\S]{0,120}localhost listener[\s\S]{0,120}manually started server/i);
+    assert.match(desktopReadme, /official OpenAI and Anthropic SDKs[\s\S]{0,120}main-process fetch transport/i);
+    assert.match(desktopReadme, /workspace menu[\s\S]{0,120}(?:privacy|capture protection)/i);
     assert.doesNotMatch(desktopReadme, /\/api\/(?:chat|models|model-options|model-test|prompt)\/|\/ws\/asr|server\.scripts\.download_asr_model|Python ASR model|LOCAL_ASR_MODEL_DIR/i);
     assertDocumentationHasNoPythonLaunchInstructions(desktopReadme, 'desktop/README.md');
 });

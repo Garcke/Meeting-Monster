@@ -6,6 +6,7 @@ import {BackendService} from '../../../desktop/src/backend/backend-service';
 import type {BackendImage, BackendModelSelection, BackendProvider, ChatMessage} from '../../../desktop/src/backend/types';
 import {ModelConnectionStore} from '../../../desktop/src/main/model-connection-settings';
 import type {ModelTestProgress} from '../../../desktop/src/shared/contracts';
+import {formatModelConnectionError} from '../../../desktop/src/shared/model-connection-diagnostics';
 
 const selection: BackendModelSelection = {
     profile_id: 'generic_openai', protocol: 'openai', base_url: 'https://provider.example/v1',
@@ -239,6 +240,13 @@ describe('BackendService request lifecycle', () => {
         const error = await service.testModel(selection, (item) => progress.push(item)).catch((failure: unknown) => failure);
         expect(error).toMatchObject({code: 'vision_verification_failed'});
         expect(String(error)).not.toContain('saved-secret');
+        const serializedError = new Error((error as Error).message);
+        const rendererDiagnostic = formatModelConnectionError(serializedError);
+        expect(rendererDiagnostic).toBe('图片能力验证未通过：请确认模型支持图片输入');
+        expect(rendererDiagnostic).not.toContain('saved-secret');
+        expect(rendererDiagnostic).not.toContain('provider.example');
+        expect(rendererDiagnostic).not.toContain('vision-model');
+        expect(rendererDiagnostic).not.toContain('iVBORw0KGgo');
         expect(progress).toEqual([
             {phase: 'connecting', attempt: 0, maxAttempts: 3},
             {phase: 'vision', attempt: 1, maxAttempts: 3},
@@ -261,6 +269,8 @@ describe('BackendService request lifecycle', () => {
         const error = await service.testModel(selection).catch((failure: unknown) => failure);
         expect(error).toMatchObject({code: 'authentication_failed', providerStatus: 401});
         expect(String(error)).not.toContain('saved-secret');
+        const serializedError = new Error((error as Error).message);
+        expect(formatModelConnectionError(serializedError)).toBe('认证失败（HTTP 401）：请检查 API Key 或账号区域');
         expect(verifier).toHaveBeenCalledOnce();
     });
 

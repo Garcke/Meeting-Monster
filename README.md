@@ -42,7 +42,7 @@ Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成�
 
 ## AI 后端与启动方式
 
-EXE 和 Portable 应用会在启动时自动初始化 Electron 主进程内的 TypeScript 后端。它通过 Node `fetch` 直接连接所配置的模型服务，不会启动子进程或监听本地端口，也没有需要手动运行的后端服务。
+EXE 和 Portable 应用会在启动时自动初始化 Electron 主进程内的 TypeScript 后端。官方 OpenAI 和 Anthropic SDK 在 Electron 主进程中使用可控的 Node `fetch transport` 连接所配置的模型服务；应用不会启动子进程或监听本地端口，也没有需要手动运行的后端服务。
 
 ## 配置文本模型
 
@@ -121,5 +121,6 @@ GitHub Actions 的 `.github/workflows/build-desktop.yml` 由 `v*` tag 触发，�
 
 - 音频和 ASR 推理默认在本机完成。
 - AI 请求只发送到用户在设置中配置的文本模型服务。
+- 工作区菜单中的“应用隐藏”控制截图保护；悬浮胶囊只保留聊天开关和退出操作。
 - 窗口内容保护是 Windows 的尽力而为能力，不能防止手机拍摄、硬件采集或特权工具捕获。
 - 本项目不保证第三方模型服务的可用性、隐私政策或数据保留策略。

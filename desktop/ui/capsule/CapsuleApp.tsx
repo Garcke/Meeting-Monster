@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Button, Tooltip} from 'antd';
+import {Button} from 'antd';
 import type {AsrState, OverlaySnapshot} from '../../src/shared/contracts';
 import logoUrl from '../../renderer/favicon.png';
 import {publishTranscriptionStatus, useTranscriptionStatus} from '../shared/services/transcription-status-store';
@@ -70,11 +70,9 @@ export function CapsuleApp() {
                     </>
                 )}
             </Button>
-            <Tooltip title="退出 Meeting-Monster">
-                <Button className="capsule-stop" type="text" htmlType="button" aria-label="退出 Meeting-Monster" title="退出 Meeting-Monster" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
-                    <span aria-hidden="true">×</span>
-                </Button>
-            </Tooltip>
+            <Button className="capsule-stop" type="text" htmlType="button" aria-label="退出 Meeting-Monster" title="退出 Meeting-Monster" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
+                <span aria-hidden="true">×</span>
+            </Button>
         </main>
     );
 }

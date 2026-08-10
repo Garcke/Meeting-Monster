@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, cleanup, createEvent, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, expect, test, vi} from 'vitest';
 import fs from 'node:fs';
@@ -303,6 +303,9 @@ test('capsule exposes only workspace and exit actions', async () => {
     expect(quit).toBeTruthy();
     expect(quit.classList.contains('ant-btn')).toBe(true);
     expect(quit.textContent).toBe('×');
+    fireEvent.mouseEnter(quit);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(screen.queryByRole('tooltip')).toBeNull();
     fireEvent.click(quit);
     expect(api.window.quit).toHaveBeenCalledOnce();
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
@@ -345,27 +348,29 @@ test('workspace menu exposes Ant Design controls while preserving commands and s
     expect(screen.getByText('Ctrl+\\')).toBeTruthy();
     expect(screen.getByText('Ctrl+↑↓←→')).toBeTruthy();
     expect(screen.getByText('Ctrl+Shift+↑↓')).toBeTruthy();
-    const transcription = screen.getByRole('switch', {name: '实时转写'});
+    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/});
     expect(transcription).toBeTruthy();
+    expect(transcription.getAttribute('aria-checked')).toBe('false');
     expect(screen.getByRole('menuitem', {name: /清空聊天/})).toBeTruthy();
     expect(screen.getByText('Ctrl+R')).toBeTruthy();
-    const privacySwitch = screen.getByRole('switch', {name: '应用隐藏'});
-    expect(privacySwitch.getAttribute('aria-checked')).toBe('true');
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /应用隐藏/});
+    expect(privacyItem.getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByRole('switch')).toBeNull();
     expect(screen.queryByText('截图保护')).toBeNull();
     expect(screen.getByText('开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。')).toBeTruthy();
     expect(screen.queryByText(/Ask/)).toBeNull();
     expect(screen.queryByText(/Stop session/)).toBeNull();
 
-    await waitFor(() => expect((transcription as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(transcription.getAttribute('aria-disabled')).not.toBe('true'));
     fireEvent.click(transcription);
     expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'toggle-transcription'});
 
     act(() => emitAsrStatus({state: 'recording'}));
-    await waitFor(() => expect(screen.getByRole('switch', {name: '实时转写'}).getAttribute('aria-checked')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('menuitemcheckbox', {name: /实时转写/}).getAttribute('aria-checked')).toBe('true'));
     act(() => emitAsrStatus({state: 'connecting'}));
-    await waitFor(() => expect((screen.getByRole('switch', {name: '实时转写'}) as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect(screen.getByRole('menuitemcheckbox', {name: /实时转写/}).getAttribute('aria-disabled')).toBe('true'));
     act(() => emitAsrStatus({state: 'stopping'}));
-    await waitFor(() => expect((screen.getByRole('switch', {name: '实时转写'}) as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect(screen.getByRole('menuitemcheckbox', {name: /实时转写/}).getAttribute('aria-disabled')).toBe('true'));
     fireEvent.click(screen.getByRole('menuitem', {name: /清空聊天/}));
     expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'clear-chat'});
 });
@@ -379,7 +384,7 @@ test('workspace menu reports configured-but-failed screenshot protection as not 
     expect(await screen.findByTestId('privacy-warning-dot')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', {name: '更多'}));
-    const privacyItem = screen.getByRole('switch', {name: '应用隐藏'});
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /应用隐藏/});
     expect(privacyItem.getAttribute('aria-checked')).toBe('false');
 
     fireEvent.click(privacyItem);
@@ -398,6 +403,48 @@ test('workspace menu closes with Escape and opens settings', async () => {
     fireEvent.click(more);
     fireEvent.click(screen.getByRole('menuitem', {name: /设置/}));
     await waitFor(() => expect(api.settings.open).toHaveBeenCalledOnce());
+});
+
+test('workspace menu supports keyboard open, arrow navigation, checkbox activation, Escape, and focus restoration', async () => {
+    const user = userEvent.setup();
+    const {api, emitAsrStatus} = fakeApi();
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+    act(() => emitAsrStatus({state: 'idle'}));
+
+    const more = await screen.findByRole('button', {name: '更多'});
+    await waitFor(() => expect(screen.getByRole('button', {name: '更多'})).toBeTruthy());
+    more.focus();
+    await user.keyboard('{Enter}');
+    const transcription = await screen.findByRole('menuitemcheckbox', {name: /实时转写/});
+    const menu = screen.getByRole('menu', {name: '工作区菜单'});
+    for (const item of menu.querySelectorAll<HTMLElement>('[data-menu-id]')) {
+        vi.spyOn(item, 'getBoundingClientRect').mockReturnValue({
+            x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 20, width: 100, height: 20,
+            toJSON: () => ({}),
+        } as DOMRect);
+    }
+    await waitFor(() => expect(document.activeElement).toBe(transcription));
+
+    await user.keyboard(' ');
+    expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'toggle-transcription'});
+    const firstArrowDown = createEvent.keyDown(menu, {key: 'ArrowDown', keyCode: 40});
+    Object.defineProperty(firstArrowDown, 'which', {value: 40});
+    fireEvent(menu, firstArrowDown);
+    const clearChat = screen.getByRole('menuitem', {name: /清空聊天/});
+    await waitFor(() => expect(document.activeElement).toBe(clearChat));
+    const secondArrowDown = createEvent.keyDown(menu, {key: 'ArrowDown', keyCode: 40});
+    Object.defineProperty(secondArrowDown, 'which', {value: 40});
+    fireEvent(menu, secondArrowDown);
+    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /应用隐藏/});
+    await waitFor(() => expect(document.activeElement).toBe(privacyItem));
+    const enter = createEvent.keyDown(privacyItem, {key: 'Enter', keyCode: 13});
+    Object.defineProperty(enter, 'which', {value: 13});
+    fireEvent(privacyItem, enter);
+    expect(api.privacy.setCaptureProtection).toHaveBeenCalledWith(false);
+
+    fireEvent.keyDown(window, {key: 'Escape', keyCode: 27, which: 27});
+    await waitFor(() => expect(document.activeElement).toBe(more));
 });
 
 test('workspace menu surfaces settings failures with an Ant Design alert', async () => {
@@ -968,8 +1015,8 @@ test('workspace ignores a stale ASR start rejection after the next session begin
     render(<><WorkspaceMenu /><WorkspaceView active /></>);
 
     fireEvent.click(await screen.findByRole('button', {name: '更多'}));
-    const transcription = screen.getByRole('switch', {name: '实时转写'}) as HTMLButtonElement;
-    await waitFor(() => expect(transcription.disabled).toBe(false));
+    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/});
+    await waitFor(() => expect(transcription.getAttribute('aria-disabled')).not.toBe('true'));
     act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(1));
     act(() => media.displayStream.getAudioTracks()[0]!.end());

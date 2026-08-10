@@ -25,7 +25,7 @@ Electron transcription works with Python stopped.
 
 ## Native TypeScript backend
 
-The EXE and Portable application initialize the TypeScript backend in the Electron main process. AI replies, chat streaming, model tests, and image verification call the configured provider directly through Node `fetch`; no Python runtime, virtual environment, `start.bat`, child process, localhost listener, or manually started server is required.
+The EXE and Portable application initialize the TypeScript backend in the Electron main process. AI replies, chat streaming, model tests, and image verification use the official OpenAI and Anthropic SDKs through a controlled main-process fetch transport; no Python runtime, virtual environment, `start.bat`, child process, localhost listener, or manually started server is required.
 
 Electron Settings exposes exactly two protocols: `OpenAI Compatible` and `Anthropic Compatible`. Each protocol has an independent `Base URL`, `Model ID`, optional `API Key`, maximum-token, and temperature form. Electron keeps API keys encrypted with `safeStorage`, never returns them to the renderer, and sends requests only to the configured provider. Production provider URLs should use HTTPS.
 
@@ -34,7 +34,7 @@ Electron Settings exposes exactly two protocols: `OpenAI Compatible` and `Anthro
 Windows packaging uses the Meeting-Monster logo for the application and installer icons. The NSIS installer creates desktop and Start Menu shortcuts named `Meeting-Monster`.
 
 - Electron content protection is enabled for Meeting-Monster windows by default through `BrowserWindow.setContentProtection(true)`.
-- Press `Ctrl+Shift+P` or use the capsule protection button to toggle `setContentProtection(true/false)`.
-- The capsule button and expanded status badge report whether window protection is enabled, disabled, unsupported, or failed.
+- Press `Ctrl+Shift+P` or use **Application hiding** in the workspace menu to toggle capture protection.
+- The workspace menu reports the privacy status; the capsule intentionally contains only chat and exit controls.
 
 Window protection is best-effort OS capture protection. It is not process hiding or anti-monitoring behavior and cannot guarantee protection from phone cameras, hardware capture, privileged tools, or unsupported capture paths.

@@ -22,9 +22,9 @@ test('main uses a fixed single-window overlay without legacy resizing', () => {
 test('capsule sends only the workspace overlay intent and keeps a drag-safe shell', () => {
     const source = read('desktop', 'ui', 'capsule', 'CapsuleApp.tsx');
     const styles = read('desktop', 'ui', 'capsule', 'capsule.css');
-    assert.match(source, /import \{Button, Tooltip\} from 'antd';/);
+    assert.match(source, /import \{Button\} from 'antd';/);
+    assert.doesNotMatch(source, /Tooltip|ant-tooltip/);
     assert.match(source, /<Button className="capsule-button" type="text" htmlType="button" aria-label=\{snapshot\.target === 'workspace' \? '隐藏聊天' : '打开聊天'\}/);
-    assert.match(source, /<Tooltip title="退出 Meeting-Monster">/);
     assert.match(source, /<Button className="capsule-stop" type="text" htmlType="button" aria-label="退出 Meeting-Monster"/);
     assert.match(source, /overlay\.intent\(\{type: 'toggle-workspace'\}\)/);
     assert.match(source, /toggle-workspace/);
@@ -112,11 +112,12 @@ test('workspace menu owns compact controls and warning state', () => {
     const source = read('desktop', 'ui', 'panel', 'WorkspaceMenu.tsx');
     const styles = read('desktop', 'ui', 'panel', 'panel.css');
 
-    assert.match(source, /import \{Alert, Button, Dropdown, Menu, Switch, type MenuProps\} from 'antd';/);
+    assert.match(source, /import \{Alert, Button, Dropdown, type MenuProps\} from 'antd';/);
     assert.match(source, /aria-label="更多"/);
     assert.match(source, /<Dropdown/);
-    assert.match(source, /<Menu aria-label="工作区菜单" items=\{menuItems\} onClick=\{onMenuClick\} \/>/);
-    assert.match(source, /<Switch/);
+    assert.match(source, /menu=\{\{items: menuItems, onClick: onMenuClick,[^}]*'aria-label': '工作区菜单'\}\}/);
+    assert.doesNotMatch(source, /<Switch|role="switch"/);
+    assert.match(source, /role:\s*'menuitemcheckbox'/);
     assert.match(source, /useTranscriptionStatus/);
     assert.match(source, /isAsrModelReady/);
     assert.match(source, /toggle-transcription/);
@@ -133,7 +134,7 @@ test('workspace menu owns compact controls and warning state', () => {
     assert.match(source, /privacy\.setCaptureProtection/);
     assert.match(source, /privacy-warning-dot/);
     assert.match(styles, /\.workspace-menu-popover\s*\{[^}]*width:\s*272px/s);
-    assert.match(styles, /\.workspace-menu-switch-item \.ant-switch\s*\{[^}]*margin-left:\s*auto/s);
+    assert.match(styles, /\.workspace-menu-check\s*\{/);
     assert.match(styles, /\.workspace-menu-privacy-copy\s*\{/);
     assert.match(styles, /\.privacy-warning-dot\s*\{[^}]*#F3A35C/s);
 });

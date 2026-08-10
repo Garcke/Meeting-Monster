@@ -12,7 +12,7 @@ const projectRoot = path.resolve(path.dirname(scriptPath), '..', '..');
 const require = createRequire(path.join(projectRoot, 'desktop', 'package.json'));
 const {createPackage, listPackage} = require('@electron/asar');
 const forbiddenEntry = /(?:^|\/)(?:server|web|source|python|pyinstaller|models?|asr[-_]?models?|docs|tests|\.git|\.venv)(?:\/|$)|(?:^|\/)(?:tokens\.txt|download_asr_model(?:\.[^/]+)?)(?:$|\/)|\.(?:py|pyc|onnx|pt|bin|map)$/i;
-const legacyLocalHttpEntry = /^dist\/main\/(?:desktop-settings|remote-api-client)\.js$/i;
+const legacyLocalHttpEntry = /^dist\/main\/(?:desktop-settings|remote-api-client|model-test-coordinator)\.js$/i;
 const windowsNativePackages = ['sherpa-onnx-win-x64'];
 const macNativePackages = ['sherpa-onnx-darwin-x64', 'sherpa-onnx-darwin-arm64'];
 const nativeBackendEntry = 'dist/backend/backend-service.js';
@@ -202,6 +202,18 @@ if (process.env.NODE_TEST_CONTEXT) {
         const fixture = await createFixture(['package.json', 'dist/main/main.js', 'server/app.py']);
         try {
             await assert.rejects(auditPackagedArtifact(fixture.release), /Forbidden packaged entry: server(?:\/app\.py)?/);
+        } finally {
+            fs.rmSync(fixture.root, {recursive: true, force: true});
+        }
+    });
+
+    test('artifact audit rejects the obsolete compiled model-test coordinator', async () => {
+        const fixture = await createFixture(
+            ['package.json', 'dist/main/main.js', 'dist/main/model-test-coordinator.js'],
+            {unpackedEntries: ['node_modules/sherpa-onnx-win-x64/sherpa-onnx.node']},
+        );
+        try {
+            await assert.rejects(auditPackagedArtifact(fixture.release), /Forbidden packaged entry: dist\/main\/model-test-coordinator\.js/);
         } finally {
             fs.rmSync(fixture.root, {recursive: true, force: true});
         }

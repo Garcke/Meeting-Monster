@@ -11,7 +11,6 @@ const mainSource = () => read('desktop', 'src', 'main', 'main.ts');
 const contractsSource = () => read('desktop', 'src', 'shared', 'contracts.ts');
 const preloadSource = () => read('desktop', 'src', 'preload', 'index.ts');
 const controllerSource = () => read('desktop', 'src', 'main', 'overlay-window-controller.ts');
-const coordinatorSource = () => read('desktop', 'src', 'main', 'model-test-coordinator.ts');
 
 function countMatches(source, pattern) {
     return [...source.matchAll(pattern)].length;
@@ -259,7 +258,6 @@ test('main owns the native backend and disposes it with local ASR before quit', 
     const source = mainSource();
 
     assert.doesNotMatch(source, /RemoteApiClient|DEFAULT_BACKEND_URL|getRemoteApiClient/);
-    assert.doesNotMatch(coordinatorSource(), /RemoteApiClient/);
     assert.match(source, /import \{BackendService\} from '\.\.\/backend\/backend-service'/);
     assert.match(source, /import \{[^}]*createBackendLifecycle[^}]*sanitizeBackendLifecycleError[^}]*\} from '\.\/backend-lifecycle'/s);
     assert.match(source, /modelConnectionStore = new ModelConnectionStore\([\s\S]*backendLifecycle = createBackendLifecycle\(new BackendService\(\{[\s\S]*connectionStore: modelConnectionStore[\s\S]*registerIpcHandlers\(\)/);
