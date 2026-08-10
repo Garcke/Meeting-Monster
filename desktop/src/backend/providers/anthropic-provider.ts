@@ -1,73 +1,63 @@
-import {classifyProviderError} from '../model-diagnostics';
-import {parseSse} from '../sse';
+import Anthropic from '@anthropic-ai/sdk';
 import type {BackendModelSelection, BackendProvider, ChatMessage} from '../types';
 import type {BackendFetch} from './provider';
 
-export function createAnthropicProvider(selection: BackendModelSelection, fetcher: BackendFetch = fetch): BackendProvider {
+type AnthropicClientConstructor = new (options: ConstructorParameters<typeof Anthropic>[0]) => Pick<Anthropic, 'messages'>;
+
+export function createAnthropicProvider(
+    selection: BackendModelSelection,
+    fetcher: BackendFetch = fetch,
+    AnthropicClient: AnthropicClientConstructor = Anthropic,
+): BackendProvider {
     return {
         key: providerKey(selection),
         async *streamText(messages, signal) {
+            if (signal.aborted) throw abortError();
             const system = messages.filter((message) => message.role === 'system' && message.content)
                 .map((message) => message.content).join('\n\n');
-            const response = await fetcher(endpoint(selection.base_url, 'messages'), {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    ...(selection.api_key ? {'x-api-key': selection.api_key} : {}),
-                    'anthropic-version': '2023-06-01',
-                },
-                body: JSON.stringify({
-                    model: selection.model,
-                    messages: messages.filter((message) => message.role !== 'system' && message.content)
-                        .map(serializeMessage),
-                    stream: true,
-                    max_tokens: selection.max_tokens,
-                    ...(system ? {system} : {}),
-                    ...(selection.temperature == null ? {} : {temperature: selection.temperature}),
-                }),
-                signal,
+            const client = new AnthropicClient({
+                apiKey: selection.api_key || 'unused',
+                baseURL: normalizeBaseUrl(selection.base_url),
+                fetch: fetcher as typeof fetch,
+                maxRetries: 0,
             });
-            if (!response.ok) throw providerError(response.status);
-            for await (const event of parseSse(response, signal)) {
-                if (event.event !== 'content_block_delta') continue;
-                const text = anthropicText(event.data);
-                if (text) yield text;
+            const stream = client.messages.stream({
+                model: selection.model,
+                max_tokens: selection.max_tokens,
+                messages: messages.filter((message) => message.role !== 'system' && message.content)
+                    .map(serializeMessage),
+                ...(system ? {system} : {}),
+                ...(selection.temperature == null ? {} : {temperature: selection.temperature}),
+            }, {signal});
+            for await (const event of stream) {
+                if (event.type === 'content_block_delta' && event.delta.type === 'text_delta' && event.delta.text) {
+                    yield event.delta.text;
+                }
             }
         },
         async dispose() {},
     };
 }
 
-function serializeMessage(message: ChatMessage): Record<string, unknown> {
+function serializeMessage(message: ChatMessage): Anthropic.MessageParam {
     if (message.role === 'user' && message.image) {
         return {role: message.role, content: [
-            {type: 'image', source: {type: 'base64', media_type: 'image/png', data: message.image.data}},
+            {type: 'image', source: {type: 'base64', media_type: message.image.media_type, data: message.image.data}},
             {type: 'text', text: message.content},
         ]};
     }
-    return {role: message.role, content: message.content};
+    return {role: message.role as 'user' | 'assistant', content: message.content};
 }
 
-function anthropicText(data: string): string | undefined {
-    try {
-        const parsed = JSON.parse(data) as {delta?: {type?: unknown; text?: unknown}};
-        const text = parsed.delta?.text;
-        return parsed.delta?.type === 'text_delta' && typeof text === 'string' && text ? text : undefined;
-    } catch {
-        return undefined;
-    }
+function normalizeBaseUrl(baseUrl: string): string {
+    return baseUrl.replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
-function endpoint(baseUrl: string, path: string): string {
-    return `${baseUrl.replace(/\/+$/, '')}/${path}`;
+function abortError(): Error {
+    return Object.assign(new Error('Request was aborted.'), {name: 'AbortError'});
 }
 
 function providerKey(selection: BackendModelSelection): string {
     return JSON.stringify([selection.protocol, selection.base_url, selection.model, selection.api_key,
         selection.max_tokens, selection.temperature]);
-}
-
-function providerError(status: number): Error & {status: number} {
-    const diagnostic = classifyProviderError({status});
-    return Object.assign(new Error(diagnostic.message), {status});
 }

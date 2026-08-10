@@ -24,6 +24,10 @@
     "dist:mac:unsigned": "npm run build && electron-builder --mac dmg zip --universal -c.mac.identity=null -c.mac.hardenedRuntime=false -c.mac.notarize=false -c.forceCodeSigning=false"
   },
   "dependencies": {
+    "@ant-design/icons": "6.3.2",
+    "@anthropic-ai/sdk": "0.116.0",
+    "antd": "6.5.4",
+    "openai": "7.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",

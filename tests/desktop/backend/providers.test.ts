@@ -10,7 +10,7 @@ const openAiSelection: BackendModelSelection = {
     model: 'vision-model', api_key: 'test-key', max_tokens: 256, temperature: 0.3,
 };
 const anthropicSelection: BackendModelSelection = {
-    profile_id: 'generic_anthropic', protocol: 'anthropic', base_url: 'https://provider.example/',
+    profile_id: 'generic_anthropic', protocol: 'anthropic', base_url: 'https://provider.example/anthropic/',
     model: 'claude-test', api_key: 'anthropic-key', max_tokens: 512, temperature: null,
 };
 
@@ -67,7 +67,7 @@ describe('direct OpenAI provider', () => {
             return sseResponse('data: [DONE]\n\n');
         });
         await collect(provider.streamText([{role: 'user', content: 'hi'}], controller.signal));
-        expect(received).toBe(controller.signal);
+        expect(received).toBeInstanceOf(AbortSignal);
     });
 
     it('throws a classified status for non-success responses', async () => {
@@ -84,14 +84,15 @@ describe('direct Anthropic provider', () => {
         const provider = createAnthropicProvider(anthropicSelection, async (input, request) => {
             url = input;
             init = request;
-            return sseResponse('event: content_block_delta\ndata: {"delta":{"type":"text_delta","text":"hello"}}\n\nevent: message_stop\ndata: {}\n\n');
+            return sseResponse('event: message_start\ndata: {"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-test","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\nevent: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}\n\nevent: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\nevent: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n');
         });
         await expect(collect(provider.streamText([
             {role: 'system', content: 'First rule.'}, {role: 'system', content: 'Second rule.'},
             {role: 'user', content: 'What is this?', image: {media_type: 'image/png', data: 'png-data'}},
             {role: 'assistant', content: 'A screenshot.'},
         ], new AbortController().signal))).resolves.toEqual(['hello']);
-        expect(url).toBe('https://provider.example/messages');
+        expect(url).toBe('https://provider.example/anthropic/v1/messages');
+        expect(url).not.toContain('/v1/v1/');
         expect(init?.method).toBe('POST');
         expect(new Headers(init?.headers).get('x-api-key')).toBe('anthropic-key');
         expect(new Headers(init?.headers).get('anthropic-version')).toBe('2023-06-01');
@@ -116,7 +117,30 @@ describe('direct Anthropic provider', () => {
         });
         await expect(collect(provider.streamText([{role: 'user', content: 'hi'}], controller.signal)))
             .rejects.toMatchObject({status: 429});
-        expect(received).toBe(controller.signal);
+        expect(received).toBeInstanceOf(AbortSignal);
+    });
+
+    it('does not duplicate v1 when the configured base URL already includes it', async () => {
+        let url = '';
+        const provider = createAnthropicProvider(
+            {...anthropicSelection, base_url: 'https://provider.example/v1/'},
+            async (input) => {
+                url = input;
+                return sseResponse('event: message_start\ndata: {"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-test","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n');
+            },
+        );
+
+        await collect(provider.streamText([{role: 'user', content: 'hi'}], new AbortController().signal));
+        expect(url).toBe('https://provider.example/v1/messages');
+    });
+
+    it('rejects a request whose abort signal is already aborted', async () => {
+        const controller = new AbortController();
+        controller.abort();
+        const provider = createAnthropicProvider(anthropicSelection, async () => sseResponse(''));
+
+        await expect(collect(provider.streamText([{role: 'user', content: 'hi'}], controller.signal)))
+            .rejects.toMatchObject({name: expect.stringMatching(/Abort|Canceled/)});
     });
 });
 

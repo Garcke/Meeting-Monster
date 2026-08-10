@@ -1,31 +1,33 @@
-import {classifyProviderError} from '../model-diagnostics';
-import {parseSse} from '../sse';
+import OpenAI from 'openai';
+import type {ChatCompletionMessageParam} from 'openai/resources/chat/completions';
 import type {BackendModelSelection, BackendProvider, ChatMessage} from '../types';
 import type {BackendFetch} from './provider';
 
-export function createOpenAiProvider(selection: BackendModelSelection, fetcher: BackendFetch = fetch): BackendProvider {
+type OpenAiClientConstructor = new (options: ConstructorParameters<typeof OpenAI>[0]) => Pick<OpenAI, 'chat'>;
+
+export function createOpenAiProvider(
+    selection: BackendModelSelection,
+    fetcher: BackendFetch = fetch,
+    OpenAiClient: OpenAiClientConstructor = OpenAI,
+): BackendProvider {
     return {
         key: providerKey(selection),
         async *streamText(messages, signal) {
-            const response = await fetcher(endpoint(selection.base_url, 'chat/completions'), {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    ...(selection.api_key ? {authorization: `Bearer ${selection.api_key}`} : {}),
-                },
-                body: JSON.stringify({
-                    model: selection.model,
-                    messages: messages.map(serializeMessage),
-                    stream: true,
-                    max_tokens: selection.max_tokens,
-                    ...(selection.temperature == null ? {} : {temperature: selection.temperature}),
-                }),
-                signal,
+            const client = new OpenAiClient({
+                apiKey: selection.api_key || 'unused',
+                baseURL: selection.base_url,
+                fetch: fetcher as typeof fetch,
+                maxRetries: 0,
             });
-            if (!response.ok) throw providerError(response.status);
-            for await (const event of parseSse(response, signal)) {
-                if (event.data === '[DONE]') return;
-                const text = openAiText(event.data);
+            const stream = await client.chat.completions.create({
+                model: selection.model,
+                messages: messages.map(serializeMessage),
+                max_tokens: selection.max_tokens,
+                ...(selection.temperature == null ? {} : {temperature: selection.temperature}),
+                stream: true,
+            }, {signal});
+            for await (const chunk of stream) {
+                const text = chunk.choices[0]?.delta?.content;
                 if (text) yield text;
             }
         },
@@ -33,36 +35,17 @@ export function createOpenAiProvider(selection: BackendModelSelection, fetcher: 
     };
 }
 
-function serializeMessage(message: ChatMessage): Record<string, unknown> {
+function serializeMessage(message: ChatMessage): ChatCompletionMessageParam {
     if (message.role === 'user' && message.image) {
         return {role: message.role, content: [
-            {type: 'image_url', image_url: {url: `data:image/png;base64,${message.image.data}`, detail: 'high'}},
+            {type: 'image_url', image_url: {url: `data:${message.image.media_type};base64,${message.image.data}`, detail: 'high'}},
             {type: 'text', text: message.content},
         ]};
     }
     return {role: message.role, content: message.content};
 }
 
-function openAiText(data: string): string | undefined {
-    try {
-        const parsed = JSON.parse(data) as {choices?: Array<{delta?: {content?: unknown}}>};
-        const text = parsed.choices?.[0]?.delta?.content;
-        return typeof text === 'string' && text ? text : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-function endpoint(baseUrl: string, path: string): string {
-    return `${baseUrl.replace(/\/+$/, '')}/${path}`;
-}
-
 function providerKey(selection: BackendModelSelection): string {
     return JSON.stringify([selection.protocol, selection.base_url, selection.model, selection.api_key,
         selection.max_tokens, selection.temperature]);
-}
-
-function providerError(status: number): Error & {status: number} {
-    const diagnostic = classifyProviderError({status});
-    return Object.assign(new Error(diagnostic.message), {status});
 }
