@@ -156,11 +156,11 @@ export function ModelSettingsPage({active}: {active: boolean}) {
                 <div className="settings-field-grid">
                     <div className="settings-field">
                         <label htmlFor="modelMaxTokens">最大 Token</label>
-                        <InputNumber id="modelMaxTokens" aria-label="最大 Token" value={Number(values.maxTokens)} min={1} onChange={(value) => updateValue('maxTokens', value === null ? '' : String(value))} />
+                        <InputNumber id="modelMaxTokens" aria-label="最大 Token" value={values.maxTokens === '' ? null : Number(values.maxTokens)} min={1} onChange={(value) => updateValue('maxTokens', value === null ? '' : String(value))} />
                     </div>
                     <div className="settings-field">
                         <label htmlFor="modelTemperature">温度</label>
-                        <InputNumber id="modelTemperature" aria-label="温度" value={Number(values.temperature)} min={0} max={2} step={0.1} onChange={(value) => updateValue('temperature', value === null ? '' : String(value))} />
+                        <InputNumber id="modelTemperature" aria-label="温度" value={values.temperature === '' ? null : Number(values.temperature)} min={0} max={2} step={0.1} onChange={(value) => updateValue('temperature', value === null ? '' : String(value))} />
                     </div>
                 </div>
                 <div className="settings-actions">

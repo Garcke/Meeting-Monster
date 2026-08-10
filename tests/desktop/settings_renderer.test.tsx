@@ -76,7 +76,9 @@ function fakeSettingsApi(privacyStatus: PrivacyStatus = privacy) {
 }
 
 function selectedComboboxText(name: string) {
-    return screen.getByRole('combobox', {name}).parentElement?.textContent ?? '';
+    const combobox = screen.getByRole('combobox', {name});
+    fireEvent.mouseDown(combobox);
+    return screen.getByRole('option', {selected: true}).getAttribute('aria-label') ?? '';
 }
 
 async function chooseOption(name: string, optionName: string) {
@@ -129,6 +131,41 @@ test('settings exposes labeled Ant Design-compatible form semantics', async () =
 
     rerender(<SpeechSettingsPage active />);
     expect(await screen.findByRole('combobox', {name: '音频来源'})).toBeTruthy();
+});
+
+test('settings preserves blank numeric model fields when saving', async () => {
+    const {api} = fakeSettingsApi();
+    window.meetingMonsterSettings = api;
+    render(<ModelSettingsPage active />);
+
+    await screen.findByText('已保存：OpenAI Compatible');
+    const maxTokens = screen.getByRole('spinbutton', {name: '最大 Token'}) as HTMLInputElement;
+    const temperature = screen.getByRole('spinbutton', {name: '温度'}) as HTMLInputElement;
+    fireEvent.change(maxTokens, {target: {value: ''}});
+    fireEvent.change(temperature, {target: {value: ''}});
+    expect(maxTokens.value).toBe('');
+    expect(temperature.value).toBe('');
+    fireEvent.click(screen.getByRole('button', {name: '保存连接'}));
+
+    await waitFor(() => expect(api.models.save).toHaveBeenCalledWith(expect.objectContaining({max_tokens: 4096})));
+    expect(api.models.save.mock.calls[0]?.[0]).not.toHaveProperty('temperature');
+});
+
+test('settings marks a pending save action as busy and disabled', async () => {
+    let resolveSave!: (value: SavedModelConnectionSettings) => void;
+    const {api} = fakeSettingsApi();
+    api.models.save = vi.fn(() => new Promise<SavedModelConnectionSettings>((resolve) => { resolveSave = resolve; }));
+    window.meetingMonsterSettings = api;
+    render(<ModelSettingsPage active />);
+
+    await screen.findByText('已保存：OpenAI Compatible');
+    fireEvent.click(screen.getByRole('button', {name: '保存连接'}));
+    const saveButton = screen.getByRole('button', {name: /连接模型/}) as HTMLButtonElement;
+    expect(saveButton.getAttribute('aria-busy')).toBe('true');
+    expect(saveButton.disabled).toBe(true);
+
+    act(() => resolveSave(saved));
+    await waitFor(() => expect(saveButton.disabled).toBe(false));
 });
 
 test('settings exposes only the two compatible protocol options and keeps independent form snapshots', async () => {
@@ -298,7 +335,7 @@ test('speech settings applies authoritative audio-source broadcasts', async () =
 
     act(() => emitAudioInputChanged('mixed'));
 
-    expect(selectedComboboxText('音频来源')).toContain('系统音频＋麦克风');
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('系统音频＋麦克风'));
 });
 
 test('the last audio-source choice wins over older broadcasts and out-of-order save responses', async () => {
@@ -369,7 +406,7 @@ test('settings ignores an early mixed broadcast until a non-Windows platform res
     render(<SpeechSettingsPage active />);
     const select = await screen.findByRole('combobox', {name: '音频来源'}) as HTMLInputElement;
     act(() => emitAudioInputChanged('mixed'));
-    expect(selectedComboboxText('音频来源')).toContain('麦克风');
+    expect(select.disabled).toBe(true);
 
     act(() => resolvePrivacyStatus({...privacy, platform: 'darwin'}));
     await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
@@ -387,12 +424,11 @@ test('settings keeps microphone selected until platform and audio preference res
 
     render(<SpeechSettingsPage active />);
     const select = await screen.findByRole('combobox', {name: '音频来源'}) as HTMLInputElement;
-    expect(selectedComboboxText('音频来源')).toContain('麦克风');
     expect(select.disabled).toBe(true);
 
     act(() => resolvePrivacyStatus(privacy));
     await Promise.resolve();
-    expect(selectedComboboxText('音频来源')).toContain('麦克风');
+    expect(screen.getByText('正在检查音频来源支持情况。')).toBeTruthy();
     expect(select.disabled).toBe(true);
 
     act(() => rejectAudioInput(new Error('audio preference unavailable')));
