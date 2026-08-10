@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {afterEach, expect, test, vi} from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +11,15 @@ import {WorkspaceView} from '../../desktop/ui/panel/WorkspaceView';
 import {OverlayApp} from '../../desktop/ui/overlay/main';
 import type {AsrModelSnapshot, AsrStatus, ChatStreamEvent, MeetingMonsterApi, ModelSelectionInput, OverlaySnapshot, PrivacyStatus, SavedModelConnectionSettings, WorkspaceCommand} from '../../desktop/src/shared/contracts';
 import {LEGACY_AUDIO_INPUT_MODE_STORAGE_KEY} from '../../desktop/ui/shared/services/audio-input-mode';
+
+if (!globalThis.ResizeObserver) {
+    class TestResizeObserver {
+        public observe() {}
+        public unobserve() {}
+        public disconnect() {}
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {configurable: true, value: TestResizeObserver});
+}
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const panelStyles = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'panel.css'), 'utf8');
@@ -317,43 +327,45 @@ test('capsule renders each transcription state with its fixed label and indicato
     }
 });
 
-test('workspace menu dispatches transcription and chat commands while exposing compact shortcut rows', async () => {
+test('workspace menu exposes Ant Design controls while preserving commands and shortcuts', async () => {
     const {api, emitAsrStatus} = fakeApi();
     window.meetingMonster = api;
     render(<OverlayApp />);
     act(() => emitAsrStatus({state: 'idle'}));
 
     fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    expect(screen.getByRole('menu', {name: '工作区菜单'})).toBeTruthy();
     const visibilityReference = screen.getByText('显示/隐藏窗口');
-    expect(visibilityReference.closest('.workspace-menu-reference')).toBeTruthy();
-    expect(screen.queryByRole('menuitem', {name: /显示\/隐藏窗口/})).toBeNull();
+    expect(visibilityReference.closest('[role="menuitem"]')).toBeTruthy();
+    expect(screen.getByRole('menuitem', {name: /显示\/隐藏窗口/}).getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByText('移动悬浮窗')).toBeTruthy();
     expect(screen.getByText('滚动聊天')).toBeTruthy();
     expect(screen.getByText('Ctrl+\\')).toBeTruthy();
     expect(screen.getByText('Ctrl+↑↓←→')).toBeTruthy();
     expect(screen.getByText('Ctrl+Shift+↑↓')).toBeTruthy();
-    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/});
+    const transcription = screen.getByRole('switch', {name: '实时转写'});
     expect(transcription).toBeTruthy();
     expect(screen.getByRole('menuitem', {name: /清空聊天/})).toBeTruthy();
     expect(screen.getByText('Ctrl+R')).toBeTruthy();
-    expect(screen.getByRole('menuitemcheckbox', {name: /应用隐藏/})).toBeTruthy();
+    const privacySwitch = screen.getByRole('switch', {name: '应用隐藏'});
+    expect(privacySwitch.getAttribute('aria-checked')).toBe('true');
     expect(screen.queryByText('截图保护')).toBeNull();
     expect(screen.getByText('开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。')).toBeTruthy();
     expect(screen.queryByText(/Ask/)).toBeNull();
     expect(screen.queryByText(/Stop session/)).toBeNull();
 
-    await waitFor(() => expect(transcription.disabled).toBe(false));
+    await waitFor(() => expect((transcription as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(transcription);
     expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'toggle-transcription'});
-    fireEvent.click(screen.getByRole('menuitem', {name: /清空聊天/}));
-    expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'clear-chat'});
 
     act(() => emitAsrStatus({state: 'recording'}));
-    await waitFor(() => expect(transcription.getAttribute('aria-checked')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('switch', {name: '实时转写'}).getAttribute('aria-checked')).toBe('true'));
     act(() => emitAsrStatus({state: 'connecting'}));
-    await waitFor(() => expect(transcription.disabled).toBe(true));
+    await waitFor(() => expect((screen.getByRole('switch', {name: '实时转写'}) as HTMLButtonElement).disabled).toBe(true));
     act(() => emitAsrStatus({state: 'stopping'}));
-    await waitFor(() => expect(transcription.disabled).toBe(true));
+    await waitFor(() => expect((screen.getByRole('switch', {name: '实时转写'}) as HTMLButtonElement).disabled).toBe(true));
+    fireEvent.click(screen.getByRole('menuitem', {name: /清空聊天/}));
+    expect(api.workspaceCommands.dispatch).toHaveBeenCalledWith({type: 'clear-chat'});
 });
 
 test('workspace menu reports configured-but-failed screenshot protection as not enabled and retries protection', async () => {
@@ -365,7 +377,7 @@ test('workspace menu reports configured-but-failed screenshot protection as not 
     expect(await screen.findByTestId('privacy-warning-dot')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', {name: '更多'}));
-    const privacyItem = screen.getByRole('menuitemcheckbox', {name: /应用隐藏/});
+    const privacyItem = screen.getByRole('switch', {name: '应用隐藏'});
     expect(privacyItem.getAttribute('aria-checked')).toBe('false');
 
     fireEvent.click(privacyItem);
@@ -384,6 +396,18 @@ test('workspace menu closes with Escape and opens settings', async () => {
     fireEvent.click(more);
     fireEvent.click(screen.getByRole('menuitem', {name: /设置/}));
     await waitFor(() => expect(api.settings.open).toHaveBeenCalledOnce());
+});
+
+test('workspace menu surfaces settings failures with an Ant Design alert', async () => {
+    const {api} = fakeApi();
+    api.settings.open = vi.fn(async () => { throw new Error('settings unavailable'); });
+    window.meetingMonster = api;
+    render(<OverlayApp />);
+
+    fireEvent.click(await screen.findByRole('button', {name: '更多'}));
+    fireEvent.click(screen.getByRole('menuitem', {name: /设置/}));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('设置窗口无法打开');
 });
 
 test('capsule exit control quits the app instead of hiding it', async () => {
@@ -730,7 +754,7 @@ test('manual form submission remains text-only', async () => {
     const {api, chatSends, assistSends} = fakeApi();
     window.meetingMonster = api;
     render(<WorkspaceView active />);
-    fireEvent.change(screen.getByLabelText('输入问题'), {target: {value: 'Manual question'}});
+    await userEvent.setup().type(screen.getByRole('textbox', {name: '输入问题'}), 'Manual question');
     fireEvent.click(screen.getByRole('button', {name: '发送'}));
     await waitFor(() => expect(chatSends).toHaveLength(1));
     expect(chatSends[0]?.prompt).toBe('Manual question');
@@ -942,7 +966,7 @@ test('workspace ignores a stale ASR start rejection after the next session begin
     render(<><WorkspaceMenu /><WorkspaceView active /></>);
 
     fireEvent.click(await screen.findByRole('button', {name: '更多'}));
-    const transcription = screen.getByRole('menuitemcheckbox', {name: /实时转写/}) as HTMLButtonElement;
+    const transcription = screen.getByRole('switch', {name: '实时转写'}) as HTMLButtonElement;
     await waitFor(() => expect(transcription.disabled).toBe(false));
     act(() => emitWorkspaceCommand({type: 'toggle-transcription'}));
     await waitFor(() => expect(api.asr.start).toHaveBeenCalledTimes(1));

@@ -1,4 +1,5 @@
 import {FormEvent, useEffect, useRef, useState} from 'react';
+import {Alert, Button, Input, Spin, Tooltip} from 'antd';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {ChatStreamEvent, WorkspaceCommand} from '../../src/shared/contracts';
@@ -371,7 +372,13 @@ export function WorkspaceView({active}: {active: boolean}) {
                 {partial && <p className="partial-row">{partial}</p>}
             </div>
             <div className="workspace-answer no-drag">
-                <div className="answer-heading"><span>AI REPLY</span><em>{requestPhase === 'capturing' ? '正在截图' : requestPhase === 'generating' ? '等待生成' : current?.answerStatus === 'error' ? '失败' : `当前：${remoteModelLabel}`}</em></div>
+                <div className="answer-heading">
+                    <span>AI REPLY</span>
+                    <em>
+                        {requestPhase !== 'idle' && <Spin size="small" />}
+                        {requestPhase === 'capturing' ? '正在截图' : requestPhase === 'generating' ? '等待生成' : current?.answerStatus === 'error' ? '失败' : `当前：${remoteModelLabel}`}
+                    </em>
+                </div>
                 <div ref={answerScrollRef} className="answer-scroll no-drag">
                     {visibleAnswer ? (
                         <div className="answer-markdown">
@@ -385,16 +392,16 @@ export function WorkspaceView({active}: {active: boolean}) {
                 </div>
             </div>
             <form className="workspace-composer no-drag" onSubmit={submit}>
-                <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入问题后发送" aria-label="输入问题" />
+                <Input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入问题后发送" aria-label="输入问题" />
                 {!visionVerified && <p className="assist-hint">请在设置中验证图片能力</p>}
-                {audioError && <p className="audio-error" role="alert">{audioError}</p>}
+                {audioError && <Alert className="audio-error" type="error" showIcon title={audioError} />}
                 <div className="composer-actions">
-                    <button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={!visionVerified || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</button>
-                    <button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('followup'); void sendText('followup'); }}>↗ 追问</button>
-                    <button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('recap'); void sendText('recap'); }}>↻ 重述</button>
+                    <Tooltip title="截图辅助"><Button className={action === 'assist' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="text" htmlType="button" disabled={!visionVerified || requestPhase !== 'idle'} onClick={() => { setAction('assist'); void assistWithScreenshot(); }}>✦ Assist</Button></Tooltip>
+                    <Tooltip title="基于已选内容追问"><Button className={action === 'followup' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="text" htmlType="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('followup'); void sendText('followup'); }}>↗ 追问</Button></Tooltip>
+                    <Tooltip title="重述已选内容"><Button className={action === 'recap' ? 'composer-ai-action is-active' : 'composer-ai-action'} type="text" htmlType="button" disabled={selectedQuestions.length === 0 || requestPhase !== 'idle'} onClick={() => { setAction('recap'); void sendText('recap'); }}>↻ 重述</Button></Tooltip>
                     <span className="question-count">{selectedQuestions.length}/{questions.length} 段</span>
                     <span className="composer-hint">Ctrl + Enter</span>
-                    <button className="send-button" type="submit" aria-label="发送">➜</button>
+                    <Tooltip title="发送问题"><Button className="send-button" type="primary" shape="circle" htmlType="submit" aria-label="发送">➜</Button></Tooltip>
                 </div>
             </form>
         </div>
