@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
+import {Alert, Button, Progress, Select} from 'antd';
 import type {AsrModelId, AsrModelSnapshot} from '../../src/shared/contracts';
 import type {AudioInputMode} from '../../src/shared/audio-input-mode';
 import {normalizeAudioInputMode} from '../../src/shared/audio-input-mode';
@@ -181,14 +182,14 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
                 </div>
                 <div className="settings-field">
                     <label htmlFor="asrAudioInputSelect">音频来源</label>
-                    <select id="asrAudioInputSelect" aria-label="音频来源" value={audioInputMode} disabled={!platformResolved} onChange={(event) => void changeAudioInputMode(event.target.value)}>
-                        <option value="system" disabled={nonWindowsPlatform}>系统音频</option>
-                        <option value="microphone">麦克风</option>
-                        <option value="mixed" disabled={nonWindowsPlatform}>系统音频＋麦克风</option>
-                    </select>
+                    <Select id="asrAudioInputSelect" aria-label="音频来源" value={audioInputMode} disabled={!platformResolved} onChange={(value) => void changeAudioInputMode(value)} options={[
+                        {value: 'system', label: '系统音频', disabled: nonWindowsPlatform},
+                        {value: 'microphone', label: '麦克风'},
+                        {value: 'mixed', label: '系统音频＋麦克风', disabled: nonWindowsPlatform},
+                    ]} />
                 </div>
                 <p className="settings-muted">{audioInputHint}</p>
-                <p className="settings-error" aria-live="polite">{audioInputError}</p>
+                {audioInputError && <Alert className="settings-error" type="error" showIcon title={audioInputError} />}
             </div>
             <div className="settings-card">
                 <div className="settings-card-heading">
@@ -197,17 +198,17 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
                 </div>
                 <div className="settings-field">
                     <label htmlFor="asrModelSelect">识别模型</label>
-                    <select id="asrModelSelect" aria-label="识别模型" value={asrId ?? ''} onChange={(event) => void selectAsr(event.target.value as AsrModelId)}>
-                        {(asrSnapshot?.models ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                    </select>
+                    <Select id="asrModelSelect" aria-label="识别模型" value={asrId ?? ''} onChange={(value) => void selectAsr(value as AsrModelId)} options={(asrSnapshot?.models ?? []).map((model) => ({value: model.id, label: model.label}))} />
                 </div>
                 {selectedAsr && <p id="asrModelDescription" className="settings-muted">{describeAsrModel(selectedAsr)}</p>}
-                <div className={`asr-status${asrStatusTone === 'neutral' ? '' : ` is-${asrStatusTone}`}`} id="asrModelStatus">{asrError || asrStatus}</div>
-                {selectedAsr?.installedState === 'downloading' && <progress value={selectedAsr.downloadedBytes} max={selectedAsr.totalBytes} />}
+                {asrError
+                    ? <Alert className="settings-error" type="error" showIcon title={asrError} />
+                    : <div className={`asr-status${asrStatusTone === 'neutral' ? '' : ` is-${asrStatusTone}`}`} id="asrModelStatus">{asrStatus}</div>}
+                {selectedAsr?.installedState === 'downloading' && <Progress percent={selectedAsr.totalBytes ? Math.round((selectedAsr.downloadedBytes / selectedAsr.totalBytes) * 100) : 0} showInfo={false} size="small" />}
                 <div className="settings-actions">
-                    <button id="asrModelDownloadButton" type="button" className="primary" onClick={() => void download()} disabled={!selectedAsr || isBusy || selectedAsr.installedState === 'installed' || selectedAsr.installedState === 'ready'}>下载模型</button>
-                    <button id="asrModelCancelButton" type="button" onClick={() => void cancel()} hidden={!isBusy}>取消下载</button>
-                    <button id="asrModelDeleteButton" type="button" onClick={() => void remove()} disabled={!selectedAsr || isBusy} hidden={!selectedAsr || (selectedAsr.installedState !== 'installed' && selectedAsr.installedState !== 'ready')}>删除模型</button>
+                    <Button id="asrModelDownloadButton" type="primary" loading={asrOperation === 'downloading'} onClick={() => void download()} disabled={!selectedAsr || isBusy || selectedAsr.installedState === 'installed' || selectedAsr.installedState === 'ready'}>下载模型</Button>
+                    <Button id="asrModelCancelButton" onClick={() => void cancel()} hidden={!isBusy}>取消下载</Button>
+                    <Button id="asrModelDeleteButton" onClick={() => void remove()} disabled={!selectedAsr || isBusy} hidden={!selectedAsr || (selectedAsr.installedState !== 'installed' && selectedAsr.installedState !== 'ready')}>删除模型</Button>
                 </div>
             </div>
         </section>

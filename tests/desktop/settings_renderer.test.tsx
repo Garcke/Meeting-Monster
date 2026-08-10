@@ -6,6 +6,14 @@ import {ModelSettingsPage} from '../../desktop/ui/settings/ModelSettingsPage';
 import {SpeechSettingsPage} from '../../desktop/ui/settings/SpeechSettingsPage';
 import type {AsrModelSnapshot, PrivacyStatus, SavedModelConnectionSettings, SettingsRendererApi} from '../../desktop/src/shared/contracts';
 
+class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
+vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+
 const privacy: PrivacyStatus = {captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 1};
 const asrModels: AsrModelSnapshot = {
     currentModelId: 'streaming-paraformer-bilingual-zh-en',
@@ -67,6 +75,17 @@ function fakeSettingsApi(privacyStatus: PrivacyStatus = privacy) {
     };
 }
 
+function selectedComboboxText(name: string) {
+    return screen.getByRole('combobox', {name}).parentElement?.textContent ?? '';
+}
+
+async function chooseOption(name: string, optionName: string) {
+    const combobox = screen.getByRole('combobox', {name});
+    fireEvent.mouseDown(combobox);
+    fireEvent.keyDown(combobox, {key: 'ArrowDown'});
+    fireEvent.click(await screen.findByText(optionName));
+}
+
 afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -100,6 +119,18 @@ test('settings pages render compact model and speech controls without overlay na
     expect(screen.queryByText('拖动面板')).toBeNull();
 });
 
+test('settings exposes labeled Ant Design-compatible form semantics', async () => {
+    const {api} = fakeSettingsApi();
+    window.meetingMonsterSettings = api;
+    const {rerender} = render(<ModelSettingsPage active />);
+
+    expect(screen.getByRole('button', {name: '测试连接'})).toBeTruthy();
+    expect(screen.getByRole('spinbutton', {name: '最大 Token'})).toBeTruthy();
+
+    rerender(<SpeechSettingsPage active />);
+    expect(await screen.findByRole('combobox', {name: '音频来源'})).toBeTruthy();
+});
+
 test('settings exposes only the two compatible protocol options and keeps independent form snapshots', async () => {
     const {api} = fakeSettingsApi();
     api.models.getSaved = vi.fn(async () => ({
@@ -114,19 +145,19 @@ test('settings exposes only the two compatible protocol options and keeps indepe
     window.meetingMonsterSettings = api;
     render(<ModelSettingsPage active />);
 
-    const protocol = await screen.findByLabelText('API 协议') as HTMLSelectElement;
-    expect(Array.from(protocol.options).map((option) => option.textContent)).toEqual([
-        'OpenAI Compatible', 'Anthropic Compatible',
-    ]);
+    await screen.findByRole('combobox', {name: 'API 协议'});
+    fireEvent.mouseDown(screen.getByRole('combobox', {name: 'API 协议'}));
+    expect(screen.getAllByText('OpenAI Compatible').length).toBeGreaterThan(0);
+    expect(screen.getByText('Anthropic Compatible')).toBeTruthy();
     expect(screen.queryByText(/MiniMax|Moonshot|GLM|OpenRouter|Vercel|OpenCode/)).toBeNull();
     expect((screen.getByLabelText('API Key') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('https://openai.example/v1');
     expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('openai-model');
 
-    fireEvent.change(protocol, {target: {value: 'generic_anthropic'}});
+    await chooseOption('API 协议', 'Anthropic Compatible');
     fireEvent.change(screen.getByLabelText('Base URL'), {target: {value: 'https://anthropic.example'}});
     fireEvent.change(screen.getByLabelText('Model ID'), {target: {value: 'anthropic-model'}});
-    fireEvent.change(protocol, {target: {value: 'generic_openai'}});
+    await chooseOption('API 协议', 'OpenAI Compatible');
     expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('https://openai.example/v1');
     expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('openai-model');
 });
@@ -158,7 +189,7 @@ test('settings hydration preserves fields touched before the saved model request
 
     expect(baseUrl.value).toBe('https://typed.example/v1');
     expect(apiKey.value).toBe('not-a-real-key');
-    fireEvent.change(screen.getByLabelText('API 协议'), {target: {value: 'generic_anthropic'}});
+    await chooseOption('API 协议', 'Anthropic Compatible');
     expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('https://hydrated.example/v1');
 });
 
@@ -200,8 +231,7 @@ test('settings shows a safe status-aware diagnostic when model verification fail
     await screen.findByLabelText('API 协议');
     fireEvent.click(screen.getByRole('button', {name: '测试连接'}));
 
-    const diagnostic = await screen.findByText('认证失败（HTTP 401）：请检查 API Key 或账号区域');
-    expect(diagnostic.classList.contains('is-error')).toBe(true);
+    expect((await screen.findByRole('alert')).textContent).toContain('认证失败（HTTP 401）：请检查 API Key 或账号区域');
     expect(screen.queryByText('provider body must never be displayed')).toBeNull();
 });
 
@@ -211,8 +241,7 @@ test('speech settings marks an ASR catalog failure as an error', async () => {
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
 
-    const error = await screen.findByText('无法加载本地转写模型');
-    expect(error.classList.contains('is-error')).toBe(true);
+    expect((await screen.findByRole('alert')).textContent).toContain('无法加载本地转写模型');
 });
 
 test('speech settings clears an old ASR action error before selecting an unavailable model', async () => {
@@ -231,7 +260,7 @@ test('speech settings clears an old ASR action error before selecting an unavail
 
     fireEvent.click(await screen.findByRole('button', {name: '删除模型'}));
     expect(await screen.findByText('无法删除当前模型')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('识别模型'), {target: {value: 'streaming-zipformer-zh-int8-2025-06-30'}});
+    await chooseOption('识别模型', 'Streaming Zipformer (Chinese)');
 
     expect(screen.queryByText('无法删除当前模型')).toBeNull();
     expect(screen.getByText('模型下载失败')).toBeTruthy();
@@ -242,18 +271,21 @@ test('settings renders the Windows audio-source selector with system audio selec
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
 
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('system'));
+    const select = await screen.findByRole('combobox', {name: '音频来源'});
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('系统音频'));
     expect(select.id).toBe('asrAudioInputSelect');
-    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['系统音频', '麦克风', '系统音频＋麦克风']);
+    fireEvent.mouseDown(select);
+    expect(screen.getAllByText('系统音频').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('麦克风').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('系统音频＋麦克风').length).toBeGreaterThan(0);
 });
 
 test('speech settings persists audio source through typed IPC', async () => {
     const {api} = fakeSettingsApi();
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
-    const select = await screen.findByLabelText('音频来源');
-    fireEvent.change(select, {target: {value: 'mixed'}});
+    const select = await screen.findByRole('combobox', {name: '音频来源'}) as HTMLInputElement;
+    await chooseOption('音频来源', '系统音频＋麦克风');
     await waitFor(() => expect(api.audioInput.set).toHaveBeenCalledWith('mixed'));
 });
 
@@ -261,12 +293,12 @@ test('speech settings applies authoritative audio-source broadcasts', async () =
     const {api, emitAudioInputChanged} = fakeSettingsApi();
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('system'));
+    await screen.findByRole('combobox', {name: '音频来源'});
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('系统音频'));
 
     act(() => emitAudioInputChanged('mixed'));
 
-    expect(select.value).toBe('mixed');
+    expect(selectedComboboxText('音频来源')).toContain('系统音频＋麦克风');
 });
 
 test('the last audio-source choice wins over older broadcasts and out-of-order save responses', async () => {
@@ -280,20 +312,20 @@ test('the last audio-source choice wins over older broadcasts and out-of-order s
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
 
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('system'));
-    fireEvent.change(select, {target: {value: 'mixed'}});
-    fireEvent.change(select, {target: {value: 'microphone'}});
+    await screen.findByRole('combobox', {name: '音频来源'});
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('系统音频'));
+    await chooseOption('音频来源', '系统音频＋麦克风');
+    await chooseOption('音频来源', '麦克风');
 
     act(() => emitAudioInputChanged('mixed'));
-    expect(select.value).toBe('microphone');
+    expect(selectedComboboxText('音频来源')).toContain('麦克风');
 
     act(() => resolveMicrophone('microphone'));
-    await waitFor(() => expect(select.value).toBe('microphone'));
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
     act(() => emitAudioInputChanged('mixed'));
-    expect(select.value).toBe('microphone');
+    expect(selectedComboboxText('音频来源')).toContain('麦克风');
     act(() => resolveMixed('mixed'));
-    await waitFor(() => expect(select.value).toBe('microphone'));
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
 });
 
 test('speech settings applies authoritative ASR status broadcasts', async () => {
@@ -318,13 +350,13 @@ test('settings ignores audio-source changes while the privacy platform is still 
     window.meetingMonsterSettings = api;
 
     render(<SpeechSettingsPage active />);
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
+    const select = await screen.findByRole('combobox', {name: '音频来源'}) as HTMLInputElement;
     expect(select.disabled).toBe(true);
-    fireEvent.change(select, {target: {value: 'mixed'}});
+    fireEvent.keyDown(select, {key: 'ArrowDown'});
     expect(api.audioInput.set).not.toHaveBeenCalled();
 
     act(() => resolvePrivacyStatus({...privacy, platform: 'darwin'}));
-    await waitFor(() => expect(select.value).toBe('microphone'));
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
 });
 
 test('settings ignores an early mixed broadcast until a non-Windows platform resolves', async () => {
@@ -335,12 +367,12 @@ test('settings ignores an early mixed broadcast until a non-Windows platform res
     window.meetingMonsterSettings = api;
 
     render(<SpeechSettingsPage active />);
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
+    const select = await screen.findByRole('combobox', {name: '音频来源'}) as HTMLInputElement;
     act(() => emitAudioInputChanged('mixed'));
-    expect(select.value).toBe('microphone');
+    expect(selectedComboboxText('音频来源')).toContain('麦克风');
 
     act(() => resolvePrivacyStatus({...privacy, platform: 'darwin'}));
-    await waitFor(() => expect(select.value).toBe('microphone'));
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
 });
 
 test('settings keeps microphone selected until platform and audio preference resolution complete', async () => {
@@ -354,17 +386,17 @@ test('settings keeps microphone selected until platform and audio preference res
     window.meetingMonsterSettings = api;
 
     render(<SpeechSettingsPage active />);
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    expect(select.value).toBe('microphone');
+    const select = await screen.findByRole('combobox', {name: '音频来源'}) as HTMLInputElement;
+    expect(selectedComboboxText('音频来源')).toContain('麦克风');
     expect(select.disabled).toBe(true);
 
     act(() => resolvePrivacyStatus(privacy));
     await Promise.resolve();
-    expect(select.value).toBe('microphone');
+    expect(selectedComboboxText('音频来源')).toContain('麦克风');
     expect(select.disabled).toBe(true);
 
     act(() => rejectAudioInput(new Error('audio preference unavailable')));
-    await waitFor(() => expect(select.value).toBe('mixed'));
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('系统音频＋麦克风'));
     expect(select.disabled).toBe(false);
 });
 
@@ -374,10 +406,10 @@ test('settings falls back to microphone when the privacy platform cannot be load
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
 
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('microphone'));
-    expect(select.options[0]?.disabled).toBe(true);
-    expect(select.options[2]?.disabled).toBe(true);
+    const select = await screen.findByRole('combobox', {name: '音频来源'});
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
+    fireEvent.mouseDown(select);
+    expect(screen.getByRole('option', {name: '系统音频'}).getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByText('无法确定系统平台，当前使用麦克风。')).toBeTruthy();
 });
 
@@ -386,10 +418,10 @@ test('settings normalizes macOS to microphone and disables unavailable audio sou
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
 
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('microphone'));
-    expect(select.options[0]?.disabled).toBe(true);
-    expect(select.options[2]?.disabled).toBe(true);
+    const select = await screen.findByRole('combobox', {name: '音频来源'});
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('麦克风'));
+    fireEvent.mouseDown(select);
+    expect(screen.getByRole('option', {name: '系统音频'}).getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByText('系统音频当前仅支持 Windows；当前使用麦克风。')).toBeTruthy();
 });
 
@@ -399,10 +431,10 @@ test('settings keeps the prior audio source and reports a failed save', async ()
     window.meetingMonsterSettings = api;
     render(<SpeechSettingsPage active />);
 
-    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('system'));
-    fireEvent.change(select, {target: {value: 'mixed'}});
+    await screen.findByRole('combobox', {name: '音频来源'});
+    await waitFor(() => expect(selectedComboboxText('音频来源')).toContain('系统音频'));
+    await chooseOption('音频来源', '系统音频＋麦克风');
 
     expect(await screen.findByText('无法保存音频来源')).toBeTruthy();
-    expect(select.value).toBe('system');
+    expect(selectedComboboxText('音频来源')).toContain('系统音频');
 });

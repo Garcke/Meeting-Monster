@@ -1,4 +1,5 @@
 import {useEffect, useState} from 'react';
+import {Button} from 'antd';
 import {ModelSettingsPage} from './ModelSettingsPage';
 import {SpeechSettingsPage} from './SpeechSettingsPage';
 
@@ -19,7 +20,7 @@ export function SettingsApp() {
     return (
         <main className="settings-window-shell">
             <header className="settings-titlebar">
-                <button className="settings-close" type="button" aria-label="关闭设置" onClick={() => void window.meetingMonsterSettings.settings.close()}>×</button>
+                <Button className="settings-close" type="text" aria-label="关闭设置" onClick={() => void window.meetingMonsterSettings.settings.close()}>×</Button>
             </header>
             <aside className="settings-sidebar">
                 <div className="settings-brand" aria-hidden="true">
@@ -27,8 +28,8 @@ export function SettingsApp() {
                     <span>Meeting-Monster</span>
                 </div>
                 <nav aria-label="设置分类">
-                    <button type="button" aria-current={section === 'models' ? 'page' : undefined} className={section === 'models' ? 'settings-nav is-active' : 'settings-nav'} onClick={() => setSection('models')}>AI 与模型</button>
-                    <button type="button" aria-current={section === 'speech' ? 'page' : undefined} className={section === 'speech' ? 'settings-nav is-active' : 'settings-nav'} onClick={() => setSection('speech')}>语音与转写</button>
+                    <Button type="text" aria-current={section === 'models' ? 'page' : undefined} className={section === 'models' ? 'settings-nav is-active' : 'settings-nav'} onClick={() => setSection('models')}>AI 与模型</Button>
+                    <Button type="text" aria-current={section === 'speech' ? 'page' : undefined} className={section === 'speech' ? 'settings-nav is-active' : 'settings-nav'} onClick={() => setSection('speech')}>语音与转写</Button>
                 </nav>
                 <span className="settings-version">Meeting-Monster v{version}</span>
             </aside>

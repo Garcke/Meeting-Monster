@@ -1,4 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
+import {Alert, Button, Input, InputNumber, Progress, Select, Spin} from 'antd';
 import type {ModelOptions, ModelProfileId, ModelTestProgress, SavedModelConnectionSettings, SelectableModelProfile} from '../../src/shared/contracts';
 import {
     BUILT_IN_MODEL_PROFILES,
@@ -138,41 +139,40 @@ export function ModelSettingsPage({active}: {active: boolean}) {
                 </div>
                 <div className="settings-field">
                     <label htmlFor="modelProtocol">模型</label>
-                    <select id="modelProtocol" aria-label="API 协议" value={profile.id} onChange={(event) => selectProfile(event.target.value)}>
-                        {profiles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                    </select>
+                    <Select id="modelProtocol" aria-label="API 协议" value={profile.id} onChange={selectProfile} options={profiles.map((item) => ({value: item.id, label: item.label}))} />
                 </div>
                 <div className="settings-field">
                     <label htmlFor="modelBaseUrl">Base URL</label>
-                    <input id="modelBaseUrl" aria-label="Base URL" value={values.baseUrl} onChange={(event) => updateValue('baseUrl', event.target.value)} placeholder="https://api.example/v1" />
+                    <Input id="modelBaseUrl" aria-label="Base URL" value={values.baseUrl} onChange={(event) => updateValue('baseUrl', event.target.value)} placeholder="https://api.example/v1" />
                 </div>
                 <div className="settings-field">
                     <label htmlFor="modelId">Model ID</label>
-                    <input id="modelId" aria-label="Model ID" value={values.model} onChange={(event) => updateValue('model', event.target.value)} placeholder="输入服务商的模型 ID" />
+                    <Input id="modelId" aria-label="Model ID" value={values.model} onChange={(event) => updateValue('model', event.target.value)} placeholder="输入服务商的模型 ID" />
                 </div>
                 <div className="settings-field">
                     <label htmlFor="modelApiKey">API Key</label>
-                    <input id="modelApiKey" aria-label="API Key" type="password" value={values.apiKey} onChange={(event) => updateValue('apiKey', event.target.value)} placeholder={getSavedModelConnection(saved, profileId)?.has_api_key ? '已安全保存，留空则沿用' : '可选，保存到本机安全存储'} />
+                    <Input.Password id="modelApiKey" aria-label="API Key" value={values.apiKey} onChange={(event) => updateValue('apiKey', event.target.value)} placeholder={getSavedModelConnection(saved, profileId)?.has_api_key ? '已安全保存，留空则沿用' : '可选，保存到本机安全存储'} />
                 </div>
                 <div className="settings-field-grid">
                     <div className="settings-field">
                         <label htmlFor="modelMaxTokens">最大 Token</label>
-                        <input id="modelMaxTokens" aria-label="最大 Token" value={values.maxTokens} onChange={(event) => updateValue('maxTokens', event.target.value)} />
+                        <InputNumber id="modelMaxTokens" aria-label="最大 Token" value={Number(values.maxTokens)} min={1} onChange={(value) => updateValue('maxTokens', value === null ? '' : String(value))} />
                     </div>
                     <div className="settings-field">
                         <label htmlFor="modelTemperature">温度</label>
-                        <input id="modelTemperature" aria-label="温度" value={values.temperature} onChange={(event) => updateValue('temperature', event.target.value)} />
+                        <InputNumber id="modelTemperature" aria-label="温度" value={Number(values.temperature)} min={0} max={2} step={0.1} onChange={(value) => updateValue('temperature', value === null ? '' : String(value))} />
                     </div>
                 </div>
                 <div className="settings-actions">
-                    <button type="button" className={modelAction === 'saving' ? 'is-busy' : ''} disabled={modelActionsBusy} aria-busy={modelAction === 'saving' || undefined} onClick={() => void save()}>
-                        {modelAction === 'saving' && <span className="model-action-spinner" aria-hidden="true" />}{modelActionLabel('saving')}
-                    </button>
-                    <button type="button" className={`primary${modelAction === 'testing' ? ' is-busy' : ''}`} disabled={modelActionsBusy} aria-busy={modelAction === 'testing' || undefined} onClick={() => void test()}>
-                        {modelAction === 'testing' && <span className="model-action-spinner" aria-hidden="true" />}{modelActionLabel('testing')}
-                    </button>
+                    <Button loading={modelAction === 'saving'} disabled={modelActionsBusy} aria-busy={modelAction === 'saving' || undefined} onClick={() => void save()}>{modelActionLabel('saving')}</Button>
+                    <Button type="primary" loading={modelAction === 'testing'} disabled={modelActionsBusy} aria-busy={modelAction === 'testing' || undefined} onClick={() => void test()}>{modelActionLabel('testing')}</Button>
                 </div>
-                <p className={`settings-status${displayedStatusTone === 'neutral' ? '' : ` is-${displayedStatusTone}`}`} aria-live="polite">{displayedStatus}</p>
+                {modelAction === 'testing' && <Progress percent={modelTestProgress.maxAttempts ? Math.round((modelTestProgress.attempt / modelTestProgress.maxAttempts) * 100) : 0} showInfo={false} size="small" />}
+                <div className="settings-status" aria-live="polite">
+                    {displayedStatusTone === 'error'
+                        ? <Alert type="error" showIcon title={displayedStatus} />
+                        : <span className={displayedStatusTone === 'success' ? 'is-success' : undefined}>{modelActionsBusy ? <Spin size="small" /> : null}{displayedStatus}</span>}
+                </div>
             </div>
         </section>
     );
