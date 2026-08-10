@@ -6,8 +6,10 @@ import {fileURLToPath} from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const packagePath = path.join(projectRoot, 'desktop', 'package.json');
+const tsconfigPath = path.join(projectRoot, 'desktop', 'tsconfig.json');
 const installerScriptPath = path.join(projectRoot, 'desktop', 'build', 'installer.nsh');
 const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8'));
 
 test('electron-builder packages only the desktop runtime and explicit unsigned targets', () => {
     assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/favicon.png', 'renderer/favicon.ico', 'package.json', '!**/*.map']);
@@ -60,6 +62,33 @@ test('packages the pinned native runtime and unpacks its platform binaries witho
         'sherpa-onnx-darwin-arm64': '1.13.4',
     });
     assert.ok(pkg.build.asarUnpack.some((pattern) => /sherpa-onnx-\*/.test(pattern)));
+    assert.equal(pkg.build.extraResources, undefined);
+    assert.equal(pkg.build.extraFiles, undefined);
+});
+
+test('compiles and packages the Electron main-process backend without Python service hooks', () => {
+    assert.ok(pkg.build.files.includes('dist/**/*'));
+    assert.equal(tsconfig.compilerOptions.rootDir, 'src');
+    assert.equal(tsconfig.compilerOptions.outDir, 'dist');
+    assert.ok(tsconfig.include.includes('src/**/*.ts'));
+
+    for (const relativePath of [
+        'src/backend/backend-service.ts',
+        'src/backend/providers/openai-provider.ts',
+        'src/backend/providers/anthropic-provider.ts',
+    ]) {
+        assert.ok(
+            fs.statSync(path.join(projectRoot, 'desktop', relativePath)).isFile(),
+            `${relativePath} must be compiled beneath dist/backend`,
+        );
+    }
+
+    const packagingConfiguration = JSON.stringify(pkg.build);
+    const packageScripts = JSON.stringify(pkg.scripts);
+    for (const contents of [packagingConfiguration, packageScripts]) {
+        assert.doesNotMatch(contents, /python(?:\.exe)?|start\.bat|server[\\/]app\.py|127\.0\.0\.1:9000|localhost:9000/i);
+        assert.doesNotMatch(contents, /node:child_process|utilityProcess|\bspawn\s*\(|\bexecFile\s*\(/i);
+    }
     assert.equal(pkg.build.extraResources, undefined);
     assert.equal(pkg.build.extraFiles, undefined);
 });
