@@ -10,7 +10,7 @@ import {
     testModelConnection,
     type ModelFormValues,
 } from '../shared/services/model-settings-service';
-import {formatModelConnectionError} from '../../src/main/remote-api-client';
+import {formatModelConnectionError} from '../../src/shared/model-connection-diagnostics';
 
 const defaultValues: ModelFormValues = {baseUrl: '', model: '', apiKey: '', maxTokens: '4096', temperature: '0.3'};
 const initialModelTestProgress: ModelTestProgress = {phase: 'connecting', attempt: 0, maxAttempts: 3};

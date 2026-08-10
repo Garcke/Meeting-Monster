@@ -183,9 +183,6 @@ async function loadMainHarness() {
             return {ModelConnectionStore: class {}, validateModelConnection: (value) => value};
         }
         if (request === './privacy-manager') return {WindowPrivacyManager: FakePrivacyManager};
-        if (request === './remote-api-client') {
-            return {RemoteApiClient: class {}, validateModelSelectionInput: (value) => value};
-        }
         if (request === 'sherpa-onnx-node') return {};
         return originalLoad(request, parent, isMain);
     };

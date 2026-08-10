@@ -2,6 +2,7 @@ import {app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, MessageCha
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {BackendService} from '../backend/backend-service';
+import {validateBackendSelection} from '../backend/validation';
 import type {BackendModelSelection} from '../backend/types';
 import {AsrModelManager} from './asr-model-manager';
 import {AudioInputSettingsStore} from './audio-input-settings';
@@ -17,10 +18,6 @@ import {
     type ModelConnectionCandidate,
 } from './model-connection-settings';
 import {WindowPrivacyManager} from './privacy-manager';
-import {
-    validateModelSelectionInput,
-    type ModelSelectionInput,
-} from './remote-api-client';
 import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordinator';
 import {LocalAsrEngine, type SherpaBinding} from './local-asr-engine';
 import {captureCurrentDisplay} from './screen-capture';
@@ -41,6 +38,7 @@ import {
     IPC_CHANNELS,
     type ChatImageInput,
     type ChatStreamEvent,
+    type ModelSelectionInput,
     type AsrModelId,
     type AsrModelSnapshot,
     type AsrModelState,
@@ -467,7 +465,18 @@ function requireText(value: unknown, label: string): string {
 }
 
 function requireModelSelection(value: unknown): ModelSelectionInput {
-    return validateModelSelectionInput(value);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new TypeError('Model selection input must be an object');
+    }
+    const input = value as Record<string, unknown>;
+    const hasMaxTokens = input.max_tokens !== undefined;
+    const validated = validateBackendSelection({
+        ...input,
+        max_tokens: input.max_tokens ?? 4096,
+    });
+    if (hasMaxTokens) return validated;
+    const {max_tokens: _defaultMaxTokens, ...selection} = validated;
+    return selection;
 }
 
 async function mergeSavedModelConnection(

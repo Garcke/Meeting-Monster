@@ -8,9 +8,9 @@
 
 <p align="center">本地 ASR · 系统音频 · Markdown AI 回答 · 隐私优先</p>
 
-Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成实时语音转写，再通过本地 Python 文本模型 API 生成回答、追问和重述。
+Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成实时语音转写，并由 Electron 主进程内置的 TypeScript 后端直接调用用户配置的模型服务，生成回答、追问和重述。
 
-本项目当前只发布 Windows 桌面客户端。浏览器工作区已移除，Python 服务只提供 Electron 所需的文本模型 API；访问根路径 `GET /` 会返回 `HTTP 410`。本地语音转写不需要 Python ASR 模型、vLLM、WSL 或 `LOCAL_ASR_MODEL_DIR`。
+本项目当前只发布 Windows 桌面客户端。浏览器工作区已移除；EXE 或 Portable 应用启动时会在 Electron 主进程中初始化 TypeScript 后端，不需要 Python、虚拟环境、`start.bat` 或单独启动的本地 HTTP 服务。本地语音转写也不需要 Python ASR 模型、vLLM、WSL 或 `LOCAL_ASR_MODEL_DIR`。
 
 模型必须由用户在设置页手动选择并下载。启动时不会联网下载模型，切换已安装模型也不会重复下载。
 
@@ -22,7 +22,7 @@ Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成�
 - 使用 `sherpa-onnx-node` 在本机运行中英文流式 ASR。
 - Windows 支持麦克风、系统音频，以及系统音频＋麦克风混合输入。
 - ASR 模型由设置页手动选择和下载，启动时不会联网下载。
-- AI 回答、Assist、追问、重述通过本地 Python `/api/chat/` 服务完成，输出按 Markdown 渲染。
+- AI 回答、Assist、追问、重述由 Electron 主进程中的 TypeScript 后端直接访问所配置的模型服务，输出按 Markdown 渲染。
 - 仅支持两种文本模型协议：`OpenAI Compatible` 和 `Anthropic Compatible`。
 - 模型权重不打包进安装版或便携版；应用退出按钮会真正结束 Electron 进程。
 
@@ -30,42 +30,19 @@ Meeting-Monster 是一个面向 Windows 的桌面会议助手：在本机完成�
 
 `Assist` 不依赖转写内容或问题选择。点击后会截取当前鼠标所在显示器的完整截图，只将截图与内置分析指令发送给模型生成回答。使用 Assist 前，设置中的模型连接必须先通过图片输入验证，确认该模型支持多模态模型的图片输入能力。
 
-截图数据在处理期间仅以内存形式存在：Electron 主进程负责截取并发送给本地 Python 模型服务，再由其发送给用户配置的模型以生成回答。应用不会将截图写入磁盘、不传给 renderer，也不进入对话历史记录；第三方模型服务对请求数据的处理遵循其各自的隐私政策。普通发送、追问、重述和自动转写回答仍然只发送文本，不会触发截图。
+截图数据在处理期间仅以内存形式存在：Electron 主进程负责截取，并由内置 TypeScript 后端直接发送给用户配置的模型服务以生成回答。应用不会将截图写入磁盘、不传给 renderer，也不进入对话历史记录；第三方模型服务对请求数据的处理遵循其各自的隐私政策。普通发送、追问、重述和自动转写回答仍然只发送文本，不会触发截图。
 
 ## 运行环境
 
 - Windows 10/11 64 位
 - Node.js 20 或更高版本
-- Python 3.12（仅在使用 AI 回答、模型测试或模型配置 API 时需要）
 - 建议至少 8 GB 内存
 
-本地语音转写不需要 Python ASR、vLLM 或 WSL。系统音频输入是 Windows 专属能力，首次录音时需要在系统共享界面选择需要捕获的音频来源。
+本地语音转写不需要 Python ASR、vLLM 或 WSL。AI 回答和模型测试同样不需要 Python 运行时。系统音频输入是 Windows 专属能力，首次录音时需要在系统共享界面选择需要捕获的音频来源。
 
-## 安装与启动 Python 服务
+## AI 后端与启动方式
 
-在项目根目录执行：
-
-```powershell
-uv venv --python 3.12 .venv
-uv pip install --python .venv\Scripts\python.exe -r server\requirements.txt
-Copy-Item .env.example .env
-```
-
-编辑 `.env` 设置模型配置加密密钥和管理令牌（如部署需要），然后启动服务：
-
-```powershell
-.\.venv\Scripts\python.exe -m server.app
-```
-
-服务默认监听 `http://127.0.0.1:9000`。Python 服务只负责文本模型调用和模型配置接口，不加载 ASR 模型。
-
-| 接口 | 用途 |
-| --- | --- |
-| `/api/chat/` | 流式生成 AI 回答 |
-| `/api/model-options/` | 返回可选的协议配置 |
-| `/api/model-test/` | 测试当前连接 |
-| `/api/models/` | 返回脱敏后的模型配置摘要 |
-| `/api/prompt/` | 返回系统提示词 |
+EXE 和 Portable 应用会在启动时自动初始化 Electron 主进程内的 TypeScript 后端。它通过 Node `fetch` 直接连接所配置的模型服务，不会启动子进程或监听本地端口，也没有需要手动运行的后端服务。
 
 ## 配置文本模型
 
@@ -77,7 +54,7 @@ Copy-Item .env.example .env
 - 可选 `API Key`
 - 最大 Token 数和温度
 
-API Key 会由 Electron 加密保存，不会返回给 renderer，也不会写入 Python 的模型配置文件。生产环境的远程 Base URL 应使用 HTTPS。
+API Key 会由 Electron `safeStorage` 加密保存，不会返回给 renderer。生产环境的远程 Base URL 应使用 HTTPS。
 
 ## 本地 ASR 模型
 

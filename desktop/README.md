@@ -1,6 +1,6 @@
 # Meeting-Monster Desktop
 
-This folder contains the pure Electron desktop client. There is no browser client and no Python WebSocket ASR path. Electron does not probe, start, or bundle a Python service.
+This folder contains the pure Electron desktop application. There is no browser client and no Python WebSocket ASR path. The EXE initializes its TypeScript backend inside the Electron main process; it does not probe, start, or bundle a Python service.
 
 ## Development
 
@@ -23,11 +23,11 @@ Installed models live at `<home>/.cache/meeting-monster/models/asr/<model-id>/`;
 
 Electron transcription works with Python stopped.
 
-## Python API integration
+## Native TypeScript backend
 
-Python is used only for Electron AI replies. The Electron overlay uses `http://127.0.0.1:9000/` for `/api/chat/`, `/api/model-options/`, and `/api/model-test/`.
+The EXE and Portable application initialize the TypeScript backend in the Electron main process. AI replies, chat streaming, model tests, and image verification call the configured provider directly through Node `fetch`; no Python runtime, virtual environment, `start.bat`, child process, localhost listener, or manually started server is required.
 
-Electron Settings exposes exactly two protocols: `OpenAI Compatible` and `Anthropic Compatible`. Each protocol has an independent `Base URL`, `Model ID`, optional `API Key`, maximum-token, and temperature form. The complete current connection is sent to the fixed local Python API for chat or connection testing; Electron keeps API keys encrypted and receives only non-secret summaries. A non-local production service requires HTTPS and should be supplied by application deployment configuration rather than the Electron UI.
+Electron Settings exposes exactly two protocols: `OpenAI Compatible` and `Anthropic Compatible`. Each protocol has an independent `Base URL`, `Model ID`, optional `API Key`, maximum-token, and temperature form. Electron keeps API keys encrypted with `safeStorage`, never returns them to the renderer, and sends requests only to the configured provider. Production provider URLs should use HTTPS.
 
 ## Packaging and privacy
 

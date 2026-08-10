@@ -4,8 +4,13 @@ import {
     runModelTestWithVisionRetries,
     type ModelTestProgress,
 } from '../../desktop/src/main/model-test-coordinator';
-import {RemoteApiError} from '../../desktop/src/main/remote-api-client';
 import type {ModelSelectionInput, ModelTestResult} from '../../desktop/src/shared/contracts';
+
+class ModelTestFailure extends Error {
+    public constructor(public readonly code: string) {
+        super(code);
+    }
+}
 
 const selection: ModelSelectionInput = {
     profile_id: 'generic_openai',
@@ -42,11 +47,7 @@ describe('runModelTestWithVisionRetries', () => {
     });
 
     test('reports connecting plus three vision attempts when all vision checks fail', async () => {
-        const failure = new RemoteApiError(
-            'Image verification failed',
-            400,
-            'vision_verification_failed',
-        );
+        const failure = new ModelTestFailure('vision_verification_failed');
         const progress: ModelTestProgress[] = [];
         let calls = 0;
         const client = {
@@ -76,11 +77,7 @@ describe('runModelTestWithVisionRetries', () => {
             testSelectedModel: async (): Promise<ModelTestResult> => {
                 calls += 1;
                 if (calls === 1) {
-                    throw new RemoteApiError(
-                        'Image verification failed',
-                        400,
-                        'vision_verification_failed',
-                    );
+                    throw new ModelTestFailure('vision_verification_failed');
                 }
                 return success;
             },
@@ -101,11 +98,7 @@ describe('runModelTestWithVisionRetries', () => {
             testSelectedModel: async (): Promise<ModelTestResult> => {
                 calls += 1;
                 if (calls < 3) {
-                    throw new RemoteApiError(
-                        'Image verification failed',
-                        400,
-                        'vision_verification_failed',
-                    );
+                    throw new ModelTestFailure('vision_verification_failed');
                 }
                 return success;
             },
@@ -120,7 +113,7 @@ describe('runModelTestWithVisionRetries', () => {
     });
 
     test('does not retry an authentication failure', async () => {
-        const failure = new RemoteApiError('Authentication failed', 401, 'authentication_failed');
+        const failure = new ModelTestFailure('authentication_failed');
         const progress: ModelTestProgress[] = [];
         let calls = 0;
         const client = {
@@ -143,11 +136,7 @@ describe('runModelTestWithVisionRetries', () => {
         const client = {
             testSelectedModel: async () => {
                 calls += 1;
-                throw new RemoteApiError(
-                    'Image verification failed',
-                    400,
-                    'vision_verification_failed',
-                );
+                throw new ModelTestFailure('vision_verification_failed');
             },
         };
 
