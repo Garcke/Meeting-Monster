@@ -12,6 +12,7 @@ import {
     type ModelConnectionCandidate,
     type ModelConnectionStore,
 } from '../main/model-connection-settings';
+import {parseBackendImage} from './chat-images';
 import {ChatService} from './chat-service';
 import {classifyProviderError} from './model-diagnostics';
 import {createAnthropicProvider} from './providers/anthropic-provider';
@@ -75,9 +76,10 @@ export class BackendService {
         const controller = new AbortController();
         this.requests.set(requestId, controller);
         try {
+            const validatedImage = image === undefined ? undefined : parseBackendImage(image);
             const resolved = await this.resolveSelection(selection);
             this.assertActive();
-            yield* this.chat.stream(content, resolved, controller.signal, image);
+            yield* this.chat.stream(content, resolved, controller.signal, validatedImage);
         } finally {
             if (this.requests.get(requestId) === controller) this.requests.delete(requestId);
         }

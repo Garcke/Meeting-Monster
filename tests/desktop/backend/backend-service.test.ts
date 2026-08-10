@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {BackendService} from '../../../desktop/src/backend/backend-service';
-import type {BackendModelSelection, BackendProvider, ChatMessage} from '../../../desktop/src/backend/types';
+import type {BackendImage, BackendModelSelection, BackendProvider, ChatMessage} from '../../../desktop/src/backend/types';
 import {ModelConnectionStore} from '../../../desktop/src/main/model-connection-settings';
 import type {ModelTestProgress} from '../../../desktop/src/shared/contracts';
 
@@ -140,6 +140,25 @@ describe('BackendService model options and selection resolution', () => {
 
         await expect(collect(service.streamChat('missing', 'Question'))).rejects.toThrow(/configuration/i);
         expect(providerFactory).not.toHaveBeenCalled();
+    });
+
+    it('rejects malformed PNG input before selection or provider creation', async () => {
+        const providerFactory = vi.fn(() => new FakeProvider('unused', () => chunks()));
+        const fetcher = vi.fn(async () => new Response(null, {status: 500}));
+        const service = new BackendService({
+            connectionStore: await createStore(selection),
+            providerFactory,
+            fetcher,
+        });
+        const invalidImage: BackendImage = {
+            media_type: 'image/png',
+            data: Buffer.from('not a PNG', 'utf8').toString('base64'),
+        };
+
+        await expect(collect(service.streamChat('invalid-image', 'Question', selection, invalidImage)))
+            .rejects.toThrow(/png|image/i);
+        expect(providerFactory).not.toHaveBeenCalled();
+        expect(fetcher).not.toHaveBeenCalled();
     });
 });
 

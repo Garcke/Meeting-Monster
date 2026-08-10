@@ -91,7 +91,8 @@ function normalizeProviderBaseUrl(value: unknown): string {
     } catch {
         throw new TypeError('Backend model selection field is invalid: base_url');
     }
-    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.search || parsed.hash) {
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+        || parsed.username || parsed.password || parsed.search || parsed.hash) {
         throw new TypeError('Backend model selection field is invalid: base_url');
     }
     return parsed.href.replace(/\/+$/, '');

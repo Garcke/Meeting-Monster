@@ -293,6 +293,7 @@ test('connection validation rejects mismatches, malformed values, and unknown fi
         ['profile/protocol mismatch', openAiConnection({protocol: 'anthropic'})],
         ['invalid Base URL', openAiConnection({base_url: 'file:///tmp/model'})],
         ['Base URL query', openAiConnection({base_url: 'https://api.example/v1?key=secret'})],
+        ['Base URL credentials', openAiConnection({base_url: 'https://account:password@api.example/v1'})],
         ['empty Model ID', openAiConnection({model: '  '})],
         ['missing Token count', (() => {
             const value = openAiConnection();
@@ -312,6 +313,37 @@ test('connection validation rejects mismatches, malformed values, and unknown fi
             assert.throws(() => validateModelConnection(connection), /invalid|unsupported|required/i);
         });
     }
+});
+
+test('credential-bearing provider URLs are rejected before save and when loading encrypted settings', async () => {
+    const {ModelConnectionStore} = await import(SETTINGS_MODULE);
+    const temporary = temporarySettingsPath();
+    const store = new ModelConnectionStore({
+        safeStorage: fakeSafeStorage(), settingsPath: temporary.file,
+    });
+    const credentialUrl = 'https://account:password@api.openai.example/v1';
+
+    await assert.rejects(
+        store.saveVerifiedConnection(openAiConnection({base_url: credentialUrl})),
+        /base_url/i,
+    );
+    assert.equal(fs.existsSync(temporary.file), false);
+
+    writeEncryptedSettings(temporary.file, 3, {
+        active_profile: 'generic_openai',
+        connections: {
+            generic_openai: {
+                ...openAiConnection({base_url: credentialUrl}),
+                vision_verified: true,
+            },
+        },
+    });
+
+    const summary = await store.loadSummary();
+    assert.deepEqual(summary, {active_profile: 'generic_openai', connections: {}});
+    assert.doesNotMatch(JSON.stringify(summary), /account|password|api\.openai\.example/i);
+    assert.equal(fs.existsSync(temporary.file), false);
+    fs.rmSync(temporary.directory, {recursive: true, force: true});
 });
 
 test('summary exposes required connection metadata and no secret-bearing fields', async () => {

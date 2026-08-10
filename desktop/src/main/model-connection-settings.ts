@@ -358,6 +358,9 @@ function normalizeBaseUrl(value: unknown): string {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         throw new TypeError('Model connection base_url is invalid: HTTP or HTTPS is required');
     }
+    if (parsed.username || parsed.password) {
+        throw new TypeError('Model connection base_url is invalid: credentials are not allowed');
+    }
     return baseUrl;
 }
 

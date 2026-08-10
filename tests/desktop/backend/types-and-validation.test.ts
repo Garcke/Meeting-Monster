@@ -48,6 +48,14 @@ describe('backend validation', () => {
         },
     );
 
+    it.each(['https://account@provider.example/v1', 'https://account:password@provider.example/v1'])(
+        'rejects a credential-bearing base URL: %s',
+        (base_url) => {
+            expect(() => validateBackendSelection({...validOpenAiSelection, base_url}))
+                .toThrow(/base_url/i);
+        },
+    );
+
     it('rejects an image with an unsupported media type', () => {
         expect(() => validateBackendImage({media_type: 'image/jpeg', data: 'image-data'}))
             .toThrow(/image/i);
