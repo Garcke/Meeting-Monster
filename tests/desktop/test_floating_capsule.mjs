@@ -22,6 +22,10 @@ test('main uses a fixed single-window overlay without legacy resizing', () => {
 test('capsule sends only the workspace overlay intent and keeps a drag-safe shell', () => {
     const source = read('desktop', 'ui', 'capsule', 'CapsuleApp.tsx');
     const styles = read('desktop', 'ui', 'capsule', 'capsule.css');
+    assert.match(source, /import \{Button, Tooltip\} from 'antd';/);
+    assert.match(source, /<Button className="capsule-button" type="text" htmlType="button" aria-label=\{snapshot\.target === 'workspace' \? '隐藏聊天' : '打开聊天'\}/);
+    assert.match(source, /<Tooltip title="退出 Meeting-Monster">/);
+    assert.match(source, /<Button className="capsule-stop" type="text" htmlType="button" aria-label="退出 Meeting-Monster"/);
     assert.match(source, /overlay\.intent\(\{type: 'toggle-workspace'\}\)/);
     assert.match(source, /toggle-workspace/);
     assert.match(source, /className="capsule-chevron"/);
@@ -56,8 +60,8 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(dot, /flex:\s*0\s+0\s+7px/);
     assert.match(dot, /width:\s*7px/);
     assert.match(dot, /height:\s*7px/);
-    const capsuleButton = styles.match(/\.capsule-button\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const capsuleStop = [...styles.matchAll(/(?:^|\n)\.capsule-stop\s*\{([\s\S]*?)\}/g)].at(-1)?.[1] ?? '';
+    const capsuleButton = styles.match(/\.capsule-button\.ant-btn\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const capsuleStop = [...styles.matchAll(/(?:^|\n)\.capsule-stop\.ant-btn\s*\{([\s\S]*?)\}/g)].at(-1)?.[1] ?? '';
     assert.match(capsuleButton, /font-size:\s*11px/);
     assert.match(capsuleStop, /width:\s*30px/);
     assert.match(capsuleStop, /height:\s*30px/);
@@ -66,13 +70,13 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleStop, /background:\s*rgba\(61,\s*34,\s*43,\s*0\.72\)/);
     assert.match(capsuleStop, /font-size:\s*14px/);
     assert.match(capsuleStop, /font-weight:\s*700/);
-    const capsuleStopGlyph = styles.match(/\.capsule-stop\s*>\s*span\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const capsuleStopGlyph = styles.match(/\.capsule-stop\.ant-btn\s*>\s*span\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     assert.match(capsuleStopGlyph, /display:\s*inline-block/);
     assert.match(capsuleStopGlyph, /line-height:\s*1/);
     assert.match(capsuleStopGlyph, /transform:\s*translateY\(-1px\)/);
-    assert.match(styles, /\.capsule-stop:hover\s*\{[\s\S]*?background:\s*rgba\(120,\s*48,\s*62,\s*0\.58\)/);
-    assert.match(styles, /\.capsule-stop:hover\s*\{[\s\S]*?border-color:\s*rgba\(255,\s*104,\s*116,\s*0\.68\)/);
-    assert.match(styles, /\.capsule-stop:focus-visible\s*\{[\s\S]*?outline:\s*2px\s+solid\s+#ffb3b8/);
+    assert.match(styles, /\.capsule-stop\.ant-btn\.ant-btn-variant-text:not\(:disabled\):not\(\.ant-btn-disabled\):hover\s*\{[\s\S]*?background:\s*rgba\(120,\s*48,\s*62,\s*0\.58\)/);
+    assert.match(styles, /\.capsule-stop\.ant-btn\.ant-btn-variant-text:not\(:disabled\):not\(\.ant-btn-disabled\):hover\s*\{[\s\S]*?border-color:\s*rgba\(255,\s*104,\s*116,\s*0\.68\)/);
+    assert.match(styles, /\.capsule-stop\.ant-btn:focus-visible\s*\{[\s\S]*?outline:\s*2px\s+solid\s+#ffb3b8/);
     const capsuleShell = styles.match(/\.capsule-shell\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const sharedControls = styles.match(/\.capsule-button,\s*\.capsule-stop\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const chevron = styles.match(/\.capsule-chevron\s*\{([\s\S]*?)\}/)?.[1] ?? '';

@@ -257,11 +257,11 @@ afterEach(() => {
     window.localStorage.clear();
 });
 
-test('capsule sends only the workspace overlay intent from Chat', async () => {
+test('capsule sends the workspace overlay intent from the accessible open-chat action', async () => {
     const {api, intents} = fakeApi();
     window.meetingMonster = api;
     render(<CapsuleApp />);
-    fireEvent.click(await screen.findByRole('button', {name: /Chat/}));
+    fireEvent.click(await screen.findByRole('button', {name: '打开聊天'}));
     expect(intents).toEqual([{type: 'toggle-workspace'}]);
     expect(screen.queryByRole('button', {name: '设置'})).toBeNull();
 });
@@ -271,20 +271,21 @@ test('capsule swaps its decorative Chat symbol for the Hide chevron with the wor
     window.meetingMonster = api;
     render(<CapsuleApp />);
 
-    const chatButton = await screen.findByRole('button', {name: /Chat/});
+    const chatButton = await screen.findByRole('button', {name: '打开聊天'});
     expect(chatButton.getAttribute('aria-expanded')).toBe('false');
+    expect(chatButton.classList.contains('ant-btn')).toBe(true);
     const chatSymbol = document.querySelector<SVGSVGElement>('.capsule-chat-symbol');
     expect(chatSymbol?.getAttribute('viewBox')).toBe('0 0 1259 1024');
     expect(chatSymbol?.getAttribute('aria-hidden')).toBe('true');
     expect(chatSymbol?.querySelector('path')?.getAttribute('d')).toBe(CAPSULE_CHAT_SYMBOL_PATH);
 
     fireEvent.click(chatButton);
-    await waitFor(() => expect(screen.getByRole('button', {name: /Hide/}).getAttribute('aria-expanded')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('button', {name: '隐藏聊天'}).getAttribute('aria-expanded')).toBe('true'));
     expect(document.querySelector('.capsule-chevron')).toBeTruthy();
     expect(document.querySelector('.capsule-chat-symbol')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', {name: /Hide/}));
-    await waitFor(() => expect(screen.getByRole('button', {name: /Chat/}).getAttribute('aria-expanded')).toBe('false'));
+    fireEvent.click(screen.getByRole('button', {name: '隐藏聊天'}));
+    await waitFor(() => expect(screen.getByRole('button', {name: '打开聊天'}).getAttribute('aria-expanded')).toBe('false'));
     expect(document.querySelector('.capsule-chevron')).toBeNull();
     const restoredChatSymbol = document.querySelector<SVGSVGElement>('.capsule-chat-symbol');
     expect(restoredChatSymbol?.getAttribute('viewBox')).toBe('0 0 1259 1024');
@@ -296,10 +297,11 @@ test('capsule exposes only workspace and exit actions', async () => {
     window.meetingMonster = api;
     render(<CapsuleApp />);
 
-    expect(await screen.findByRole('button', {name: /Chat/})).toBeTruthy();
-    expect((await screen.findByRole('button', {name: /Chat/})).getAttribute('aria-expanded')).toBe('false');
+    expect(await screen.findByRole('button', {name: '打开聊天'})).toBeTruthy();
+    expect((await screen.findByRole('button', {name: '打开聊天'})).getAttribute('aria-expanded')).toBe('false');
     const quit = screen.getByRole('button', {name: '退出 Meeting-Monster'});
     expect(quit).toBeTruthy();
+    expect(quit.classList.contains('ant-btn')).toBe(true);
     expect(quit.textContent).toBe('×');
     fireEvent.click(quit);
     expect(api.window.quit).toHaveBeenCalledOnce();

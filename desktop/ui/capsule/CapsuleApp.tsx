@@ -1,4 +1,5 @@
 import {useEffect, useState} from 'react';
+import {Button, Tooltip} from 'antd';
 import type {AsrState, OverlaySnapshot} from '../../src/shared/contracts';
 import logoUrl from '../../renderer/favicon.png';
 import {publishTranscriptionStatus, useTranscriptionStatus} from '../shared/services/transcription-status-store';
@@ -52,7 +53,7 @@ export function CapsuleApp() {
                 </span>
                 <span className="capsule-status">{statusLabel}</span>
             </div>
-            <button className="capsule-button" type="button" aria-expanded={snapshot.target === 'workspace'} onClick={() => void sendIntent()}>
+            <Button className="capsule-button" type="text" htmlType="button" aria-label={snapshot.target === 'workspace' ? '隐藏聊天' : '打开聊天'} aria-expanded={snapshot.target === 'workspace'} onClick={() => void sendIntent()}>
                 {snapshot.target === 'workspace' ? (
                     <>
                         <svg className="capsule-chevron" viewBox="0 0 14 14" aria-hidden="true">
@@ -68,10 +69,12 @@ export function CapsuleApp() {
                         <span>Chat</span>
                     </>
                 )}
-            </button>
-            <button className="capsule-stop" type="button" aria-label="退出 Meeting-Monster" title="退出 Meeting-Monster" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
-                <span aria-hidden="true">×</span>
-            </button>
+            </Button>
+            <Tooltip title="退出 Meeting-Monster">
+                <Button className="capsule-stop" type="text" htmlType="button" aria-label="退出 Meeting-Monster" title="退出 Meeting-Monster" onClick={() => void window.meetingMonster.window.quit().catch(() => undefined)}>
+                    <span aria-hidden="true">×</span>
+                </Button>
+            </Tooltip>
         </main>
     );
 }
