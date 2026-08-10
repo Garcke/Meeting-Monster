@@ -219,16 +219,24 @@ function diagnosticCode(kind: ReturnType<typeof classifyProviderError>['kind']):
     return codes[kind];
 }
 
+class InternalModelTestError extends Error {
+    readonly name = 'BackendModelTestError';
+
+    constructor(
+        readonly code: ModelDiagnosticCode,
+        message: string,
+        readonly providerStatus?: number,
+    ) {
+        super(message);
+    }
+}
+
 function modelTestError(code: ModelDiagnosticCode, message: string, providerStatus?: number): Error {
-    return Object.assign(new Error(message), {
-        name: 'BackendModelTestError',
-        code,
-        ...(providerStatus === undefined ? {} : {providerStatus}),
-    });
+    return new InternalModelTestError(code, message, providerStatus);
 }
 
 function isModelTestError(error: unknown): boolean {
-    return error instanceof Error && error.name === 'BackendModelTestError';
+    return error instanceof InternalModelTestError;
 }
 
 function abortIfNeeded(signal: AbortSignal): void {

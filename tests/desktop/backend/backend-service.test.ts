@@ -245,6 +245,28 @@ describe('BackendService request lifecycle', () => {
         expect(verifier).toHaveBeenCalledOnce();
     });
 
+    it('sanitizes an external error that spoofs the internal model-test error name', async () => {
+        const leaked = 'saved-secret https://provider.example/v1 vision-model iVBORw0KGgo=';
+        const service = new BackendService({
+            connectionStore: await createStore(selection),
+            providerFactory: () => new FakeProvider('vision', () => chunks()),
+            visionVerifier: async () => {
+                throw Object.assign(new Error(leaked), {
+                    name: 'BackendModelTestError',
+                    code: 'vision_verification_failed',
+                    status: 401,
+                });
+            },
+        });
+
+        const error = await service.testModel(selection).catch((failure: unknown) => failure);
+        expect(error).toMatchObject({code: 'authentication_failed', providerStatus: 401});
+        expect(String(error)).not.toContain('saved-secret');
+        expect(String(error)).not.toContain('provider.example');
+        expect(String(error)).not.toContain('vision-model');
+        expect(String(error)).not.toContain('iVBORw0KGgo');
+    });
+
     it('does not expose a provider failure that races with disposal', async () => {
         let verificationStarted!: () => void;
         const started = new Promise<void>((resolve) => { verificationStarted = resolve; });
