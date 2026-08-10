@@ -1,10 +1,6 @@
 import {
-    RemoteApiError,
-    type ModelSelectionInput,
-    type RemoteApiClient,
-} from './remote-api-client';
-import {
     MAX_MODEL_TEST_ATTEMPTS,
+    type ModelSelectionInput,
     type ModelTestProgress,
     type ModelTestResult,
 } from '../shared/contracts';
@@ -12,7 +8,9 @@ import {
 export {MAX_MODEL_TEST_ATTEMPTS};
 export type {ModelTestProgress};
 
-type ModelTestClient = Pick<RemoteApiClient, 'testSelectedModel'>;
+type ModelTestClient = {
+    testSelectedModel(selection: ModelSelectionInput): Promise<ModelTestResult>;
+};
 
 export async function runModelTestWithVisionRetries(
     client: ModelTestClient,
@@ -26,11 +24,16 @@ export async function runModelTestWithVisionRetries(
         try {
             return await client.testSelectedModel(selection);
         } catch (error) {
-            const retryable = error instanceof RemoteApiError
-                && error.code === 'vision_verification_failed';
+            const retryable = isVisionVerificationFailure(error);
             if (!retryable || attempt === MAX_MODEL_TEST_ATTEMPTS) throw error;
         }
     }
 
     throw new Error('Model test retry loop ended unexpectedly');
+}
+
+function isVisionVerificationFailure(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'vision_verification_failed');
 }

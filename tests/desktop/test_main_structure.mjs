@@ -11,6 +11,7 @@ const mainSource = () => read('desktop', 'src', 'main', 'main.ts');
 const contractsSource = () => read('desktop', 'src', 'shared', 'contracts.ts');
 const preloadSource = () => read('desktop', 'src', 'preload', 'index.ts');
 const controllerSource = () => read('desktop', 'src', 'main', 'overlay-window-controller.ts');
+const coordinatorSource = () => read('desktop', 'src', 'main', 'model-test-coordinator.ts');
 
 function countMatches(source, pattern) {
     return [...source.matchAll(pattern)].length;
@@ -140,12 +141,14 @@ test('main authorizes each IPC family to the narrowest application window', () =
 
 test('main validates and relays workspace commands only from the overlay', () => {
     const source = mainSource();
+    const relay = source.match(/function sendWorkspaceCommand[\s\S]*?\n\}/)?.[0] ?? '';
 
     assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.workspaceCommands\.dispatch,[\s\S]*isOverlayWebContents\(event\.sender\)/);
     assert.match(source, /function requireWorkspaceCommand\(/);
     assert.match(source, /function sendWorkspaceCommand\(/);
     assert.match(source, /candidate\.type === 'toggle-transcription'[\s\S]*candidate\.type === 'clear-chat'[\s\S]*candidate\.type === 'scroll-chat'[\s\S]*candidate\.direction === 'up'[\s\S]*candidate\.direction === 'down'/);
     assert.match(source, /function sendWorkspaceCommand\([\s\S]*getLiveOverlayWindows\(\)\[0\][\s\S]*IPC_CHANNELS\.workspaceCommands\.event/);
+    assert.match(relay, /command\.type === 'clear-chat'[\s\S]*getBackendService\(\)\.resetConversation\(\)[\s\S]*webContents\.send/);
 });
 
 test('main applies local web shortcut policy to both windows without global Ctrl+S/R bindings', () => {
@@ -252,15 +255,18 @@ test('main registers fixed local ASR model IPC and MessagePort transport', () =>
     assert.doesNotMatch(source, /\bnew WebSocket\b|new globalThis\.WebSocket|\/ws\/asr/);
 });
 
-test('main preserves remote AI chat and disposes local ASR on every app lifecycle exit', () => {
+test('main owns the native backend and disposes it with local ASR before quit', () => {
     const source = mainSource();
 
-    assert.match(source, /RemoteApiClient/);
-    assert.match(source, /DEFAULT_BACKEND_URL = 'http:\/\/127\.0\.0\.1:9000\/'/);
+    assert.doesNotMatch(source, /RemoteApiClient|DEFAULT_BACKEND_URL|getRemoteApiClient/);
+    assert.doesNotMatch(coordinatorSource(), /RemoteApiClient/);
+    assert.match(source, /import \{BackendService\} from '\.\.\/backend\/backend-service'/);
+    assert.match(source, /import \{[^}]*createBackendLifecycle[^}]*sanitizeBackendLifecycleError[^}]*\} from '\.\/backend-lifecycle'/s);
+    assert.match(source, /modelConnectionStore = new ModelConnectionStore\([\s\S]*backendLifecycle = createBackendLifecycle\(new BackendService\(\{[\s\S]*connectionStore: modelConnectionStore[\s\S]*registerIpcHandlers\(\)/);
     assert.match(source, /IPC_CHANNELS\.models\.list/);
     assert.match(source, /IPC_CHANNELS\.chat\.send/);
     assert.match(source, /onOverlayWindowClosed\([\s\S]*disposeAsr\(\)/);
-    assert.match(source, /app\.on\('before-quit', \(\) => \{[\s\S]*disposeAsr\(\)/);
+    assert.match(source, /app\.on\('before-quit', \(event\) => \{[\s\S]*event\?\.preventDefault\(\)[\s\S]*globalShortcut\.unregisterAll\(\)[\s\S]*disposeAsr\(\)[\s\S]*disposeForQuit\(\)[\s\S]*sanitizeBackendLifecycleError\(error\)[\s\S]*app\.quit\(\)/);
     assert.match(source, /app\.whenReady\(\)[\s\S]*\.catch\([\s\S]*disposeAsr\(\)/);
 });
 
@@ -280,7 +286,7 @@ test('main verifies saved model vision before persisting and owns Assist screen 
     );
     assert.match(source, /function startChatRequest\([\s\S]*?image\?: ChatImageInput/);
     assert.match(source, /async function requireVerifiedSavedSelection/);
-    assert.match(saveHandler, /runModelTestWithVisionRetries\([\s\S]*?selection[\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/);
+    assert.match(saveHandler, /getBackendService\(\)\.testModel\([\s\S]*?selection[\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/);
     assert.doesNotMatch(saveHandler, /saveConnection\(/);
     assert.match(assistHandler, /isOverlayWebContents\(event\.sender\)/);
     assert.match(assistHandler, /reserveChatRequest\(id, event\.sender\)[\s\S]*?await requireVerifiedSavedSelection\(requestedSelection\)[\s\S]*?captureCurrentDisplay\(\{screen, desktopCapturer\}\)/);
@@ -295,7 +301,7 @@ test('main verifies saved model vision before persisting and owns Assist screen 
     assert.match(source, /throw new Error\('Unable to capture the current screen'\)/);
 });
 
-test('main routes model test and save through retries with sender-scoped progress', () => {
+test('main routes model list, test, and save through the native backend with sender-scoped progress', () => {
     const source = mainSource();
     const testHandler = source.match(
         /ipcMain\.handle\(IPC_CHANNELS\.models\.test,[\s\S]*?\n    \}\);/,
@@ -304,17 +310,18 @@ test('main routes model test and save through retries with sender-scoped progres
         /ipcMain\.handle\(IPC_CHANNELS\.models\.save,[\s\S]*?\n    \}\);/,
     )?.[0] ?? '';
 
-    assert.match(source, /import \{runModelTestWithVisionRetries\} from '\.\/model-test-coordinator'/);
+    assert.match(ipcHandler(source, 'models.list'), /getBackendService\(\)\.listModelOptions\(\)/);
+    assert.doesNotMatch(source, /runModelTestWithVisionRetries/);
     for (const handler of [testHandler, saveHandler]) {
         assert.match(handler, /isSettingsWebContents\(event\.sender\)/);
-        assert.match(handler, /runModelTestWithVisionRetries\(/);
+        assert.match(handler, /getBackendService\(\)\.testModel\(/);
         assert.match(handler, /event\.sender\.send\(IPC_CHANNELS\.models\.progress, progress\)/);
     }
     assert.doesNotMatch(testHandler, /broadcast|getLiveApplicationWindows/);
     assert.match(saveHandler, /broadcastModelChanged\(\)/);
     assert.match(
         saveHandler,
-        /await runModelTestWithVisionRetries\([\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/,
+        /await getBackendService\(\)\.testModel\([\s\S]*?tested\.vision[\s\S]*?saveVerifiedConnection/,
     );
 });
 
@@ -331,7 +338,9 @@ test('main protects deferred text and Assist handlers with reservation identity 
     assert.match(assistHandler, /const reserved = reserveChatRequest\(id, event\.sender\);[\s\S]*?await requireVerifiedSavedSelection[\s\S]*?isCurrentChatRequest\(id, reserved\)[\s\S]*?await captureCurrentDisplay[\s\S]*?isCurrentChatRequest\(id, reserved\)/);
     assert.match(source, /function releaseChatRequest[\s\S]*?activeChatRequests\.get\(id\) === request/);
     assert.match(source, /function startChatRequest[\s\S]*?if \(args\.reserved && \(!isCurrentChatRequest\(args\.id, args\.reserved\)/);
-    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.chat\.cancel,[\s\S]*?activeChatRequests\.get\(id\)[\s\S]*?activeRequest\.controller\.abort\(\)/);
+    assert.match(source, /function startChatRequest[\s\S]*?args\.backend\.streamChat\([\s\S]*?active\.backendRequestId/);
+    assert.match(source, /sendChatEvent\(args\.sender, \{requestId: args\.id, \.\.\.chatEvent\}\)/);
+    assert.match(source, /ipcMain\.handle\(IPC_CHANNELS\.chat\.cancel,[\s\S]*?activeChatRequests\.get\(id\)[\s\S]*?activeRequest\.controller\.abort\(\)[\s\S]*?activeRequest\.backend\?\.cancel\(activeRequest\.backendRequestId\)/);
     assert.match(source, /catch \(error\) \{[\s\S]*?releaseChatRequest\(id, reserved\);[\s\S]*?throw error;/);
 });
 

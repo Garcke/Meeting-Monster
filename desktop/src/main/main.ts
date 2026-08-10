@@ -1,9 +1,16 @@
 import {app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, MessageChannelMain, safeStorage, screen, session, webContents, type WebContents} from 'electron';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import {BackendService} from '../backend/backend-service';
+import type {BackendModelSelection} from '../backend/types';
 import {AsrModelManager} from './asr-model-manager';
 import {AudioInputSettingsStore} from './audio-input-settings';
 import {getAsrModel, getAsrModelCatalog, toPublicAsrModelDescriptor} from './asr-model-catalog';
+import {
+    createBackendLifecycle,
+    sanitizeBackendLifecycleError,
+    type BackendLifecycle,
+} from './backend-lifecycle';
 import {
     ModelConnectionStore,
     type ModelConnection,
@@ -11,15 +18,12 @@ import {
 } from './model-connection-settings';
 import {WindowPrivacyManager} from './privacy-manager';
 import {
-    RemoteApiClient,
     validateModelSelectionInput,
-    type ChatStreamEvent,
     type ModelSelectionInput,
 } from './remote-api-client';
 import {AsrSessionCoordinator, type AsrSessionSender} from './asr-session-coordinator';
 import {LocalAsrEngine, type SherpaBinding} from './local-asr-engine';
 import {captureCurrentDisplay} from './screen-capture';
-import {runModelTestWithVisionRetries} from './model-test-coordinator';
 import {classifyWebShortcut, type WebShortcutSurface} from './web-shortcut-policy';
 import {
     createOverlayWindowController,
@@ -36,6 +40,7 @@ import {
 import {
     IPC_CHANNELS,
     type ChatImageInput,
+    type ChatStreamEvent,
     type AsrModelId,
     type AsrModelSnapshot,
     type AsrModelState,
@@ -49,7 +54,6 @@ import {
 } from '../shared/contracts';
 import {normalizeAudioInputMode, type AudioInputMode} from '../shared/audio-input-mode';
 
-const DEFAULT_BACKEND_URL = 'http://127.0.0.1:9000/';
 const LOCAL_ASR_ERROR = 'Local ASR failed';
 const ASR_MODEL_ERROR = 'ASR model operation failed';
 const ASSIST_SCREENSHOT_PROMPT = '请分析这张截图，并直接回答截图中显示的问题；如果有多个问题，请按顺序回答。';
@@ -66,14 +70,18 @@ let overlayController: OverlayWindowController | null = null;
 let settingsWindowController: SettingsWindowController | null = null;
 let privacyManager: WindowPrivacyManager | null = null;
 let modelConnectionStore: ModelConnectionStore | null = null;
+let backendLifecycle: BackendLifecycle<BackendService> | null = null;
 let audioInputSettingsStore: AudioInputSettingsStore | null = null;
 let ipcHandlersRegistered = false;
 type ActiveChatRequest = {
     controller: AbortController;
     sender: WebContents;
     phase: 'capturing' | 'streaming';
+    backendRequestId: string;
+    backend?: BackendService;
 };
 const activeChatRequests = new Map<string, ActiveChatRequest>();
+let chatRequestSequence = 0;
 let asrModelManager: AsrModelManager | null = null;
 let localAsrEngine: LocalAsrEngine | null = null;
 let asrSessionCoordinator: AsrSessionCoordinator | null = null;
@@ -82,6 +90,8 @@ let asrModelMutationActive = false;
 const asrModelRuntime = new Map<AsrModelId, {state: 'loading' | 'ready' | 'failed'; errorMessage?: string}>();
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 let secondInstancePending = false;
+let quitDisposalStarted = false;
+let quitDisposalFinished = false;
 
 if (!hasSingleInstanceLock) {
     app.quit();
@@ -169,6 +179,11 @@ function getPrivacyManager(): WindowPrivacyManager {
 function getModelConnectionStore(): ModelConnectionStore {
     if (!modelConnectionStore) throw new Error('Model connection store is not ready');
     return modelConnectionStore;
+}
+
+function getBackendService(): BackendService {
+    if (!backendLifecycle) throw new Error('Native backend is not ready');
+    return backendLifecycle.getBackend();
 }
 
 function getAudioInputSettingsStore(): AudioInputSettingsStore {
@@ -446,10 +461,6 @@ async function initializeAsr(): Promise<void> {
     }
 }
 
-function getRemoteApiClient(): RemoteApiClient {
-    return new RemoteApiClient({baseUrl: DEFAULT_BACKEND_URL, fetch});
-}
-
 function requireText(value: unknown, label: string): string {
     if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${label} is required`);
     return value.trim();
@@ -459,7 +470,9 @@ function requireModelSelection(value: unknown): ModelSelectionInput {
     return validateModelSelectionInput(value);
 }
 
-async function mergeSavedModelConnection(selection: ModelSelectionInput | undefined): Promise<ModelSelectionInput | undefined> {
+async function mergeSavedModelConnection(
+    selection: ModelSelectionInput | undefined,
+): Promise<BackendModelSelection | undefined> {
     const settings = await getModelConnectionStore().loadSettings();
     const saved = selection
         ? settings?.connections[selection.profile_id]
@@ -483,7 +496,7 @@ async function mergeSavedModelConnection(selection: ModelSelectionInput | undefi
     };
 }
 
-function modelConnectionToSelection(connection: ModelConnection): ModelSelectionInput {
+function modelConnectionToSelection(connection: ModelConnection): BackendModelSelection {
     return {
         profile_id: connection.profile_id,
         protocol: connection.protocol,
@@ -495,7 +508,7 @@ function modelConnectionToSelection(connection: ModelConnection): ModelSelection
     };
 }
 
-function modelSelectionToConnection(selection: ModelSelectionInput): ModelConnectionCandidate {
+function modelSelectionToConnection(selection: BackendModelSelection): ModelConnectionCandidate {
     return {
         profile_id: selection.profile_id,
         protocol: selection.protocol,
@@ -509,7 +522,7 @@ function modelSelectionToConnection(selection: ModelSelectionInput): ModelConnec
 
 async function requireVerifiedSavedSelection(
     selection: ModelSelectionInput | undefined,
-): Promise<ModelSelectionInput> {
+): Promise<BackendModelSelection> {
     let settings: Awaited<ReturnType<ModelConnectionStore['loadSettings']>>;
     try {
         settings = await getModelConnectionStore().loadSettings();
@@ -534,11 +547,14 @@ async function requireVerifiedSavedSelection(
 }
 
 function reserveChatRequest(id: string, sender: WebContents): ActiveChatRequest {
-    activeChatRequests.get(id)?.controller.abort();
+    const previous = activeChatRequests.get(id);
+    previous?.controller.abort();
+    previous?.backend?.cancel(previous.backendRequestId);
     const request: ActiveChatRequest = {
         controller: new AbortController(),
         sender,
         phase: 'capturing',
+        backendRequestId: `${id}:${++chatRequestSequence}`,
     };
     activeChatRequests.set(id, request);
     return request;
@@ -556,7 +572,8 @@ function startChatRequest(args: {
     id: string;
     content: string;
     sender: WebContents;
-    modelSelection?: ModelSelectionInput;
+    backend: BackendService;
+    modelSelection?: BackendModelSelection;
     image?: ChatImageInput;
     reserved?: ActiveChatRequest;
 }): boolean {
@@ -565,18 +582,18 @@ function startChatRequest(args: {
         || args.reserved.phase !== 'capturing')) return false;
     const active = args.reserved ?? reserveChatRequest(args.id, args.sender);
     active.phase = 'streaming';
+    active.backend = args.backend;
     const {controller} = active;
     void (async () => {
         try {
-            for await (const chatEvent of getRemoteApiClient().streamChat({
-                requestId: args.id,
-                content: args.content,
-                modelSelection: args.modelSelection,
-                ...(args.image ? {image: args.image} : {}),
-                signal: controller.signal,
-            })) {
+            for await (const chatEvent of args.backend.streamChat(
+                active.backendRequestId,
+                args.content,
+                args.modelSelection,
+                args.image,
+            )) {
                 if (activeChatRequests.get(args.id)?.controller !== controller) return;
-                sendChatEvent(args.sender, chatEvent);
+                sendChatEvent(args.sender, {requestId: args.id, ...chatEvent});
             }
         } catch {
             if (!controller.signal.aborted && activeChatRequests.get(args.id)?.controller === controller) {
@@ -630,6 +647,7 @@ function requireWorkspaceCommand(value: unknown): WorkspaceCommand {
 }
 
 function sendWorkspaceCommand(command: WorkspaceCommand): void {
+    if (command.type === 'clear-chat') getBackendService().resetConversation();
     const overlay = getLiveOverlayWindows()[0];
     if (!overlay) return;
     overlay.webContents.send(IPC_CHANNELS.workspaceCommands.event, command);
@@ -818,7 +836,7 @@ function registerIpcHandlers(): void {
     });
     ipcMain.handle(IPC_CHANNELS.models.list, async (event) => {
         if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
-        return (await getRemoteApiClient()).listSelectableModels();
+        return getBackendService().listModelOptions();
     });
     ipcMain.handle(IPC_CHANNELS.models.getSaved, async (event) => {
         if (!isApplicationWebContents(event.sender)) throw new Error('Unauthorized models request');
@@ -829,8 +847,7 @@ function registerIpcHandlers(): void {
         const requested = requireModelSelection(connection);
         const selection = await mergeSavedModelConnection(requested);
         if (!selection) throw new Error('Model selection is required');
-        const tested = await runModelTestWithVisionRetries(
-            getRemoteApiClient(),
+        const tested = await getBackendService().testModel(
             selection,
             (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
         );
@@ -843,8 +860,7 @@ function registerIpcHandlers(): void {
         if (!isSettingsWebContents(event.sender)) throw new Error('Unauthorized models request');
         const modelSelection = await mergeSavedModelConnection(requireModelSelection(selection));
         if (!modelSelection) throw new Error('Model selection is required');
-        return runModelTestWithVisionRetries(
-            getRemoteApiClient(),
+        return getBackendService().testModel(
             modelSelection,
             (progress) => event.sender.send(IPC_CHANNELS.models.progress, progress),
         );
@@ -854,6 +870,7 @@ function registerIpcHandlers(): void {
         const id = requireText(requestId, 'Chat request id');
         const question = requireText(content, 'Chat content');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
+        const backend = getBackendService();
         const reserved = reserveChatRequest(id, event.sender);
         try {
             const modelSelection = await mergeSavedModelConnection(requestedSelection);
@@ -865,6 +882,7 @@ function registerIpcHandlers(): void {
                 id,
                 content: question,
                 sender: event.sender,
+                backend,
                 modelSelection,
                 reserved,
             })) {
@@ -880,6 +898,7 @@ function registerIpcHandlers(): void {
         if (!isOverlayWebContents(event.sender)) throw new Error('Unauthorized Assist request');
         const id = requireText(requestId, 'Chat request id');
         const requestedSelection = selection === undefined ? undefined : requireModelSelection(selection);
+        const backend = getBackendService();
         const reserved = reserveChatRequest(id, event.sender);
         try {
             const verified = await requireVerifiedSavedSelection(requestedSelection);
@@ -906,6 +925,7 @@ function registerIpcHandlers(): void {
                 id,
                 content: ASSIST_SCREENSHOT_PROMPT,
                 sender: event.sender,
+                backend,
                 modelSelection: verified,
                 image,
                 reserved,
@@ -924,6 +944,7 @@ function registerIpcHandlers(): void {
         const activeRequest = activeChatRequests.get(id);
         if (!activeRequest || activeRequest.sender !== event.sender) return {cancelled: false};
         activeRequest.controller.abort();
+        activeRequest.backend?.cancel(activeRequest.backendRequestId);
         return {cancelled: true};
     });
     ipcMain.handle(IPC_CHANNELS.asrModels.list, (event): AsrModelSnapshot => {
@@ -1167,6 +1188,9 @@ async function startApplication(): Promise<void> {
         safeStorage,
         settingsPath: path.join(app.getPath('userData'), 'model-connection.json'),
     });
+    backendLifecycle = createBackendLifecycle(new BackendService({
+        connectionStore: modelConnectionStore,
+    }));
     audioInputSettingsStore = new AudioInputSettingsStore({
         platform: process.platform,
         settingsPath: path.join(app.getPath('userData'), 'audio-input.json'),
@@ -1219,11 +1243,26 @@ app.on('activate', () => {
     }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+    if (quitDisposalFinished) return;
+    event?.preventDefault();
+    if (quitDisposalStarted) return;
+    quitDisposalStarted = true;
     settingsWindowController?.dispose();
     settingsWindowController = null;
-    disposeAsr();
     globalShortcut.unregisterAll();
+    for (const request of activeChatRequests.values()) request.controller.abort();
+    activeChatRequests.clear();
+    disposeAsr();
+    const disposal = backendLifecycle?.disposeForQuit() ?? Promise.resolve();
+    void disposal
+        .catch((error: unknown) => {
+            console.error('[desktop] backend disposal failed:', sanitizeBackendLifecycleError(error));
+        })
+        .finally(() => {
+            quitDisposalFinished = true;
+            app.quit();
+        });
 });
 
 app.on('window-all-closed', () => {
