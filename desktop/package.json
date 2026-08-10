@@ -5,9 +5,10 @@
   "description": "Meeting-Monster Windows privacy desktop shell",
   "main": "dist/main/main.js",
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:main": "tsc -p tsconfig.json",
     "build:renderer": "vite build",
-    "build": "npm run build:main && npm run build:renderer",
+    "build": "npm run clean && npm run build:main && npm run build:renderer",
     "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
     "typecheck": "npm run typecheck:renderer && tsc -p tsconfig.json --noEmit",
     "unit-test": "vitest run --root .. --config desktop/vitest.config.ts ../tests/desktop/react_overlay.test.tsx ../tests/desktop/react_services.test.ts ../tests/desktop/overlay-state.test.ts ../tests/desktop/model_test_coordinator.test.ts ../tests/desktop/settings_model_test_progress.test.tsx ../tests/desktop/settings_renderer.test.tsx ../tests/desktop/web-shortcut-policy.test.ts tests/desktop/backend",

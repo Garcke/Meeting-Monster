@@ -93,3 +93,11 @@ test('compiles and packages the Electron main-process backend without Python ser
     assert.equal(pkg.build.extraFiles, undefined);
 });
 
+test('production builds remove stale compiled modules before TypeScript emits', () => {
+    assert.equal(
+        pkg.scripts.clean,
+        'node -e "require(\'node:fs\').rmSync(\'dist\',{recursive:true,force:true})"',
+    );
+    assert.match(pkg.scripts.build, /^npm run clean && npm run build:main && npm run build:renderer$/);
+});
+

@@ -12,6 +12,7 @@ const projectRoot = path.resolve(path.dirname(scriptPath), '..', '..');
 const require = createRequire(path.join(projectRoot, 'desktop', 'package.json'));
 const {createPackage, listPackage} = require('@electron/asar');
 const forbiddenEntry = /(?:^|\/)(?:server|web|source|python|pyinstaller|models?|asr[-_]?models?|docs|tests|\.git|\.venv)(?:\/|$)|(?:^|\/)(?:tokens\.txt|download_asr_model(?:\.[^/]+)?)(?:$|\/)|\.(?:py|pyc|onnx|pt|bin|map)$/i;
+const legacyLocalHttpEntry = /^dist\/main\/(?:desktop-settings|remote-api-client)\.js$/i;
 const windowsNativePackages = ['sherpa-onnx-win-x64'];
 const macNativePackages = ['sherpa-onnx-darwin-x64', 'sherpa-onnx-darwin-arm64'];
 const nativeBackendEntry = 'dist/backend/backend-service.js';
@@ -37,6 +38,7 @@ function isAllowedUnpackedEntry(entry) {
 
 function assertSafeEntry(entry, artifactPath, isAllowedEntry) {
     if (forbiddenEntry.test(entry)) throw new Error(`Forbidden packaged entry: ${entry} (${artifactPath})`);
+    if (legacyLocalHttpEntry.test(entry)) throw new Error(`Forbidden packaged entry: ${entry} (${artifactPath})`);
     if (/sherpa-onnx-/i.test(entry) && !entry.startsWith('node_modules/sherpa-onnx-')) {
         throw new Error(`Forbidden packaged entry: ${entry} (${artifactPath})`);
     }
@@ -211,6 +213,8 @@ if (process.env.NODE_TEST_CONTEXT) {
         'renderer/bundle.map',
         'dist/sherpa-onnx-node/index.js',
         'renderer/download_asr_model.js',
+        'dist/main/desktop-settings.js',
+        'dist/main/remote-api-client.js',
     ]) {
         test(`artifact audit rejects the forbidden path ${entry}`, async () => {
             const fixture = await createFixture(['package.json', 'dist/main/main.js', entry]);
