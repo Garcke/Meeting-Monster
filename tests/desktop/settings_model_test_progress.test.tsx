@@ -42,6 +42,6 @@ test('shows the active model test progress and blocks saving while the test runs
     fireEvent.click(testButton);
     await act(async () => { emitProgress({phase: 'vision', attempt: 2, maxAttempts: 3}); });
 
-    expect(screen.getByRole('button', {name: '验证图片 2/3'}).getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByRole('button', {name: /验证图片 2\/3/}).getAttribute('aria-busy')).toBe('true');
     expect((screen.getByRole('button', {name: '保存连接'}) as HTMLButtonElement).disabled).toBe(true);
 });

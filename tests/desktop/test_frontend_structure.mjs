@@ -63,7 +63,7 @@ test('workspace header omits the What should I say prompt pill', () => {
 test('capsule action buttons keep their labels on one centered line', () => {
     const capsuleCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'capsule.css'), 'utf8');
 
-    assert.match(capsuleCss, /\.capsule-button\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*line-height:\s*1[^}]*white-space:\s*nowrap/s);
+    assert.match(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*line-height:\s*1[^}]*white-space:\s*nowrap/s);
     assert.doesNotMatch(capsuleCss, /\.protection-button\s*\{/);
 });
 
@@ -71,7 +71,7 @@ test('capsule expand button uses Chat when closed and chevron Hide when expanded
     const capsuleApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'CapsuleApp.tsx'), 'utf8');
     const capsuleCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'capsule', 'capsule.css'), 'utf8');
 
-    assert.match(capsuleApp, /<button[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}/);
+    assert.match(capsuleApp, /<Button className="capsule-button"[\s\S]*?aria-expanded=\{snapshot\.target === 'workspace'\}/);
     assert.match(capsuleApp, /\{snapshot\.target === 'workspace' \? \(/);
     assert.match(capsuleApp, /<span>Hide<\/span>/);
     assert.match(capsuleApp, /<svg className="capsule-chat-symbol" viewBox="0 0 1259 1024" aria-hidden="true">/);
@@ -81,7 +81,7 @@ test('capsule expand button uses Chat when closed and chevron Hide when expanded
     assert.match(capsuleApp, /<path d="M3\.5 5\.25 7 8\.75l3\.5-3\.5" \/>/);
     assert.doesNotMatch(capsuleApp, /\u2304/);
     assert.match(capsuleCss, /\.capsule-button\s*>\s*span\s*\{[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 auto[^}]*line-height:\s*1/s);
-    assert.match(capsuleCss, /\.capsule-button\s*\{[^}]*width:\s*70px[^}]*min-width:\s*70px/s);
+    assert.match(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*70px[^}]*min-width:\s*70px/s);
     assert.match(capsuleCss, /\.capsule-chat-symbol\s*\{[^}]*width:\s*14px[^}]*height:\s*14px[^}]*flex:\s*0 0 14px/s);
 });
 
@@ -94,7 +94,7 @@ test('expanded panel shares the capsule translucent surface', () => {
 test('settings chrome keeps the close control inside the dedicated titlebar', () => {
     const settingsApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'settings', 'SettingsApp.tsx'), 'utf8');
 
-    assert.match(settingsApp, /<header className="settings-titlebar">[\s\S]*?<button className="settings-close"[\s\S]*?<\/header>/);
+    assert.match(settingsApp, /<header className="settings-titlebar">[\s\S]*?<Button className="settings-close"[\s\S]*?<\/header>/);
     assert.match(settingsApp, /<aside className="settings-sidebar">/);
     assert.match(settingsApp, /<section className="settings-main">/);
 });

@@ -112,10 +112,11 @@ test('workspace menu owns compact controls and warning state', () => {
     const source = read('desktop', 'ui', 'panel', 'WorkspaceMenu.tsx');
     const styles = read('desktop', 'ui', 'panel', 'panel.css');
 
+    assert.match(source, /import \{Alert, Button, Dropdown, Menu, Switch, type MenuProps\} from 'antd';/);
     assert.match(source, /aria-label="更多"/);
-    assert.match(source, /role="menu"/);
-    assert.match(source, /role="menuitemcheckbox"/);
-    assert.match(source, /aria-checked/);
+    assert.match(source, /<Dropdown/);
+    assert.match(source, /<Menu aria-label="工作区菜单" items=\{menuItems\} onClick=\{onMenuClick\} \/>/);
+    assert.match(source, /<Switch/);
     assert.match(source, /useTranscriptionStatus/);
     assert.match(source, /isAsrModelReady/);
     assert.match(source, /toggle-transcription/);
@@ -125,14 +126,14 @@ test('workspace menu owns compact controls and warning state', () => {
     assert.doesNotMatch(source, /截图保护/);
     assert.match(source, /开启后，悬浮窗口不会出现在大多数屏幕共享和录屏画面中。/);
     assert.match(source, /显示\/隐藏窗口/);
-    assert.match(source, /<div className="workspace-menu-reference">\s*<span>显示\/隐藏窗口<\/span>\s*<kbd>\{'Ctrl\+\\\\'\}<\/kbd>\s*<\/div>/);
+    assert.match(source, /<ShortcutReference label="显示\/隐藏窗口" shortcut=\{'Ctrl\+\\\\'\} \/>/);
     assert.doesNotMatch(source, /onClick=\{hideWindow\}/);
     assert.doesNotMatch(source, /const hideWindow\s*=/);
     assert.match(source, /settings\.open\(\)/);
     assert.match(source, /privacy\.setCaptureProtection/);
     assert.match(source, /privacy-warning-dot/);
     assert.match(styles, /\.workspace-menu-popover\s*\{[^}]*width:\s*272px/s);
-    assert.match(styles, /\.workspace-menu-switch\s*\{[^}]*width:\s*30px[^}]*height:\s*17px/s);
+    assert.match(styles, /\.workspace-menu-switch-item \.ant-switch\s*\{[^}]*margin-left:\s*auto/s);
     assert.match(styles, /\.workspace-menu-privacy-copy\s*\{/);
     assert.match(styles, /\.privacy-warning-dot\s*\{[^}]*#F3A35C/s);
 });
@@ -168,9 +169,9 @@ test('panel keeps transparent shell, transform-only states, and worklet asset', 
     assert.match(exit, /opacity:\s*1/);
     assert.doesNotMatch(enter, /opacity:\s*0\.15/);
     assert.doesNotMatch(exit, /opacity:\s*0\.15/);
-    assert.match(styles, /\.composer-ai-action\s*\{[^}]*font-size:\s*12px/s);
+    assert.match(styles, /\.composer-ai-action\.ant-btn\s*\{[^}]*font-size:\s*12px/s);
     assert.doesNotMatch(styles, /\.record-action\s*\{/);
-    assert.match(styles, /\.send-button\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s);
+    assert.match(styles, /\.send-button\.ant-btn\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s);
     assert.match(panel, /snapshot\.phase\s*!==\s*'opening'/);
     assert.match(panel, /rendererReady\(snapshot\.revision\)/);
     assert.match(panel, /animationFinished\(snapshot\.revision\)/);
@@ -203,8 +204,9 @@ test('settings uses light chrome tokens, a titlebar drag region, and semantic st
     assert.match(styles, /@media \(max-width:\s*600px\)\s*\{[\s\S]*?--sidebar-width:\s*148px/s);
     assert.match(styles, /\.settings-titlebar\s*\{[^}]*-webkit-app-region:\s*drag/s);
     assert.match(styles, /\.settings-close\s*,[\s\S]*-webkit-app-region:\s*no-drag/s);
-    assert.match(styles, /\.settings-actions button\.primary\s*\{[^}]*color:\s*#FFFFFF/s);
-    assert.match(styles, /\.settings-actions button\.primary \.model-action-spinner\s*\{[^}]*border-top-color:\s*#FFFFFF/s);
+    assert.match(styles, /\.settings-actions \.ant-btn-primary,[\s\S]*?color:\s*#FFFFFF/s);
+    assert.match(styles, /\.settings-card \.ant-progress\s*\{[^}]*margin-top:\s*10px/s);
+    assert.match(styles, /\.settings-status \.ant-spin\s*\{[^}]*margin-right:\s*7px/s);
     assert.match(styles, /\.settings-nav\.is-active\s*\{[^}]*background:\s*var\(--field\)[^}]*border-color:\s*rgba\(75,\s*142,\s*247,\s*0\.3\)/s);
     assert.doesNotMatch(styles, /gradient/i);
     assert.match(styles, /\.settings-status\.is-error,[\s\S]*\.asr-status\.is-error\s*\{[^}]*color:\s*var\(--warning\)/s);

@@ -68,7 +68,8 @@
       "renderer/favicon.png",
       "renderer/favicon.ico",
       "package.json",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/**/docs/**"
     ],
     "asarUnpack": [
       "node_modules/sherpa-onnx-*/**"

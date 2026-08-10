@@ -16,6 +16,7 @@ const legacyLocalHttpEntry = /^dist\/main\/(?:desktop-settings|remote-api-client
 const windowsNativePackages = ['sherpa-onnx-win-x64'];
 const macNativePackages = ['sherpa-onnx-darwin-x64', 'sherpa-onnx-darwin-arm64'];
 const nativeBackendEntry = 'dist/backend/backend-service.js';
+const requiredRuntimePackages = ['openai', '@anthropic-ai/sdk', 'antd'];
 
 function normalizeEntry(entry) {
     return entry.replaceAll('\\', '/').replace(/^\/+/, '');
@@ -48,6 +49,15 @@ function assertSafeEntry(entry, artifactPath, isAllowedEntry) {
 function requireNativeBackend(entries, artifactPath) {
     if (!entries.includes(nativeBackendEntry)) {
         throw new Error(`Expected native backend entry ${nativeBackendEntry} in ${artifactPath}`);
+    }
+}
+
+function requireRuntimeDependencies(entries, artifactPath) {
+    for (const packageName of requiredRuntimePackages) {
+        const packageEntry = `node_modules/${packageName}/package.json`;
+        if (!entries.includes(packageEntry)) {
+            throw new Error(`Expected runtime dependency ${packageEntry} in ${artifactPath}`);
+        }
     }
 }
 
@@ -112,6 +122,7 @@ export async function auditPackagedArtifact(releaseDirectory = path.join(project
         const entries = (await listPackage(asarPath)).map(normalizeEntry);
         for (const entry of entries) assertSafeEntry(entry, asarPath, isAllowedAsarEntry);
         requireNativeBackend(entries, asarPath);
+        requireRuntimeDependencies(entries, asarPath);
         const unpackedDirectory = requireNativeRuntime(asarPath, mac);
         for (const entry of listDirectoryEntries(unpackedDirectory)) {
             assertSafeEntry(entry, unpackedDirectory, isAllowedUnpackedEntry);
@@ -127,7 +138,7 @@ function writeFixtureFile(root, relativePath, contents = '') {
     fs.writeFileSync(filePath, contents);
 }
 
-async function createFixture(entries, {platform = 'win', unpackedEntries = [], includeBackend = true} = {}) {
+async function createFixture(entries, {platform = 'win', unpackedEntries = [], includeBackend = true, includeRuntimeDependencies = true} = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-monster-asar-'));
     const source = path.join(root, 'source');
     const release = path.join(root, 'release');
@@ -135,9 +146,11 @@ async function createFixture(entries, {platform = 'win', unpackedEntries = [], i
         ? path.join(release, 'mac-universal', 'Meeting-Monster.app', 'Contents', 'Resources')
         : path.join(release, 'win-unpacked', 'resources');
     const asarPath = path.join(resourcesDirectory, 'app.asar');
-    const sourceEntries = includeBackend
-        ? [...new Set([...entries, 'dist/backend/backend-service.js'])]
-        : entries;
+    const sourceEntries = [
+        ...entries,
+        ...(includeBackend ? ['dist/backend/backend-service.js'] : []),
+        ...(includeRuntimeDependencies ? requiredRuntimePackages.map((packageName) => `node_modules/${packageName}/package.json`) : []),
+    ];
     for (const entry of sourceEntries) writeFixtureFile(source, entry, entry === 'package.json' ? '{}' : 'fixture');
     fs.mkdirSync(path.dirname(asarPath), {recursive: true});
     await createPackage(source, asarPath);
@@ -165,6 +178,21 @@ if (process.env.NODE_TEST_CONTEXT) {
         );
         try {
             await assert.rejects(auditPackagedArtifact(fixture.release), /Expected native backend entry/);
+        } finally {
+            fs.rmSync(fixture.root, {recursive: true, force: true});
+        }
+    });
+
+    test('artifact audit requires the official provider SDKs and Ant Design in app.asar', async () => {
+        const fixture = await createFixture(
+            ['package.json', 'dist/main/main.js'],
+            {
+                includeRuntimeDependencies: false,
+                unpackedEntries: ['node_modules/sherpa-onnx-win-x64/sherpa-onnx.node'],
+            },
+        );
+        try {
+            await assert.rejects(auditPackagedArtifact(fixture.release), /Expected runtime dependency node_modules\/openai\/package\.json/);
         } finally {
             fs.rmSync(fixture.root, {recursive: true, force: true});
         }
@@ -234,7 +262,9 @@ if (process.env.NODE_TEST_CONTEXT) {
         try {
             assert.deepEqual((await auditPackagedArtifact(fixture.release)).sort(), [
                 'dist', 'dist/backend', 'dist/backend/backend-service.js', 'dist/main', 'dist/main/main.js',
-                'package.json', 'renderer', 'renderer/overlay.css',
+                'node_modules', 'node_modules/@anthropic-ai', 'node_modules/@anthropic-ai/sdk',
+                'node_modules/@anthropic-ai/sdk/package.json', 'node_modules/antd', 'node_modules/antd/package.json',
+                'node_modules/openai', 'node_modules/openai/package.json', 'package.json', 'renderer', 'renderer/overlay.css',
             ]);
         } finally {
             fs.rmSync(fixture.root, {recursive: true, force: true});
@@ -338,7 +368,7 @@ if (process.env.NODE_TEST_CONTEXT) {
                 env: environment,
             });
             assert.equal(result.status, 0, result.stderr);
-            assert.match(result.stdout, /Packaged artifact audit passed \(6 ASAR entries\)\./);
+            assert.match(result.stdout, /Packaged artifact audit passed \(14 ASAR entries\)\./);
         } finally {
             fs.rmSync(releaseDirectory, {recursive: true, force: true});
             fs.rmSync(fixture.root, {recursive: true, force: true});

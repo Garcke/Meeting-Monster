@@ -12,7 +12,7 @@ const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8'));
 
 test('electron-builder packages only the desktop runtime and explicit unsigned targets', () => {
-    assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/favicon.png', 'renderer/favicon.ico', 'package.json', '!**/*.map']);
+    assert.deepEqual(pkg.build.files, ['dist/**/*', 'renderer/favicon.png', 'renderer/favicon.ico', 'package.json', '!**/*.map', '!node_modules/**/docs/**']);
     assert.equal(pkg.build.icon, 'renderer/favicon.png');
     assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
     const windowsIcon = path.join(projectRoot, 'desktop', 'renderer', 'favicon.ico');

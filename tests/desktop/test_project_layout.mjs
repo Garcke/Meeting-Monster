@@ -123,6 +123,16 @@ test('unit-test script runs the complete native backend suite', () => {
     assert.doesNotMatch(unitTest, /backend\/types-and-validation\.test\.ts/);
 });
 
+test('official provider SDKs and Ant Design remain runtime dependencies without an SSE module', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'));
+
+    assert.match(packageJson.dependencies.openai, /.+/);
+    assert.match(packageJson.dependencies['@anthropic-ai/sdk'], /.+/);
+    assert.match(packageJson.dependencies.antd, /.+/);
+    assert.equal(fs.existsSync(path.join(desktopRoot, 'src', 'backend', 'sse.ts')), false);
+    assert.equal(fs.existsSync(path.join(desktopRoot, 'dist', 'backend', 'sse.js')), false);
+});
+
 test('ASR catalog and manager names remain in the main-process source tree', () => {
     const mainFiles = filesIn(path.join(desktopRoot, 'src', 'main'));
     const otherSourceFiles = [
