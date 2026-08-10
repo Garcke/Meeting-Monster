@@ -327,6 +327,31 @@ test('settings ignores audio-source changes while the privacy platform is still 
     await waitFor(() => expect(select.value).toBe('microphone'));
 });
 
+test('settings keeps microphone selected until platform and audio preference resolution complete', async () => {
+    let resolvePrivacyStatus!: (status: PrivacyStatus) => void;
+    let rejectAudioInput!: (reason?: unknown) => void;
+    const delayedPrivacyStatus = new Promise<PrivacyStatus>((resolve) => { resolvePrivacyStatus = resolve; });
+    const delayedAudioInput = new Promise<'system' | 'microphone' | 'mixed'>((_, reject) => { rejectAudioInput = reject; });
+    const {api} = fakeSettingsApi();
+    api.privacy.getStatus = vi.fn(() => delayedPrivacyStatus);
+    api.audioInput.get = vi.fn(() => delayedAudioInput);
+    window.meetingMonsterSettings = api;
+
+    render(<SpeechSettingsPage active />);
+    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
+    expect(select.value).toBe('microphone');
+    expect(select.disabled).toBe(true);
+
+    act(() => resolvePrivacyStatus(privacy));
+    await Promise.resolve();
+    expect(select.value).toBe('microphone');
+    expect(select.disabled).toBe(true);
+
+    act(() => rejectAudioInput(new Error('audio preference unavailable')));
+    await waitFor(() => expect(select.value).toBe('mixed'));
+    expect(select.disabled).toBe(false);
+});
+
 test('settings falls back to microphone when the privacy platform cannot be loaded', async () => {
     const {api} = fakeSettingsApi();
     api.privacy.getStatus = vi.fn(async () => { throw new Error('privacy status unavailable'); });

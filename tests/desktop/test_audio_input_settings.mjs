@@ -15,9 +15,17 @@ async function createStore(platform) {
 
 test('defaults by platform when no preference exists', async () => {
     await assert.doesNotReject(async () => {
-        assert.equal(await (await createStore('win32')).store.load(), 'system');
+        assert.equal(await (await createStore('win32')).store.load(), 'mixed');
         assert.equal(await (await createStore('darwin')).store.load(), 'microphone');
     });
+});
+
+test('keeps a valid saved Windows system preference authoritative', async () => {
+    const {store, file} = await createStore('win32');
+    await fs.mkdir(path.dirname(file), {recursive: true});
+    await fs.writeFile(file, JSON.stringify({version: 1, mode: 'system'}), 'utf8');
+
+    assert.equal(await store.load(), 'system');
 });
 
 test('atomically persists a normalized Windows mode', async () => {
@@ -36,7 +44,7 @@ test('falls back safely for corrupt JSON', async () => {
     const {store, file} = await createStore('win32');
     await fs.mkdir(path.dirname(file), {recursive: true});
     await fs.writeFile(file, '{broken', 'utf8');
-    assert.equal(await store.load(), 'system');
+    assert.equal(await store.load(), 'mixed');
 });
 
 test('serializes concurrent saves with unique temporary files so the last request wins', async () => {

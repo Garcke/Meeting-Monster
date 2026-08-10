@@ -382,8 +382,8 @@ describe('React session services', () => {
         expect(formatAsrModelStatus(snapshot, snapshot.currentModelId, null)).toBe('已安装');
         expect(describeAsrModel(snapshot.models[0])).toBe('zh · en · 1 MB');
     });
-    it('defaults to system audio input on Windows and microphone elsewhere', () => {
-        expect(getDefaultAudioInputMode('win32')).toBe('system');
+    it('defaults to mixed audio input on Windows and microphone elsewhere', () => {
+        expect(getDefaultAudioInputMode('win32')).toBe('mixed');
         expect(getDefaultAudioInputMode('darwin')).toBe('microphone');
     });
 
@@ -392,7 +392,7 @@ describe('React session services', () => {
         expect(normalizeAudioInputMode('microphone', 'win32')).toBe('microphone');
         expect(normalizeAudioInputMode('mixed', 'win32')).toBe('mixed');
         expect(normalizeAudioInputMode('system', 'darwin')).toBe('microphone');
-        expect(normalizeAudioInputMode('invalid', 'win32')).toBe('system');
+        expect(normalizeAudioInputMode('invalid', 'win32')).toBe('mixed');
     });
 
 });
