@@ -98,6 +98,31 @@ test('native backend source, package scripts, and documentation contain no Pytho
     }
 });
 
+test('legacy local HTTP settings artifacts remain removed', () => {
+    for (const relativePath of [
+        '.env.example',
+        'desktop/src/main/desktop-settings.ts',
+        'tests/desktop/test_desktop_settings.mjs',
+    ]) {
+        assert.equal(
+            fs.existsSync(path.join(projectRoot, relativePath)),
+            false,
+            `${relativePath} must not return after the native backend migration`,
+        );
+    }
+
+    const mainSource = fs.readFileSync(path.join(desktopRoot, 'src', 'main', 'main.ts'), 'utf8');
+    assert.match(mainSource, /modelConnectionStore = new ModelConnectionStore\(\{[\s\S]*safeStorage/);
+});
+
+test('unit-test script runs the complete native backend suite', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'));
+    const unitTest = packageJson.scripts?.['unit-test'];
+    assert.equal(typeof unitTest, 'string');
+    assert.match(unitTest, /(?:^|\s)tests\/desktop\/backend(?:\s|$)/);
+    assert.doesNotMatch(unitTest, /backend\/types-and-validation\.test\.ts/);
+});
+
 test('ASR catalog and manager names remain in the main-process source tree', () => {
     const mainFiles = filesIn(path.join(desktopRoot, 'src', 'main'));
     const otherSourceFiles = [
