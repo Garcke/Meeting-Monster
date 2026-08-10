@@ -91,6 +91,19 @@ test('expanded panel shares the capsule translucent surface', () => {
     assert.match(panelCss, /\.panel-shell\s*\{[^}]*background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)[^}]*border:\s*1px solid rgba\(255,\s*255,\s*255,\s*0\.17\)/s);
 });
 
+test('workspace dropdown keeps a dark surface and readable menu text', () => {
+    const panelCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'panel.css'), 'utf8');
+    const dropdownMenu = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const dropdownItem = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu-item\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const dropdownTitle = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu-item-group-title\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+
+    assert.match(dropdownMenu, /background:\s*#151B25/);
+    assert.match(dropdownMenu, /color:\s*#eef2f8/);
+    assert.match(dropdownItem, /color:\s*#eef2f8/);
+    assert.match(dropdownTitle, /color:\s*rgba\(230,\s*237,\s*248,\s*0\.5\)/);
+    assert.doesNotMatch(panelCss, /\.workspace-menu-popover \.ant-menu-item(?:\s|\{|:|,)/);
+});
+
 test('settings chrome keeps the close control inside the dedicated titlebar', () => {
     const settingsApp = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'settings', 'SettingsApp.tsx'), 'utf8');
 

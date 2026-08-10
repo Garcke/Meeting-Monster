@@ -33,17 +33,17 @@ button, input, select, textarea, .no-drag, .workspace-content { -webkit-app-regi
 .workspace-menu { position: relative; flex: 0 0 auto; margin-left: auto; -webkit-app-region: no-drag; }
 .workspace-menu-trigger.ant-btn { position: relative; display: grid; width: 32px; height: 32px; padding: 0; place-items: center; color: #eef2f8; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.17); border-radius: 10px; letter-spacing: 1px; -webkit-app-region: no-drag; }
 .workspace-menu-trigger.ant-btn:hover { color: #eef2f8 !important; background: rgba(121, 185, 255, 0.2) !important; }
-.workspace-menu-trigger:focus-visible, .workspace-menu-popover .ant-menu-item:focus-visible { outline: 2px solid #79b9ff; outline-offset: 2px; }
+.workspace-menu-trigger:focus-visible, .workspace-menu-popover .ant-dropdown-menu-item:focus-visible { outline: 2px solid #79b9ff; outline-offset: 2px; }
 .privacy-warning-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; background: #F3A35C; border-radius: 50%; }
 .workspace-menu-popover { width: 272px; padding: 6px; background: #151B25; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 13px; -webkit-app-region: no-drag; }
-.workspace-menu-popover .ant-menu { min-width: 0; color: #eef2f8; background: transparent; border-inline-end: 0; }
-.workspace-menu-popover .ant-menu-item-group-title { padding: 5px 10px 3px; color: rgba(230, 237, 248, 0.5); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
-.workspace-menu-popover .ant-menu-item-group-list { margin: 0; }
-.workspace-menu-popover .ant-menu-item { display: flex; min-height: 34px; align-items: center; margin: 0; padding: 7px 10px; color: #eef2f8; font-size: 12px; line-height: 20px; border-radius: 9px; -webkit-app-region: no-drag; }
-.workspace-menu-popover .ant-menu-item::after { display: none; }
-.workspace-menu-popover .ant-menu-item:hover { color: #eef2f8; background: rgba(121, 185, 255, 0.17); }
-.workspace-menu-popover .ant-menu-item-disabled, .workspace-menu-popover .ant-menu-item-disabled:hover { color: rgba(230, 237, 248, 0.48) !important; background: transparent !important; cursor: default; }
-.workspace-menu-popover .ant-menu-item-divider { margin: 4px 6px; border-color: rgba(255,255,255,0.12); }
+.workspace-menu-popover .ant-dropdown-menu { min-width: 0; color: #eef2f8; background: #151B25; border-inline-end: 0; }
+.workspace-menu-popover .ant-dropdown-menu-item-group-title { padding: 5px 10px 3px; color: rgba(230, 237, 248, 0.5); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
+.workspace-menu-popover .ant-dropdown-menu-item-group-list { margin: 0; }
+.workspace-menu-popover .ant-dropdown-menu-item { display: flex; min-height: 34px; align-items: center; margin: 0; padding: 7px 10px; color: #eef2f8; font-size: 12px; line-height: 20px; border-radius: 9px; -webkit-app-region: no-drag; }
+.workspace-menu-popover .ant-dropdown-menu-item::after { display: none; }
+.workspace-menu-popover .ant-dropdown-menu-item:hover { color: #eef2f8; background: rgba(121, 185, 255, 0.17); }
+.workspace-menu-popover .ant-dropdown-menu-item-disabled, .workspace-menu-popover .ant-dropdown-menu-item-disabled:hover { color: rgba(230, 237, 248, 0.48) !important; background: transparent !important; cursor: default; }
+.workspace-menu-popover .ant-dropdown-menu-item-divider { margin: 4px 6px; border-color: rgba(255,255,255,0.12); }
 .workspace-menu-reference, .workspace-menu-checkbox-row { display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; }
 .workspace-menu-reference { color: inherit; }
 .workspace-menu-reference kbd, .workspace-menu-checkbox-row kbd { margin-left: auto; color: rgba(230, 237, 248, 0.52); font: inherit; font-size: 11px; }

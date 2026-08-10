@@ -157,7 +157,7 @@ button { font: inherit; }
     width: 70px;
     min-width: 70px;
     padding: 0 9px;
-    gap: 7px;
+    gap: 10px;
     line-height: 1;
     white-space: nowrap;
     border-radius: 999px;
@@ -195,8 +195,6 @@ button { font: inherit; }
     fill: currentColor;
     line-height: 1;
 }
-
-.capsule-button:has(.capsule-chevron) { gap: 7px; }
 
 .capsule-stop.ant-btn {
     display: grid;
