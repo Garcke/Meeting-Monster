@@ -327,6 +327,22 @@ test('settings ignores audio-source changes while the privacy platform is still 
     await waitFor(() => expect(select.value).toBe('microphone'));
 });
 
+test('settings ignores an early mixed broadcast until a non-Windows platform resolves', async () => {
+    let resolvePrivacyStatus!: (status: PrivacyStatus) => void;
+    const delayedPrivacyStatus = new Promise<PrivacyStatus>((resolve) => { resolvePrivacyStatus = resolve; });
+    const {api, emitAudioInputChanged} = fakeSettingsApi();
+    api.privacy.getStatus = vi.fn(() => delayedPrivacyStatus);
+    window.meetingMonsterSettings = api;
+
+    render(<SpeechSettingsPage active />);
+    const select = await screen.findByLabelText('音频来源') as HTMLSelectElement;
+    act(() => emitAudioInputChanged('mixed'));
+    expect(select.value).toBe('microphone');
+
+    act(() => resolvePrivacyStatus({...privacy, platform: 'darwin'}));
+    await waitFor(() => expect(select.value).toBe('microphone'));
+});
+
 test('settings keeps microphone selected until platform and audio preference resolution complete', async () => {
     let resolvePrivacyStatus!: (status: PrivacyStatus) => void;
     let rejectAudioInput!: (reason?: unknown) => void;

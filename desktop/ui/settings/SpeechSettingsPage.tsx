@@ -10,6 +10,8 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
     const [platformResolved, setPlatformResolved] = useState(false);
     const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>('microphone');
     const [audioInputError, setAudioInputError] = useState('');
+    const resolvedPlatformRef = useRef<string | null>(null);
+    const hasResolvedPlatform = useRef(false);
     const confirmedAudioInputMode = useRef<AudioInputMode>('microphone');
     const pendingAudioInputMode = useRef<AudioInputMode | null>(null);
     const audioInputRequestRevision = useRef(0);
@@ -24,10 +26,11 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
         let audioChanged = false;
         let asrChanged = false;
         const unsubscribeAudio = api.audioInput.onChanged((mode) => {
+            if (!mounted || !hasResolvedPlatform.current || resolvedPlatformRef.current === null || (pendingAudioInputMode.current !== null && mode !== pendingAudioInputMode.current)) return;
             audioChanged = true;
-            if (!mounted || (pendingAudioInputMode.current !== null && mode !== pendingAudioInputMode.current)) return;
-            confirmedAudioInputMode.current = mode;
-            setAudioInputMode(mode);
+            const normalized = normalizeAudioInputMode(mode, resolvedPlatformRef.current);
+            confirmedAudioInputMode.current = normalized;
+            setAudioInputMode(normalized);
         });
         const unsubscribeAsr = api.asrModels.onStatus((next) => {
             asrChanged = true;
@@ -47,6 +50,8 @@ export function SpeechSettingsPage({active}: {active: boolean}) {
             const resolvedMode = resolvedPlatform
                 ? normalizeAudioInputMode(modeResult.status === 'fulfilled' ? modeResult.value : undefined, resolvedPlatform)
                 : 'microphone';
+            resolvedPlatformRef.current = resolvedPlatform;
+            hasResolvedPlatform.current = true;
             setPlatform(resolvedPlatform);
             setPlatformResolved(true);
             if (!audioChanged) {
