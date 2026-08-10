@@ -132,7 +132,7 @@ test('official provider SDKs and Ant Design remain runtime dependencies without 
     assert.match(packageJson.dependencies.antd, /.+/);
     assert.equal(fs.existsSync(path.join(desktopRoot, 'src', 'backend', 'sse.ts')), false);
     assert.equal(fs.existsSync(path.join(desktopRoot, 'dist', 'backend', 'sse.js')), false);
-    assert.equal(packageJson.devDependencies.electron, '37.10.3');
+    assert.equal(packageJson.devDependencies.electron, '43.3.0');
     assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3');
     assert.equal(fs.existsSync(path.join(desktopRoot, 'src', 'main', 'model-test-coordinator.ts')), false);
     assert.equal(fs.existsSync(path.join(desktopRoot, 'dist', 'main', 'model-test-coordinator.js')), false);
