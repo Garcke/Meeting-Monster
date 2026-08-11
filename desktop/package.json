@@ -19,7 +19,7 @@
     "audit:package:mac": "node ../tests/desktop/audit_packaged_artifact.mjs --mac",
     "dist": "npm run build && electron-builder --win nsis portable",
     "dist:win": "npm run build && electron-builder --win nsis portable",
-    "dist:win:unsigned": "npm run build && electron-builder --win nsis portable -c.win.signAndEditExecutable=false -c.forceCodeSigning=false",
+    "dist:win:unsigned": "npm run build && electron-builder --win nsis portable -c.win.signExecutable=false -c.forceCodeSigning=false",
     "dist:mac": "npm run build && electron-builder --mac dmg zip --universal",
     "dist:mac:unsigned": "npm run build && electron-builder --mac dmg zip --universal -c.mac.identity=null -c.mac.hardenedRuntime=false -c.mac.notarize=false -c.forceCodeSigning=false"
   },

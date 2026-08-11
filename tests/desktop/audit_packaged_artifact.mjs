@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,12 +12,15 @@ const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), '..', '..');
 const require = createRequire(path.join(projectRoot, 'desktop', 'package.json'));
 const {createPackage, listPackage} = require('@electron/asar');
+const {Data, NtExecutable, NtExecutableResource, Resource} = require('resedit');
 const forbiddenEntry = /(?:^|\/)(?:server|web|source|python|pyinstaller|models?|asr[-_]?models?|docs|tests|\.git|\.venv)(?:\/|$)|(?:^|\/)(?:tokens\.txt|download_asr_model(?:\.[^/]+)?)(?:$|\/)|\.(?:py|pyc|onnx|pt|bin|map)$/i;
 const legacyLocalHttpEntry = /^dist\/main\/(?:desktop-settings|remote-api-client|model-test-coordinator)\.js$/i;
 const windowsNativePackages = ['sherpa-onnx-win-x64'];
 const macNativePackages = ['sherpa-onnx-darwin-x64', 'sherpa-onnx-darwin-arm64'];
 const nativeBackendEntry = 'dist/backend/backend-service.js';
 const requiredRuntimePackages = ['openai', '@anthropic-ai/sdk', 'antd'];
+const windowsAppExecutableName = 'Meeting-Monster.exe';
+const windowsIconPath = path.join(projectRoot, 'desktop', 'renderer', 'favicon.ico');
 
 function normalizeEntry(entry) {
     return entry.replaceAll('\\', '/').replace(/^\/+/, '');
@@ -58,6 +62,38 @@ function requireRuntimeDependencies(entries, artifactPath) {
         if (!entries.includes(packageEntry)) {
             throw new Error(`Expected runtime dependency ${packageEntry} in ${artifactPath}`);
         }
+    }
+}
+
+function iconFingerprint(icon) {
+    const bytes = icon.isRaw() ? icon.bin : icon.generate();
+    return createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+}
+
+function configuredWindowsIconFingerprints() {
+    return Data.IconFile.from(fs.readFileSync(windowsIconPath)).icons
+        .map(({data}) => iconFingerprint(data))
+        .sort();
+}
+
+function requireWindowsApplicationIcon(asarPath) {
+    if (!/[/\\]win-unpacked[/\\]resources[/\\]app\.asar$/i.test(asarPath)) return;
+    const executablePath = path.join(path.dirname(path.dirname(asarPath)), windowsAppExecutableName);
+    if (!fs.existsSync(executablePath) || !fs.statSync(executablePath).isFile()) {
+        throw new Error(`Expected Windows application executable ${executablePath}`);
+    }
+
+    try {
+        const executable = NtExecutable.from(fs.readFileSync(executablePath));
+        const resources = NtExecutableResource.from(executable);
+        const expected = configuredWindowsIconFingerprints();
+        const matches = Resource.IconGroupEntry.fromEntries(resources.entries).some((group) => {
+            const actual = group.getIconItemsFromEntries(resources.entries).map(iconFingerprint).sort();
+            return actual.length === expected.length && actual.every((fingerprint, index) => fingerprint === expected[index]);
+        });
+        if (!matches) throw new Error('embedded icon does not match renderer/favicon.ico');
+    } catch (error) {
+        throw new Error(`Windows application icon validation failed for ${executablePath}: ${String(error)}`);
     }
 }
 
@@ -119,6 +155,7 @@ export async function auditPackagedArtifact(releaseDirectory = path.join(project
 
     const allAsarEntries = [];
     for (const asarPath of asarPaths) {
+        requireWindowsApplicationIcon(asarPath);
         const entries = (await listPackage(asarPath)).map(normalizeEntry);
         for (const entry of entries) assertSafeEntry(entry, asarPath, isAllowedAsarEntry);
         requireNativeBackend(entries, asarPath);
@@ -138,7 +175,17 @@ function writeFixtureFile(root, relativePath, contents = '') {
     fs.writeFileSync(filePath, contents);
 }
 
-async function createFixture(entries, {platform = 'win', unpackedEntries = [], includeBackend = true, includeRuntimeDependencies = true} = {}) {
+function writeWindowsExecutableWithConfiguredIcon(filePath) {
+    const executable = NtExecutable.createEmpty(false, false);
+    const resources = NtExecutableResource.from(executable);
+    const iconFile = Data.IconFile.from(fs.readFileSync(windowsIconPath));
+    Resource.IconGroupEntry.replaceIconsForResource(resources.entries, 1, 0x409, iconFile.icons.map(({data}) => data));
+    resources.outputResource(executable);
+    fs.mkdirSync(path.dirname(filePath), {recursive: true});
+    fs.writeFileSync(filePath, Buffer.from(executable.generate()));
+}
+
+async function createFixture(entries, {platform = 'win', unpackedEntries = [], includeBackend = true, includeRuntimeDependencies = true, includeWindowsExecutable = true} = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-monster-asar-'));
     const source = path.join(root, 'source');
     const release = path.join(root, 'release');
@@ -154,6 +201,9 @@ async function createFixture(entries, {platform = 'win', unpackedEntries = [], i
     for (const entry of sourceEntries) writeFixtureFile(source, entry, entry === 'package.json' ? '{}' : 'fixture');
     fs.mkdirSync(path.dirname(asarPath), {recursive: true});
     await createPackage(source, asarPath);
+    if (platform === 'win' && includeWindowsExecutable) {
+        writeWindowsExecutableWithConfiguredIcon(path.join(release, 'win-unpacked', windowsAppExecutableName));
+    }
     for (const entry of unpackedEntries) writeFixtureFile(`${asarPath}.unpacked`, entry, 'fixture');
     return {root, release};
 }
@@ -178,6 +228,34 @@ if (process.env.NODE_TEST_CONTEXT) {
         );
         try {
             await assert.rejects(auditPackagedArtifact(fixture.release), /Expected native backend entry/);
+        } finally {
+            fs.rmSync(fixture.root, {recursive: true, force: true});
+        }
+    });
+
+    test('artifact audit requires the Windows application executable with configured icon resources', async () => {
+        const fixture = await createFixture(
+            ['package.json', 'dist/main/main.js'],
+            {
+                unpackedEntries: ['node_modules/sherpa-onnx-win-x64/sherpa-onnx.node'],
+                includeWindowsExecutable: false,
+            },
+        );
+        try {
+            await assert.rejects(auditPackagedArtifact(fixture.release), /Expected Windows application executable/);
+        } finally {
+            fs.rmSync(fixture.root, {recursive: true, force: true});
+        }
+    });
+
+    test('artifact audit rejects a Windows executable without readable configured icon resources', async () => {
+        const fixture = await createFixture(
+            ['package.json', 'dist/main/main.js'],
+            {unpackedEntries: ['node_modules/sherpa-onnx-win-x64/sherpa-onnx.node']},
+        );
+        writeFixtureFile(fixture.release, 'win-unpacked/Meeting-Monster.exe', 'not a PE executable');
+        try {
+            await assert.rejects(auditPackagedArtifact(fixture.release), /Windows application icon/);
         } finally {
             fs.rmSync(fixture.root, {recursive: true, force: true});
         }

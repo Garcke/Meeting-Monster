@@ -52,6 +52,14 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     }
 });
 
+test('unsigned Windows packaging skips signing without disabling executable icon editing', () => {
+    const command = pkg.scripts['dist:win:unsigned'];
+    assert.equal(typeof command, 'string');
+    assert.match(command, /-c\.win\.signExecutable=false/);
+    assert.doesNotMatch(command, /-c\.win\.signAndEditExecutable=false/);
+    assert.equal(pkg.build.win.signAndEditExecutable, true);
+});
+
 test('packages the pinned native runtime and unpacks its platform binaries without bundling models', () => {
     assert.equal(pkg.dependencies['sherpa-onnx-node'], '1.13.4');
     assert.equal(pkg.dependencies['tar-stream'], '3.2.0');
