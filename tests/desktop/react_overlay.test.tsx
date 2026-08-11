@@ -720,6 +720,9 @@ test('workspace disables Assist until a verified model and a selected question e
 });
 
 test('workspace shows capture then generation status for screenshot Assist', async () => {
+    const style = document.createElement('style');
+    style.textContent = panelStyles;
+    document.head.append(style);
     let resolveAssist!: (value: {requestId: string}) => void;
     const {api, chatSends, assistSends, emitAsrResult, emitChatEvent} = fakeApi();
     api.chat.assist = vi.fn((requestId: string) => {
@@ -740,11 +743,22 @@ test('workspace shows capture then generation status for screenshot Assist', asy
     expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.composer-ai-action')).every((button) => button.disabled)).toBe(true);
     const requestId = assistSends[0]!.requestId;
     await act(async () => resolveAssist({requestId}));
-    await waitFor(() => expect(screen.getByText('等待生成')).toBeTruthy());
+    const generatingLabel = await waitFor(() => {
+        const label = screen.getByText('等待生成');
+        expect(label).toBeTruthy();
+        return label;
+    });
+    const statusBubble = generatingLabel.closest('em');
+    expect(statusBubble).toBeTruthy();
+    const statusStyle = window.getComputedStyle(statusBubble!);
+    expect(statusStyle.display).toBe('inline-flex');
+    expect(statusStyle.alignItems).toBe('center');
+    expect(statusStyle.lineHeight).toBe('1');
     expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.composer-ai-action')).every((button) => button.disabled)).toBe(true);
     act(() => emitChatEvent({type: 'done', requestId}));
     await waitFor(() => expect(screen.queryByText('等待生成')).toBeNull());
     expect((screen.getByRole('button', {name: '✦ Assist'}) as HTMLButtonElement).disabled).toBe(false);
+    style.remove();
 });
 
 test('workspace reloads verified model capability after main-process model change', async () => {

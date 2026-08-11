@@ -181,7 +181,7 @@ button, input, select { font: inherit; }
 .settings-card-heading h2 { margin: 0; color: var(--text); font-size: 15px; font-weight: 650; }
 .settings-card-heading span { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
 
-.settings-field + .settings-field { margin-top: 13px; }
+.settings-card > .settings-field + .settings-field { margin-top: 13px; }
 .settings-field label { display: block; margin: 0 0 6px; color: rgba(22, 27, 34, 0.8); font-size: 11px; font-weight: 650; }
 .settings-field .ant-input,
 .settings-field .ant-input-number,
