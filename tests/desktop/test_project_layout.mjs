@@ -150,29 +150,37 @@ test('ASR catalog and manager names remain in the main-process source tree', () 
     assert.equal(otherSourceFiles.some((file) => /asr-model-(catalog|manager)/i.test(path.basename(file))), false);
 });
 
-test('README files describe the Electron main-process TypeScript backend boundary', () => {
+test('README files keep language links at the top and describe the native backend', () => {
     const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
     const englishReadme = fs.readFileSync(path.join(projectRoot, 'README.en.md'), 'utf8');
     const desktopReadme = fs.readFileSync(path.join(desktopRoot, 'README.md'), 'utf8');
 
-    assert.match(rootReadme, /浏览器工作区已移除|browser client has been removed/i);
-    assert.match(rootReadme, /EXE[\s\S]{0,100}Electron 主进程[\s\S]{0,100}TypeScript 后端/i);
-    assert.match(rootReadme, /不需要 Python、虚拟环境、`start\.bat` 或单独启动的本地 HTTP 服务/i);
-    assert.match(rootReadme, /官方 OpenAI 和 Anthropic SDK[\s\S]{0,120}Electron 主进程[\s\S]{0,120}fetch transport/i);
-    assert.match(rootReadme, /工作区菜单[\s\S]{0,120}应用隐藏/);
-    assert.match(rootReadme, /本地语音转写不需要 Python ASR|no Python ASR model or LOCAL_ASR_MODEL_DIR is needed/i);
-    assert.match(rootReadme, /<img[^>]+src="desktop\/renderer\/favicon\.png"/i);
-    assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
-    assert.doesNotMatch(rootReadme, /\/api\/(?:chat|models|model-options|model-test|prompt)\/|\/ws\/asr|server\.scripts\.download_asr_model|web\/|browser_smoke|node --check web/i);
-    assertDocumentationHasNoPythonLaunchInstructions(rootReadme, 'README.md');
+    for (const [label, readme] of [
+        ['README.md', rootReadme],
+        ['README.en.md', englishReadme],
+    ]) {
+        assert.match(
+            readme,
+            /^\s*<p align="center">\s*<a href="README\.md">中文<\/a>[\s\S]*<a href="README\.en\.md">English<\/a>/,
+            `${label} must put language links before the logo`,
+        );
+        assert.ok(readme.indexOf('README.en.md') < readme.indexOf('<img'), `${label} language links must precede the logo`);
+        assert.doesNotMatch(readme, /v3\.0\.0|v3\.0\.0 highlights|v3\.0\.0 亮点/i, `${label} must not promote a specific version`);
+        assert.match(readme, /<img[^>]+src="desktop\/renderer\/favicon\.png"/i);
+        assertDocumentationHasNoPythonLaunchInstructions(readme, label);
+    }
 
-    assert.match(englishReadme, /browser workspace has been removed/i);
-    assert.match(englishReadme, /EXE or Portable app starts/i);
-    assert.match(englishReadme, /TypeScript backend inside the Electron main process/i);
-    assert.match(englishReadme, /no Python,[\s\S]{0,120}local HTTP service/i);
-    assert.match(englishReadme, /official OpenAI and Anthropic JavaScript SDKs/i);
-    assert.match(englishReadme, /<img[^>]+src="desktop\/renderer\/favicon\.png"/i);
-    assertDocumentationHasNoPythonLaunchInstructions(englishReadme, 'README.en.md');
+    assert.match(rootReadme, /Electron 主进程内置的 TypeScript 后端/);
+    assert.match(rootReadme, /不需要 Python、虚拟环境、`start\.bat` 或单独启动本地 HTTP 服务/);
+    assert.match(rootReadme, /OpenAI 或 Anthropic 兼容模型/);
+    assert.match(rootReadme, /官方 JavaScript SDK/);
+    assert.match(rootReadme, /工作区菜单/);
+    assert.doesNotMatch(rootReadme, /\/api\/(?:chat|models|model-options|model-test|prompt)\/|\/ws\/asr|server\.scripts\.download_asr_model|web\/|browser_smoke|node --check web/i);
+    assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
+
+    assert.match(englishReadme, /TypeScript backend built into the Electron main process/i);
+    assert.match(englishReadme, /No Python,[\s\S]{0,120}local HTTP service/i);
+    assert.match(englishReadme, /official JavaScript SDKs/i);
 
     assert.match(desktopReadme, /no browser client/i);
     assert.match(desktopReadme, /no Python WebSocket ASR path/i);
@@ -186,22 +194,23 @@ test('README files describe the Electron main-process TypeScript backend boundar
 
 test('README files retain Electron local ASR model and packaging requirements', () => {
     const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+    const englishReadme = fs.readFileSync(path.join(projectRoot, 'README.en.md'), 'utf8');
     const desktopReadme = fs.readFileSync(path.join(desktopRoot, 'README.md'), 'utf8');
 
     for (const [label, readme] of [
         ['README.md', rootReadme],
+        ['README.en.md', englishReadme],
         ['desktop/README.md', desktopReadme],
     ]) {
         assert.match(readme, /sherpa-onnx-node/i, `${label} must identify Electron local ASR`);
         assert.match(readme, /streaming-paraformer-bilingual-zh-en/);
         assert.match(readme, /streaming-zipformer-zh-int8-2025-06-30/);
-        assert.match(readme, /手动.*下载|manual.*download|download.*explicitly/i);
+        assert.match(readme, /手动|choose a model|click Download|manual.*download/i);
         assert.match(readme, /(?:<home>\/\.cache\/meeting-monster\/models\/asr\/<model-id>|\.cache[\\/]meeting-monster[\\/]models[\\/]asr[\\/]<model-id>)/i);
         assert.match(readme, /ModelScope.*Hugging Face|Hugging Face.*ModelScope/is);
         assert.match(readme, /固定.*SHA-256|SHA-256.*固定|pinned.*SHA-256|SHA-256.*pinned/is);
-        assert.match(readme, /模型权重.*(?:不打包|不会打包).*(?:EXE).*(?:Portable).*(?:DMG).*(?:ZIP)|not bundled.*EXE.*Portable.*DMG.*ZIP/is);
-        assert.match(readme, /启动.*(?:不|无).*联网.*模型|startup.*no model-network request|no model-network request.*startup/is);
-        assert.match(readme, /切换.*已安装.*(?:不|不会).*下载|switching.*installed models.*does not download them again/is);
+        assert.match(readme, /模型权重.*(?:不打包|不会打包).*(?:安装包|EXE|Portable|DMG|ZIP)|not bundled.*(?:installers|EXE.*Portable.*DMG.*ZIP)/is);
+        assert.match(readme, /启动.*(?:不|无).*联网.*模型|startup.*(?:does not|no).*download.*model/i);
         assertReleaseDocumentationIsSafe(readme, label);
         assertElectronDocumentationIsSafe(readme, label);
     }
@@ -210,15 +219,10 @@ test('README files retain Electron local ASR model and packaging requirements', 
 test('README documents Assist screenshots and verified image input', () => {
     const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
 
-    assert.match(rootReadme, /Assist[\s\S]{0,160}不依赖转写内容或问题选择/);
-    assert.match(rootReadme, /Assist[\s\S]{0,160}当前鼠标所在显示器[\s\S]{0,160}完整截图/);
-    assert.match(rootReadme, /只将截图与内置分析指令发送给模型/);
-    assert.match(rootReadme, /多模态模型[\s\S]{0,80}图片输入/);
-    assert.match(rootReadme, /截图数据在处理期间仅以内存形式存在/);
-    assert.match(rootReadme, /Electron 主进程负责截取[\s\S]{0,80}TypeScript 后端[\s\S]{0,80}模型服务/);
-    assert.match(rootReadme, /不会将截图写入磁盘/);
-    assert.match(rootReadme, /不传给 renderer/);
-    assert.match(rootReadme, /不进入对话历史记录/);
+    assert.match(rootReadme, /Assist[\s\S]{0,160}截取鼠标所在显示器的完整画面/);
+    assert.match(rootReadme, /截图与内置分析指令发送给已验证支持图片输入的模型/);
+    assert.match(rootReadme, /截图只在处理期间以内存形式存在/);
+    assert.match(rootReadme, /不写入磁盘、不传给 renderer，也不进入对话历史/);
 });
 
 test('Electron initializes the native backend without a localhost backend URL', () => {
