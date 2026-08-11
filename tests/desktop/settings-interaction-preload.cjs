@@ -44,7 +44,7 @@ const unsubscribeFrom = (listeners, listener) => {
 contextBridge.exposeInMainWorld('meetingMonsterSettings', {
     settings: {
         close: async () => undefined,
-        getAppVersion: async () => '2.2.5',
+        getAppVersion: async () => '3.0.0',
     },
     privacy: {
         getStatus: async () => ({captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 2}),
