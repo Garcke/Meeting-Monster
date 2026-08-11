@@ -1,6 +1,7 @@
 import {promises as fs} from 'node:fs';
 import path from 'node:path';
 import type {ModelProfileId, ModelProtocol} from '../shared/contracts';
+import {normalizeProviderBaseUrl} from '../shared/provider-url-policy';
 
 export type {ModelProfileId, ModelProtocol} from '../shared/contracts';
 
@@ -210,7 +211,7 @@ export function validateModelConnection(value: unknown): ModelConnectionCandidat
     if (candidate.protocol !== PROFILE_PROTOCOL[candidate.profile_id]) {
         throw new TypeError('Model connection protocol is invalid for profile_id');
     }
-    const baseUrl = normalizeBaseUrl(candidate.base_url);
+    const baseUrl = normalizeProviderBaseUrl(candidate.base_url, 'Model connection base_url');
     const model = requireNonEmptyText(candidate.model, 'Model connection model');
     if (!Number.isInteger(candidate.max_tokens) || (candidate.max_tokens as number) <= 0) {
         throw new TypeError('Model connection max_tokens is invalid');
@@ -342,26 +343,6 @@ function sameConnectionIdentity(left: ModelConnectionCandidate, right: ModelConn
         && left.protocol === right.protocol
         && left.base_url === right.base_url
         && left.model === right.model;
-}
-
-function normalizeBaseUrl(value: unknown): string {
-    const baseUrl = requireNonEmptyText(value, 'Model connection base_url').replace(/\/+$/, '');
-    if (baseUrl.includes('?') || baseUrl.includes('#')) {
-        throw new TypeError('Model connection base_url is invalid: query or fragment is not allowed');
-    }
-    let parsed: URL;
-    try {
-        parsed = new URL(baseUrl);
-    } catch {
-        throw new TypeError('Model connection base_url is invalid');
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        throw new TypeError('Model connection base_url is invalid: HTTP or HTTPS is required');
-    }
-    if (parsed.username || parsed.password) {
-        throw new TypeError('Model connection base_url is invalid: credentials are not allowed');
-    }
-    return baseUrl;
 }
 
 function requireNonEmptyText(value: unknown, label: string): string {

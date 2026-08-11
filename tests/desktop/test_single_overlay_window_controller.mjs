@@ -146,6 +146,27 @@ test('preserves the final cross-display coordinates while replaying the shape', 
   assert.equal(overlay.setBoundsCalls.length, 0);
 });
 
+test('tracks a negative-display move before applying the next keyboard move', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const overlay = FakeWindow.created[0];
+  const negativeWorkArea = {x: -1920, y: -120, width: 1920, height: 1080};
+
+  overlay.simulateUserMoved({x: -1700, y: 180});
+
+  assert.deepEqual(overlay.getBounds(), {x: -1700, y: 180, width: 648, height: 512});
+  assert.equal(overlay.setBoundsCalls.length, 0);
+  assert.deepEqual(overlay.setShapeCalls.at(-1), [
+    {x: 200, y: 0, width: 248, height: 48},
+  ]);
+
+  assert.deepEqual(
+    controller.moveBy({x: 24, y: -24}, negativeWorkArea),
+    {x: -1676, y: 156, width: 648, height: 512},
+  );
+  assert.deepEqual(overlay.getBounds(), {x: -1676, y: 156, width: 648, height: 512});
+});
+
 test('does not replay a shape after disposal when a moved event is emitted', async () => {
   const controller = createController();
   await controller.initialize();

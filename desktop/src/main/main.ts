@@ -12,6 +12,7 @@ import {
     sanitizeBackendLifecycleError,
     type BackendLifecycle,
 } from './backend-lifecycle';
+import {cancelChatRequestsForSender} from './chat-request-cancellation';
 import {
     ModelConnectionStore,
     type ModelConnection,
@@ -1075,6 +1076,7 @@ function configureOverlayWindow(win: BrowserWindow, manager: WindowPrivacyManage
         broadcastAsrModelStatus();
     });
     win.webContents.on('render-process-gone', (_event, details) => {
+        cancelChatRequestsForSender(activeChatRequests, win.webContents);
         broadcastOverlayWindowError(`Overlay renderer exited: ${details.reason}`);
     });
     win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
@@ -1131,9 +1133,13 @@ function createMainWindow(): void {
         preloadPath: path.join(__dirname, '..', 'preload', 'index.js'),
         onWindowCreated: (window) => {
             const browserWindow = window as unknown as BrowserWindow;
+            const overlaySender = browserWindow.webContents;
             if (!mainWindow) mainWindow = browserWindow;
             configureOverlayWindow(browserWindow, manager);
-            browserWindow.on('closed', onOverlayWindowClosed);
+            browserWindow.on('closed', () => {
+                cancelChatRequestsForSender(activeChatRequests, overlaySender);
+                onOverlayWindowClosed();
+            });
         },
     });
     overlayController = controller;

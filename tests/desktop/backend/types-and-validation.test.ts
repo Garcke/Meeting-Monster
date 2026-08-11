@@ -56,6 +56,22 @@ describe('backend validation', () => {
         },
     );
 
+    it('rejects plaintext HTTP for a remote provider', () => {
+        expect(() => validateBackendSelection({
+            ...validOpenAiSelection,
+            base_url: 'http://provider.example/v1',
+        })).toThrow(/base_url/i);
+    });
+
+    it.each([
+        'http://localhost:9000/v1/',
+        'http://127.0.0.1:9000/v1/',
+        'http://[::1]:9000/v1/',
+    ])('accepts plaintext HTTP for a loopback provider: %s', (base_url) => {
+        expect(validateBackendSelection({...validOpenAiSelection, base_url}).base_url)
+            .toBe(base_url.replace(/\/+$/, ''));
+    });
+
     it('rejects an image with an unsupported media type', () => {
         expect(() => validateBackendImage({media_type: 'image/jpeg', data: 'image-data'}))
             .toThrow(/image/i);

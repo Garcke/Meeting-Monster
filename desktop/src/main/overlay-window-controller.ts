@@ -138,7 +138,14 @@ export function createOverlayWindowController(
         applyCurrentShape();
     };
 
+    const removeOverlayListeners = (window: BrowserWindowLike): void => {
+        window.removeListener('move', onMove);
+        window.removeListener('moved', onMoved);
+        window.removeListener('closed', onClosed);
+    };
+
     const onClosed = (): void => {
+        if (overlay) removeOverlayListeners(overlay);
         overlay = null;
     };
 
@@ -238,11 +245,9 @@ export function createOverlayWindowController(
         dispose(): void {
             if (disposed) return;
             disposed = true;
-            if (overlay && !overlay.isDestroyed()) {
-                overlay.removeListener('move', onMove);
-                overlay.removeListener('moved', onMoved);
-                overlay.removeListener('closed', onClosed);
-                overlay.destroy?.();
+            if (overlay) {
+                removeOverlayListeners(overlay);
+                if (!overlay.isDestroyed()) overlay.destroy?.();
             }
             overlay = null;
         },

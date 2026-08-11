@@ -22,6 +22,10 @@ class SettingsInteractionEnvironmentError extends Error {}
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+function comboboxSelector(accessibleName) {
+    return `[role="combobox"][aria-label=${JSON.stringify(accessibleName)}]`;
+}
+
 async function clickElement(window, selector) {
     window.focus();
     window.webContents.focus();
@@ -49,12 +53,93 @@ async function clickElement(window, selector) {
     await delay(50);
 }
 
+async function clickCombobox(window, accessibleName) {
+    window.focus();
+    window.webContents.focus();
+    const selector = comboboxSelector(accessibleName);
+    await window.webContents.executeJavaScript(`(() => {
+        const combobox = document.querySelector(${JSON.stringify(selector)});
+        if (!combobox) throw new Error('Missing combobox: ' + ${JSON.stringify(accessibleName)});
+        (combobox.closest('.ant-select') ?? combobox).scrollIntoView({block: 'center'});
+    })()`);
+    await delay(20);
+    const point = await window.webContents.executeJavaScript(`(() => {
+        const combobox = document.querySelector(${JSON.stringify(selector)});
+        if (!combobox) throw new Error('Missing combobox: ' + ${JSON.stringify(accessibleName)});
+        const element = combobox.closest('.ant-select')?.querySelector('.ant-select-selector') ?? combobox;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const x = Math.round(rect.left + rect.width / 2);
+        const y = Math.round(rect.top + rect.height / 2);
+        const hit = document.elementFromPoint(x, y);
+        if (rect.width <= 0 || rect.height <= 0 || style.visibility === 'hidden'
+            || style.display === 'none' || !hit || (hit !== element && !element.contains(hit))) {
+            throw new Error('Combobox is not a visible clickable control: ' + ${JSON.stringify(accessibleName)});
+        }
+        return {x, y};
+    })()`);
+    window.webContents.sendInputEvent({type: 'mouseMove', x: point.x, y: point.y});
+    window.webContents.sendInputEvent({type: 'mouseDown', button: 'left', clickCount: 1, x: point.x, y: point.y});
+    window.webContents.sendInputEvent({type: 'mouseUp', button: 'left', clickCount: 1, x: point.x, y: point.y});
+}
+
+async function visibleOptionCount(window) {
+    return window.webContents.executeJavaScript(`(() => Array.from(document.querySelectorAll('[role="option"]')).filter((option) => {
+        const dropdown = option.closest('.ant-select-dropdown');
+        if (!dropdown) return false;
+        const rect = dropdown.getBoundingClientRect();
+        const style = getComputedStyle(option);
+        const dropdownStyle = getComputedStyle(dropdown);
+        return rect.width > 0 && rect.height > 0
+            && style.visibility !== 'hidden' && style.display !== 'none'
+            && dropdownStyle.visibility !== 'hidden' && dropdownStyle.display !== 'none'
+            && !dropdown.classList.contains('ant-select-dropdown-hidden');
+    }).length)()`);
+}
+
+async function openSelectAndCountOptions(window, accessibleName, closeSelector) {
+    await clickCombobox(window, accessibleName);
+    let count = 0;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+        count = await visibleOptionCount(window);
+        if (count >= 2) break;
+        await delay(50);
+    }
+    if (count < 2) {
+        const state = await window.webContents.executeJavaScript(`(() => {
+            const combobox = document.querySelector(${JSON.stringify(comboboxSelector(accessibleName))});
+            return {
+                expanded: combobox?.getAttribute('aria-expanded'),
+                activeLabel: document.activeElement?.getAttribute?.('aria-label') ?? '',
+                optionCount: document.querySelectorAll('[role="option"]').length,
+                dropdowns: Array.from(document.querySelectorAll('.ant-select-dropdown')).map((dropdown) => ({
+                    className: dropdown.className,
+                    opacity: getComputedStyle(dropdown).opacity,
+                    pointerEvents: getComputedStyle(dropdown).pointerEvents,
+                })),
+                selectClass: combobox?.closest('.ant-select')?.className ?? '',
+            };
+        })()`);
+        throw new Error(`Select did not render at least two visible options: ${accessibleName} (${JSON.stringify(state)})`);
+    }
+
+    await clickElement(window, closeSelector);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const expanded = await window.webContents.executeJavaScript(
+            `document.querySelector(${JSON.stringify(comboboxSelector(accessibleName))})?.getAttribute('aria-expanded') === 'true'`,
+        );
+        if (!expanded) return count;
+        await delay(50);
+    }
+    throw new Error(`Select did not close after counting options: ${accessibleName}`);
+}
+
 async function waitForSettings(window) {
     for (let attempt = 0; attempt < 40; attempt += 1) {
         const ready = await window.webContents.executeJavaScript(`(() => (
             document.querySelectorAll('.settings-nav').length === 2
-            && document.querySelectorAll('#modelProtocol option').length === 2
-            && document.querySelectorAll('#asrModelSelect option').length === 2
+            && document.querySelector('[role="combobox"][aria-label="API 协议"]')
+            && document.querySelector('[role="combobox"][aria-label="识别模型"]')
         ))()`);
         if (ready) return;
         await delay(50);
@@ -76,9 +161,9 @@ async function run() {
 
     await clickElement(window, '.settings-nav:nth-of-type(1)');
     const modelsVisible = await window.webContents.executeJavaScript("!document.querySelectorAll('.settings-page')[0].hidden");
-    await clickElement(window, '.settings-nav:nth-of-type(2)');
+    const modelOptions = await openSelectAndCountOptions(window, 'API 协议', '.settings-nav:nth-of-type(2)');
     const speechVisible = await window.webContents.executeJavaScript("!document.querySelectorAll('.settings-page')[1].hidden");
-    await clickElement(window, '.settings-nav:nth-of-type(1)');
+    const asrOptions = await openSelectAndCountOptions(window, '识别模型', '.settings-nav:nth-of-type(1)');
 
     const dimensions = await window.webContents.executeJavaScript(`(() => {
         const main = document.querySelector('.settings-main');
@@ -96,8 +181,6 @@ async function run() {
             y: Math.round(rect.top + Math.min(80, rect.height / 2)),
             scrollHeight: main.scrollHeight,
             clientHeight: main.clientHeight,
-            modelOptions: document.querySelectorAll('#modelProtocol option').length,
-            asrOptions: document.querySelectorAll('#asrModelSelect option').length,
         };
     })()`);
     window.webContents.sendInputEvent({type: 'mouseMove', x: dimensions.x, y: dimensions.y});
@@ -134,8 +217,8 @@ async function run() {
         clientHeight: dimensions.clientHeight,
         scrolled: interaction.scrolled,
         focusedId,
-        modelOptions: dimensions.modelOptions,
-        asrOptions: dimensions.asrOptions,
+        modelOptions,
+        asrOptions,
     };
     window.destroy();
     process.stdout.write(`SETTINGS_INTERACTION_RESULT ${JSON.stringify(result)}\n`, () => app.exit(0));

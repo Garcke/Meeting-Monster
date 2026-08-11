@@ -1,4 +1,5 @@
 import type {BackendImage, BackendModelSelection, BackendProfileId, BackendProtocol} from './types';
+import {normalizeProviderBaseUrl} from '../shared/provider-url-policy';
 
 const SELECTION_FIELDS = new Set([
     'profile_id', 'protocol', 'base_url', 'model', 'api_key', 'max_tokens', 'temperature',
@@ -43,7 +44,7 @@ export function validateBackendSelection(value: unknown): BackendModelSelection 
     return {
         profile_id: profileId,
         protocol,
-        base_url: normalizeProviderBaseUrl(input.base_url),
+        base_url: normalizeProviderBaseUrl(input.base_url, 'Backend model selection field base_url'),
         model: model.trim(),
         ...(apiKey === undefined || apiKey.trim() === '' ? {} : {api_key: apiKey.trim()}),
         max_tokens: maxTokens as number,
@@ -75,25 +76,4 @@ function rejectUnknownFields(input: Record<string, unknown>, allowed: ReadonlySe
 
 function expectedProtocol(profileId: BackendProfileId): BackendProtocol {
     return profileId === 'generic_openai' ? 'openai' : 'anthropic';
-}
-
-function normalizeProviderBaseUrl(value: unknown): string {
-    if (typeof value !== 'string' || !value.trim()) {
-        throw new TypeError('Backend model selection field is invalid: base_url');
-    }
-    const raw = value.trim();
-    if (raw.includes('?') || raw.includes('#')) {
-        throw new TypeError('Backend model selection field is invalid: base_url');
-    }
-    let parsed: URL;
-    try {
-        parsed = new URL(raw);
-    } catch {
-        throw new TypeError('Backend model selection field is invalid: base_url');
-    }
-    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
-        || parsed.username || parsed.password || parsed.search || parsed.hash) {
-        throw new TypeError('Backend model selection field is invalid: base_url');
-    }
-    return parsed.href.replace(/\/+$/, '');
 }

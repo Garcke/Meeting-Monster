@@ -8,8 +8,11 @@ import {EventEmitter} from 'node:events';
 import {createOverlayWindowController} from '../../desktop/dist/main/overlay-window-controller.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const electronExe = path.join(projectRoot, 'desktop', 'node_modules', 'electron', 'dist', 'electron.exe');
+const electronExe = process.env.MEETING_MONSTER_ELECTRON_EXE
+    ? path.resolve(process.env.MEETING_MONSTER_ELECTRON_EXE)
+    : path.join(projectRoot, 'desktop', 'node_modules', 'electron', 'dist', 'electron.exe');
 const harnessPath = path.join(projectRoot, 'tests', 'desktop', 'settings-interaction-electron.cjs');
+const settingsHarnessSource = fs.readFileSync(harnessPath, 'utf8');
 const contractsSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'shared', 'contracts.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'preload', 'index.ts'), 'utf8');
 const mainSource = fs.readFileSync(path.join(projectRoot, 'desktop', 'src', 'main', 'main.ts'), 'utf8');
@@ -191,6 +194,12 @@ test('settings-main wheel delivery without scrolling remains an ordinary interac
     assert.match(result.stderr, /SETTINGS_INTERACTION_ERROR/);
     assert.doesNotMatch(result.stderr, /SETTINGS_INTERACTION_ENV_UNAVAILABLE/);
     assert.match(result.stderr, /did not scroll the settings view/i);
+});
+
+test('Electron settings harness exercises accessible Ant Design Select options', () => {
+    assert.doesNotMatch(settingsHarnessSource, /#(?:modelProtocol|asrModelSelect) option/);
+    assert.match(settingsHarnessSource, /\[role="combobox"\]\[aria-label=/);
+    assert.match(settingsHarnessSource, /\[role="option"\]/);
 });
 
 test('overlay controller readiness and renderer error channels are wired end-to-end', () => {

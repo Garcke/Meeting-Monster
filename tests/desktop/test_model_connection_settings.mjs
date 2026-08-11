@@ -315,6 +315,25 @@ test('connection validation rejects mismatches, malformed values, and unknown fi
     }
 });
 
+test('connection validation rejects remote HTTP and allows loopback HTTP', async () => {
+    const {validateModelConnection} = await import(SETTINGS_MODULE);
+
+    assert.throws(
+        () => validateModelConnection(openAiConnection({base_url: 'http://provider.example/v1'})),
+        /base_url/i,
+    );
+    for (const base_url of [
+        'http://localhost:9000/v1/',
+        'http://127.0.0.1:9000/v1/',
+        'http://[::1]:9000/v1/',
+    ]) {
+        assert.equal(
+            validateModelConnection(openAiConnection({base_url})).base_url,
+            base_url.replace(/\/+$/, ''),
+        );
+    }
+});
+
 test('credential-bearing provider URLs are rejected before save and when loading encrypted settings', async () => {
     const {ModelConnectionStore} = await import(SETTINGS_MODULE);
     const temporary = temporarySettingsPath();

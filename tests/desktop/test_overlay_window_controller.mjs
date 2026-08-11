@@ -115,6 +115,9 @@ test('destroying the single overlay makes lifecycle callbacks safe no-ops', asyn
   const [overlay] = FakeWindow.created;
 
   overlay.destroy();
+  assert.equal(overlay.listenerCount('move'), 0);
+  assert.equal(overlay.listenerCount('moved'), 0);
+  assert.equal(overlay.listenerCount('closed'), 0);
   assert.deepEqual(await controller.rendererReady(1), controller.getSnapshot());
   assert.deepEqual(await controller.animationFinished(1), controller.getSnapshot());
   assert.equal(controller.getWindow(), null);

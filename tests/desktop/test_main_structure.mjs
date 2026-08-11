@@ -342,6 +342,25 @@ test('main protects deferred text and Assist handlers with reservation identity 
     assert.match(source, /catch \(error\) \{[\s\S]*?releaseChatRequest\(id, reserved\);[\s\S]*?throw error;/);
 });
 
+test('overlay renderer loss and window close cancel chat requests for that sender', () => {
+    const source = mainSource();
+    const overlayConfiguration = source.match(
+        /function configureOverlayWindow\([\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    const windowCreated = source.match(
+        /onWindowCreated: \(window\) => \{[\s\S]*?\n\s*\},/,
+    )?.[0] ?? '';
+
+    assert.match(
+        overlayConfiguration,
+        /render-process-gone[\s\S]*?cancelChatRequestsForSender\(activeChatRequests, win\.webContents\)/,
+    );
+    assert.match(
+        windowCreated,
+        /const overlaySender = browserWindow\.webContents[\s\S]*?closed[\s\S]*?cancelChatRequestsForSender\(activeChatRequests, overlaySender\)/,
+    );
+});
+
 test('main owns the single-instance lifecycle and authorizes the quit IPC', () => {
     const source = mainSource();
     const secondInstanceHandler = source.match(/app\.on\('second-instance', \(\) => \{[\s\S]*?\n    \}\);/)?.[0] ?? '';
