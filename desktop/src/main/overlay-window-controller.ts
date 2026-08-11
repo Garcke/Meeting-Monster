@@ -28,8 +28,8 @@ export interface BrowserWindowLike {
     hide(): void;
     isDestroyed(): boolean;
     loadFile(filePath: string): Promise<unknown>;
-    on(event: 'move' | 'closed', listener: () => void): void;
-    removeListener(event: 'move' | 'closed', listener: () => void): void;
+    on(event: 'move' | 'moved' | 'closed', listener: () => void): void;
+    removeListener(event: 'move' | 'moved' | 'closed', listener: () => void): void;
     destroy?(): void;
     isVisible?(): boolean;
 }
@@ -125,6 +125,19 @@ export function createOverlayWindowController(
         anchor = anchorFromBounds(overlay!.getBounds(), true);
     };
 
+    const applyCurrentShape = (): void => {
+        if (!isAlive()) return;
+        overlay!.setShape(panelVisible
+            ? [{...CAPSULE_SHAPE}, {...PANEL_SHAPE}]
+            : [{...CAPSULE_SHAPE}]);
+    };
+
+    const onMoved = (): void => {
+        if (!isAlive()) return;
+        anchor = anchorFromBounds(overlay!.getBounds(), true);
+        applyCurrentShape();
+    };
+
     const onClosed = (): void => {
         overlay = null;
     };
@@ -132,9 +145,7 @@ export function createOverlayWindowController(
     const setPanelVisible = (visible: boolean): void => {
         if (!isAlive()) return;
         panelVisible = visible;
-        overlay!.setShape(visible
-            ? [{...CAPSULE_SHAPE}, {...PANEL_SHAPE}]
-            : [{...CAPSULE_SHAPE}]);
+        applyCurrentShape();
     };
 
     const rendererReady = async (revision: number): Promise<OverlaySnapshot> => {
@@ -181,6 +192,7 @@ export function createOverlayWindowController(
             setPanelVisible(false);
             options.onWindowCreated?.(overlay);
             overlay.on('move', onMove);
+            overlay.on('moved', onMoved);
             overlay.on('closed', onClosed);
             await overlay.loadFile(rendererFile(options.rendererRoot, 'overlay'));
             if (isAlive()) overlay!.show();
@@ -228,6 +240,7 @@ export function createOverlayWindowController(
             disposed = true;
             if (overlay && !overlay.isDestroyed()) {
                 overlay.removeListener('move', onMove);
+                overlay.removeListener('moved', onMoved);
                 overlay.removeListener('closed', onClosed);
                 overlay.destroy?.();
             }

@@ -36,6 +36,7 @@ class FakeWindow extends EventEmitter {
   loadFile(filePath) { this.loadFileCalls.push(filePath); return Promise.resolve(); }
   destroy() { this.destroyed = true; this.emit('closed'); }
   simulateUserMove(bounds) { this.bounds = {...this.bounds, ...bounds}; this.emit('move'); }
+  simulateUserMoved(bounds) { this.bounds = {...this.bounds, ...bounds}; this.emit('moved'); }
 }
 
 function createController() {
@@ -118,6 +119,43 @@ test('a user drag is not reversed when the fixed window collapses', async () => 
 
   assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, width: 648, height: 512});
   assert.equal(overlay.setBoundsCalls.length, 0);
+});
+
+test('replays the collapsed capsule shape after a cross-display move', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const overlay = FakeWindow.created[0];
+  const shapeCallsBeforeMove = overlay.setShapeCalls.length;
+
+  overlay.simulateUserMoved({x: 400, y: 300});
+
+  assert.equal(overlay.setShapeCalls.length, shapeCallsBeforeMove + 1);
+  assert.deepEqual(overlay.setShapeCalls.at(-1), [
+    {x: 200, y: 0, width: 248, height: 48},
+  ]);
+});
+
+test('preserves the final cross-display coordinates while replaying the shape', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const overlay = FakeWindow.created[0];
+
+  overlay.simulateUserMoved({x: 400, y: 300});
+
+  assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, width: 648, height: 512});
+  assert.equal(overlay.setBoundsCalls.length, 0);
+});
+
+test('does not replay a shape after disposal when a moved event is emitted', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const overlay = FakeWindow.created[0];
+  controller.dispose();
+  const shapeCallsBeforeMove = overlay.setShapeCalls.length;
+
+  overlay.emit('moved');
+
+  assert.equal(overlay.setShapeCalls.length, shapeCallsBeforeMove);
 });
 
 test('moves a collapsed capsule within its visible work area while retaining expanded native bounds', async () => {

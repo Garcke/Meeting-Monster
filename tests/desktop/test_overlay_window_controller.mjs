@@ -41,6 +41,7 @@ class FakeWindow extends EventEmitter {
   loadFile(filePath) { this.loadFileCalls.push(filePath); return Promise.resolve(); }
   destroy() { this.destroyed = true; this.emit('closed'); }
   simulateUserMove(bounds) { this.bounds = {...this.bounds, ...bounds}; this.emit('move'); }
+  simulateUserMoved(bounds) { this.bounds = {...this.bounds, ...bounds}; this.emit('moved'); }
 }
 
 function createController() {
@@ -88,6 +89,24 @@ test('opening changes the native shape without moving or resizing the fixed wind
     {x: 200, y: 0, width: 248, height: 48},
     {x: 0, y: 62, width: 648, height: 450},
   ]);
+});
+
+test('replays the expanded capsule and panel shapes after a cross-display move', async () => {
+  const controller = createController();
+  await controller.initialize();
+  const [overlay] = FakeWindow.created;
+  await controller.dispatch({type: 'toggle-workspace'});
+  const shapeCallsBeforeMove = overlay.setShapeCalls.length;
+
+  overlay.simulateUserMoved({x: 400, y: 300});
+
+  assert.equal(overlay.setShapeCalls.length, shapeCallsBeforeMove + 1);
+  assert.deepEqual(overlay.setShapeCalls.at(-1), [
+    {x: 200, y: 0, width: 248, height: 48},
+    {x: 0, y: 62, width: 648, height: 450},
+  ]);
+  assert.deepEqual(overlay.getBounds(), {x: 400, y: 300, ...OVERLAY_BOUNDS});
+  assert.equal(overlay.setBoundsCalls.length, 0);
 });
 
 test('destroying the single overlay makes lifecycle callbacks safe no-ops', async () => {
