@@ -79,9 +79,12 @@ test('capsule expand button uses Chat when closed and chevron Hide when expanded
     assert.match(capsuleApp, /<span>Chat<\/span>/);
     assert.match(capsuleApp, /<svg className="capsule-chevron" viewBox="0 0 14 14" aria-hidden="true">/);
     assert.match(capsuleApp, /<path d="M3\.5 5\.25 7 8\.75l3\.5-3\.5" \/>/);
+    assert.equal((capsuleApp.match(/className="capsule-button-content"/g) ?? []).length, 2);
     assert.doesNotMatch(capsuleApp, /\u2304/);
     assert.match(capsuleCss, /\.capsule-button\s*>\s*span\s*\{[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 auto[^}]*line-height:\s*1/s);
-    assert.match(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*76px[^}]*min-width:\s*76px[^}]*gap:\s*14px/s);
+    assert.match(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*76px[^}]*min-width:\s*76px[^}]*gap:\s*0/s);
+    assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*gap:\s*14px/s);
+    assert.match(capsuleCss, /\.capsule-button-content\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*gap:\s*12px/s);
     assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*70px/s);
     assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*min-width:\s*70px/s);
     assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*gap:\s*10px/s);

@@ -157,7 +157,7 @@ button { font: inherit; }
     width: 76px;
     min-width: 76px;
     padding: 0 9px;
-    gap: 14px;
+    gap: 0;
     line-height: 1;
     white-space: nowrap;
     border-radius: 999px;
@@ -172,6 +172,12 @@ button { font: inherit; }
     flex: 0 0 auto;
     align-items: center;
     line-height: 1;
+}
+
+.capsule-button-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .capsule-chevron {

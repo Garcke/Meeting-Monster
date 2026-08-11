@@ -85,7 +85,13 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     assert.match(capsuleShell, /background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)/);
     assert.match(capsuleButton, /width:\s*76px/);
     assert.match(capsuleButton, /min-width:\s*76px/);
-    assert.match(capsuleButton, /gap:\s*14px/);
+    assert.match(capsuleButton, /gap:\s*0/);
+    assert.doesNotMatch(capsuleButton, /gap:\s*14px/);
+    const capsuleButtonContent = styles.match(/\.capsule-button-content\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    assert.match(capsuleButtonContent, /display:\s*inline-flex/);
+    assert.match(capsuleButtonContent, /align-items:\s*center/);
+    assert.match(capsuleButtonContent, /gap:\s*12px/);
+    assert.equal((source.match(/className="capsule-button-content"/g) ?? []).length, 2);
     assert.doesNotMatch(capsuleButton, /width:\s*70px/);
     assert.doesNotMatch(capsuleButton, /min-width:\s*70px/);
     assert.doesNotMatch(capsuleButton, /gap:\s*10px/);
