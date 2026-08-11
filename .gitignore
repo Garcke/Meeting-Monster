@@ -5,10 +5,6 @@ __pycache__/
 *.py[cod]
 
 # Runtime audio and downloaded ASR models may contain private or large data.
-cache/*.pcm
-/cache/model_profiles.json
-/cache/model_profiles.json.tmp
-/cache/model_profiles.json.corrupt-*
 models/
 desktop/node_modules/
 desktop/dist/

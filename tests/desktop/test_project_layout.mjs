@@ -152,6 +152,7 @@ test('ASR catalog and manager names remain in the main-process source tree', () 
 
 test('README files describe the Electron main-process TypeScript backend boundary', () => {
     const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+    const englishReadme = fs.readFileSync(path.join(projectRoot, 'README.en.md'), 'utf8');
     const desktopReadme = fs.readFileSync(path.join(desktopRoot, 'README.md'), 'utf8');
 
     assert.match(rootReadme, /浏览器工作区已移除|browser client has been removed/i);
@@ -164,6 +165,14 @@ test('README files describe the Electron main-process TypeScript backend boundar
     assert.ok(fs.statSync(path.join(projectRoot, 'desktop', 'renderer', 'favicon.png')).size > 0);
     assert.doesNotMatch(rootReadme, /\/api\/(?:chat|models|model-options|model-test|prompt)\/|\/ws\/asr|server\.scripts\.download_asr_model|web\/|browser_smoke|node --check web/i);
     assertDocumentationHasNoPythonLaunchInstructions(rootReadme, 'README.md');
+
+    assert.match(englishReadme, /browser workspace has been removed/i);
+    assert.match(englishReadme, /EXE or Portable app starts/i);
+    assert.match(englishReadme, /TypeScript backend inside the Electron main process/i);
+    assert.match(englishReadme, /no Python,[\s\S]{0,120}local HTTP service/i);
+    assert.match(englishReadme, /official OpenAI and Anthropic JavaScript SDKs/i);
+    assert.match(englishReadme, /<img[^>]+src="desktop\/renderer\/favicon\.png"/i);
+    assertDocumentationHasNoPythonLaunchInstructions(englishReadme, 'README.en.md');
 
     assert.match(desktopReadme, /no browser client/i);
     assert.match(desktopReadme, /no Python WebSocket ASR path/i);
