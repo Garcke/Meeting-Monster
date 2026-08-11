@@ -68,7 +68,7 @@ button, input, select, textarea, .no-drag, .workspace-content { -webkit-app-regi
 .partial-row { margin: 3px 10px; color: #a8cfff; font-size: 12px; }
 .workspace-answer { display: flex; min-height: 96px; flex-direction: column; overflow: hidden; padding: 9px 4px; border-top: 1px solid rgba(255,255,255,0.12); }
 .answer-heading { display: flex; align-items: center; justify-content: space-between; }
-.answer-heading em { padding: 3px 8px; color: #8be6b4; font-size: 10px; font-style: normal; border: 1px solid rgba(103, 227, 163, 0.5); border-radius: 999px; }
+.answer-heading em { display: inline-flex; min-height: 24px; align-items: center; justify-content: center; padding: 3px 8px; color: #8be6b4; font-size: 10px; font-style: normal; line-height: 1; border: 1px solid rgba(103, 227, 163, 0.5); border-radius: 999px; white-space: nowrap; }
 .workspace-answer p { margin: 6px 0 0; font-size: 13px; }
 .answer-scroll { min-height: 0; overflow-x: hidden; overflow-y: auto; flex: 1; scrollbar-color: rgba(146, 164, 190, 0.58) transparent; scrollbar-width: thin; }
 .answer-scroll::-webkit-scrollbar { width: 7px; }
