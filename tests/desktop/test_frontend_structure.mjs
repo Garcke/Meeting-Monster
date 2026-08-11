@@ -81,7 +81,10 @@ test('capsule expand button uses Chat when closed and chevron Hide when expanded
     assert.match(capsuleApp, /<path d="M3\.5 5\.25 7 8\.75l3\.5-3\.5" \/>/);
     assert.doesNotMatch(capsuleApp, /\u2304/);
     assert.match(capsuleCss, /\.capsule-button\s*>\s*span\s*\{[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 auto[^}]*line-height:\s*1/s);
-    assert.match(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*70px[^}]*min-width:\s*70px/s);
+    assert.match(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*76px[^}]*min-width:\s*76px[^}]*gap:\s*14px/s);
+    assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*width:\s*70px/s);
+    assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*min-width:\s*70px/s);
+    assert.doesNotMatch(capsuleCss, /\.capsule-button\.ant-btn\s*\{[^}]*gap:\s*10px/s);
     assert.match(capsuleCss, /\.capsule-chat-symbol\s*\{[^}]*width:\s*14px[^}]*height:\s*14px[^}]*flex:\s*0 0 14px/s);
 });
 
@@ -93,15 +96,25 @@ test('expanded panel shares the capsule translucent surface', () => {
 
 test('workspace dropdown keeps a dark surface and readable menu text', () => {
     const panelCss = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'panel', 'panel.css'), 'utf8');
+    const theme = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'shared', 'antd-theme.tsx'), 'utf8');
     const dropdownMenu = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const dropdownItem = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu-item\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const dropdownTitle = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu-item-group-title\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const overlayToken = theme.match(/const overlayTheme: ThemeConfig = \{\s*token:\s*\{([\s\S]*?)\n\s*\},\n\};/)?.[1] ?? '';
 
     assert.match(dropdownMenu, /background:\s*#151B25/);
     assert.match(dropdownMenu, /color:\s*#eef2f8/);
     assert.match(dropdownItem, /color:\s*#eef2f8/);
     assert.match(dropdownTitle, /color:\s*rgba\(230,\s*237,\s*248,\s*0\.5\)/);
     assert.doesNotMatch(panelCss, /\.workspace-menu-popover \.ant-menu-item(?:\s|\{|:|,)/);
+
+    assert.match(overlayToken, /\.\.\.commonToken,/);
+    assert.match(overlayToken, /colorText:\s*'#EEF2F8'/);
+    assert.match(overlayToken, /colorTextDescription:\s*'rgba\(230, 237, 248, 0\.62\)'/);
+    assert.match(overlayToken, /colorTextDisabled:\s*'rgba\(230, 237, 248, 0\.48\)'/);
+    assert.match(overlayToken, /colorBgElevated:\s*'#151B25'/);
+    assert.match(overlayToken, /controlItemBgHover:\s*'rgba\(121, 185, 255, 0\.17\)'/);
+    assert.match(overlayToken, /controlItemBgActive:\s*'rgba\(121, 185, 255, 0\.22\)'/);
 });
 
 test('settings chrome keeps the close control inside the dedicated titlebar', () => {

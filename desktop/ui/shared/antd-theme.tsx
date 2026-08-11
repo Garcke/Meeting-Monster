@@ -23,6 +23,12 @@ const lightTheme: ThemeConfig = {
 const overlayTheme: ThemeConfig = {
     token: {
         ...commonToken,
+        colorText: '#EEF2F8',
+        colorTextDescription: 'rgba(230, 237, 248, 0.62)',
+        colorTextDisabled: 'rgba(230, 237, 248, 0.48)',
+        colorBgElevated: '#151B25',
+        controlItemBgHover: 'rgba(121, 185, 255, 0.17)',
+        controlItemBgActive: 'rgba(121, 185, 255, 0.22)',
         colorBgBase: '#F8FAFC',
         colorBgContainer: '#FFFFFF',
         colorBorder: 'rgba(22, 27, 34, 0.16)',

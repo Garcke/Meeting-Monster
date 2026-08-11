@@ -83,10 +83,12 @@ test('capsule sends only the workspace overlay intent and keeps a drag-safe shel
     const chatSymbol = styles.match(/\.capsule-chat-symbol\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const expandedButton = styles.match(/\.capsule-button:has\(\.capsule-chevron\)\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     assert.match(capsuleShell, /background:\s*rgba\(29,\s*36,\s*48,\s*0\.68\)/);
-    assert.match(capsuleButton, /width:\s*70px/);
-    assert.match(capsuleButton, /min-width:\s*70px/);
-    assert.match(capsuleButton, /gap:\s*10px/);
-    assert.doesNotMatch(capsuleButton, /gap:\s*7px/);
+    assert.match(capsuleButton, /width:\s*76px/);
+    assert.match(capsuleButton, /min-width:\s*76px/);
+    assert.match(capsuleButton, /gap:\s*14px/);
+    assert.doesNotMatch(capsuleButton, /width:\s*70px/);
+    assert.doesNotMatch(capsuleButton, /min-width:\s*70px/);
+    assert.doesNotMatch(capsuleButton, /gap:\s*10px/);
     assert.match(sharedControls, /height:\s*30px/);
     assert.match(chevron, /width:\s*14px/);
     assert.match(chevron, /height:\s*14px/);

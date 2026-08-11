@@ -154,10 +154,10 @@ button { font: inherit; }
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: 70px;
-    min-width: 70px;
+    width: 76px;
+    min-width: 76px;
     padding: 0 9px;
-    gap: 10px;
+    gap: 14px;
     line-height: 1;
     white-space: nowrap;
     border-radius: 999px;
