@@ -32,6 +32,7 @@ Published Windows installer and Portable builds do not require a separate Python
 
 - API keys are encrypted with Electron `safeStorage` and never returned to the renderer.
 - Remote model services must use HTTPS. HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`.
+- The configured model must support image input to use Assist; model connection testing verifies this capability first.
 - Model weights are not bundled in installers; downloads use pinned revisions, file sizes, and SHA-256 checksums.
 
 ### Audio and transcription
@@ -43,7 +44,7 @@ Published Windows installer and Portable builds do not require a separate Python
 
 ### Assist screenshot analysis
 
-Assist captures the complete display containing the mouse pointer and sends the screenshot plus the built-in analysis instruction to a model verified for image input. The screenshot exists only in memory while it is processed; it is not written to disk, exposed to the renderer, or stored in conversation history.
+Assist captures the complete display containing the mouse pointer and sends the screenshot plus the built-in analysis instruction to a model verified for image input. Only models with image-input support can use Assist; the screenshot exists only in memory while it is processed and is not written to disk, exposed to the renderer, or stored in conversation history.
 
 ## Local ASR models
 

@@ -218,11 +218,17 @@ test('README files retain Electron local ASR model and packaging requirements', 
 
 test('README documents Assist screenshots and verified image input', () => {
     const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+    const englishReadme = fs.readFileSync(path.join(projectRoot, 'README.en.md'), 'utf8');
 
+    assert.match(rootReadme, /配置的模型必须支持图片输入/);
     assert.match(rootReadme, /Assist[\s\S]{0,160}截取鼠标所在显示器的完整画面/);
     assert.match(rootReadme, /截图与内置分析指令发送给已验证支持图片输入的模型/);
+    assert.match(rootReadme, /只有支持图片输入的模型才能使用 Assist/);
     assert.match(rootReadme, /截图只在处理期间以内存形式存在/);
     assert.match(rootReadme, /不写入磁盘、不传给 renderer，也不进入对话历史/);
+
+    assert.match(englishReadme, /configured model must support image input/i);
+    assert.match(englishReadme, /Only models with image-input support can use Assist/i);
 });
 
 test('Electron initializes the native backend without a localhost backend URL', () => {
