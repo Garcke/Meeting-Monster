@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {SettingsApp} from '../../desktop/ui/settings/SettingsApp';
 import {ModelSettingsPage} from '../../desktop/ui/settings/ModelSettingsPage';
 import {SpeechSettingsPage} from '../../desktop/ui/settings/SpeechSettingsPage';
@@ -13,6 +16,9 @@ class ResizeObserverMock {
 }
 
 vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const settingsStyles = fs.readFileSync(path.join(projectRoot, 'desktop', 'ui', 'settings', 'settings.css'), 'utf8');
 
 const privacy: PrivacyStatus = {captureProtection: 'protected', captureProtectionEnabled: true, platform: 'win32', windowCount: 1};
 const asrModels: AsrModelSnapshot = {
@@ -131,6 +137,26 @@ test('settings exposes labeled Ant Design-compatible form semantics', async () =
 
     rerender(<SpeechSettingsPage active />);
     expect(await screen.findByRole('combobox', {name: '音频来源'})).toBeTruthy();
+});
+
+test('settings keeps maximum Token and temperature fields horizontally aligned', async () => {
+    const style = document.createElement('style');
+    style.textContent = settingsStyles;
+    document.head.append(style);
+    try {
+        const {api} = fakeSettingsApi();
+        window.meetingMonsterSettings = api;
+        render(<ModelSettingsPage active />);
+
+        const maxTokensField = (await screen.findByRole('spinbutton', {name: '最大 Token'})).closest('.settings-field');
+        const temperatureField = screen.getByRole('spinbutton', {name: '温度'}).closest('.settings-field');
+        expect(maxTokensField).toBeTruthy();
+        expect(temperatureField).toBeTruthy();
+        expect(window.getComputedStyle(temperatureField!).marginTop)
+            .toBe(window.getComputedStyle(maxTokensField!).marginTop);
+    } finally {
+        style.remove();
+    }
 });
 
 test('settings preserves blank numeric model fields when saving', async () => {
