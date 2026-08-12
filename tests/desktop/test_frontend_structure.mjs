@@ -103,7 +103,7 @@ test('workspace dropdown keeps a dark surface and readable menu text', () => {
     const dropdownMenu = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const dropdownItem = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu-item\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     const dropdownTitle = panelCss.match(/\.workspace-menu-popover \.ant-dropdown-menu-item-group-title\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const overlayToken = theme.match(/const overlayTheme: ThemeConfig = \{\s*token:\s*\{([\s\S]*?)\n\s*\},\n\};/)?.[1] ?? '';
+    const overlayToken = theme.match(/const overlayTheme: ThemeConfig = \{\s*token:\s*\{([\s\S]*?)\r?\n\s*\},\r?\n\};/)?.[1] ?? '';
 
     assert.match(dropdownMenu, /background:\s*#151B25/);
     assert.match(dropdownMenu, /color:\s*#eef2f8/);
