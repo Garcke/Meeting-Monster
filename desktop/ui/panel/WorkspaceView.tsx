@@ -392,7 +392,11 @@ export function WorkspaceView({active}: {active: boolean}) {
                 </div>
             </div>
             <form className="workspace-composer no-drag" onSubmit={submit}>
-                <Input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入问题后发送" aria-label="输入问题" />
+                <Input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || !event.ctrlKey) return;
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                }} placeholder="输入问题后发送" aria-label="输入问题" />
                 {!visionVerified && <p className="assist-hint">请在设置中验证图片能力</p>}
                 {audioError && <Alert className="audio-error" type="error" showIcon title={audioError} />}
                 <div className="composer-actions">

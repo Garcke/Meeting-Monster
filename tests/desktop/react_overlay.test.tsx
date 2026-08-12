@@ -824,6 +824,20 @@ test('manual form submission remains text-only', async () => {
     expect(assistSends).toHaveLength(0);
 });
 
+test('workspace submits the typed question on Ctrl+Enter', async () => {
+    const {api, chatSends, assistSends} = fakeApi();
+    window.meetingMonster = api;
+    render(<WorkspaceView active />);
+    const input = screen.getByRole('textbox', {name: '输入问题'});
+
+    await userEvent.setup().type(input, 'Keyboard question');
+    fireEvent.keyDown(input, {key: 'Enter', code: 'Enter', ctrlKey: true});
+
+    await waitFor(() => expect(chatSends).toHaveLength(1));
+    expect(chatSends[0]?.prompt).toBe('Keyboard question');
+    expect(assistSends).toHaveLength(0);
+});
+
 test('workspace renders streamed answers as safe GFM Markdown and hides thinking text', async () => {
     const {api, chatSends, emitAsrResult, emitChatEvent} = fakeApi();
     window.meetingMonster = api;
