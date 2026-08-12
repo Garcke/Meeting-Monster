@@ -1,8 +1,9 @@
 !include nsDialogs.nsh
 !include LogicLib.nsh
 
-Var CreateDesktopShortcutCheckbox
-Var CreateDesktopShortcutState
+!ifndef BUILD_UNINSTALLER
+  Var CreateDesktopShortcutCheckbox
+  Var CreateDesktopShortcutState
 
 !macro customPageAfterChangeDir
   !insertmacro skipPageIfUpdated
@@ -34,6 +35,7 @@ FunctionEnd
     WinShell::SetLnkAUMI "$newDesktopLink" "${APP_ID}"
   ${EndIf}
 !macroend
+!endif
 
 !macro customUnInstall
   WinShell::UninstShortcut "$oldDesktopLink"

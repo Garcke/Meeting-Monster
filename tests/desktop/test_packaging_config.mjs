@@ -63,6 +63,21 @@ test('custom shortcut selection is wired into the assisted installer lifecycle',
     assert.match(installerScript, /!macro customUnInstall[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"/);
 });
 
+test('shortcut-page code is excluded while electron-builder compiles the uninstaller', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    const installerOnlySection = installerScript.match(/!ifndef BUILD_UNINSTALLER([\s\S]*?)!endif/);
+    assert.ok(installerOnlySection, 'installer-only shortcut code must be guarded during uninstaller compilation');
+    assert.match(installerOnlySection[1], /Var CreateDesktopShortcutCheckbox/);
+    assert.match(installerOnlySection[1], /!macro customPageAfterChangeDir/);
+    assert.match(installerOnlySection[1], /Function CreateDesktopShortcutPageCreate/);
+    assert.match(installerOnlySection[1], /Function CreateDesktopShortcutPageLeave/);
+    assert.match(installerOnlySection[1], /!macro customInstall/);
+    assert.doesNotMatch(
+        installerScript.replace(installerOnlySection[0], ''),
+        /CreateDesktopShortcutCheckbox|CreateDesktopShortcutState|customPageAfterChangeDir|CreateDesktopShortcutPage(Create|Leave)|customInstall/,
+    );
+});
+
 test('unsigned Windows packaging skips signing without disabling executable icon editing', () => {
     const command = pkg.scripts['dist:win:unsigned'];
     assert.equal(typeof command, 'string');
