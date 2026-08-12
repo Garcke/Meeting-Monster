@@ -26,7 +26,8 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
     assert.match(installerScript, /CreateDesktopShortcutCheckbox/);
     assert.match(installerScript, /创建桌面快捷方式/);
-    assert.match(installerScript, /customFinishPage/);
+    assert.match(installerScript, /customPageAfterChangeDir/);
+    assert.match(installerScript, /customInstall/);
     assert.match(installerScript, /CreateDesktopShortcutPageLeave/);
     assert.match(installerScript, /CreateShortCut/);
     assert.equal(pkg.build.nsis.shortcutName, 'Meeting-Monster');
@@ -50,6 +51,16 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     for (const [name, command] of Object.entries(pkg.scripts)) {
         if (name.startsWith('dist')) assert.match(command, /^npm run build &&/);
     }
+});
+
+test('custom shortcut selection is wired into the assisted installer lifecycle', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    assert.doesNotMatch(installerScript, /!ifdef APP_EXECUTABLE_FILENAME/);
+    assert.doesNotMatch(installerScript, /customFinishPage/);
+    assert.match(installerScript, /!macro customPageAfterChangeDir[\s\S]*Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave/);
+    assert.match(installerScript, /!macro customInstall[\s\S]*CreateShortCut "\$newDesktopLink" "\$appExe"/);
+    assert.match(installerScript, /WinShell::SetLnkAUMI "\$newDesktopLink" "\$\{APP_ID\}"/);
+    assert.match(installerScript, /!macro customUnInstall[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"/);
 });
 
 test('unsigned Windows packaging skips signing without disabling executable icon editing', () => {
