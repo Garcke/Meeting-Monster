@@ -7,28 +7,28 @@
 
 !macro customPageAfterChangeDir
   Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave
+
+  Function CreateDesktopShortcutPageCreate
+    ${If} ${isUpdated}
+      Abort
+    ${EndIf}
+    nsDialogs::Create 1018
+    Pop $0
+    ${If} $0 == error
+      Abort
+    ${EndIf}
+    ${NSD_CreateLabel} 0 0 100% 24u "快捷方式"
+    Pop $0
+    ${NSD_CreateCheckbox} 0 34u 100% 14u "创建桌面快捷方式"
+    Pop $CreateDesktopShortcutCheckbox
+    ${NSD_Check} $CreateDesktopShortcutCheckbox
+    nsDialogs::Show
+  FunctionEnd
+
+  Function CreateDesktopShortcutPageLeave
+    ${NSD_GetState} $CreateDesktopShortcutCheckbox $CreateDesktopShortcutState
+  FunctionEnd
 !macroend
-
-Function CreateDesktopShortcutPageCreate
-  ${If} ${isUpdated}
-    Abort
-  ${EndIf}
-  nsDialogs::Create 1018
-  Pop $0
-  ${If} $0 == error
-    Abort
-  ${EndIf}
-  ${NSD_CreateLabel} 0 0 100% 24u "快捷方式"
-  Pop $0
-  ${NSD_CreateCheckbox} 0 34u 100% 14u "创建桌面快捷方式"
-  Pop $CreateDesktopShortcutCheckbox
-  ${NSD_Check} $CreateDesktopShortcutCheckbox
-  nsDialogs::Show
-FunctionEnd
-
-Function CreateDesktopShortcutPageLeave
-  ${NSD_GetState} $CreateDesktopShortcutCheckbox $CreateDesktopShortcutState
-FunctionEnd
 
 !macro customInstall
   ${If} $CreateDesktopShortcutState == ${BST_CHECKED}

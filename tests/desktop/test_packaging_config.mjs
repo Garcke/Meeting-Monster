@@ -58,6 +58,9 @@ test('custom shortcut selection is wired into the assisted installer lifecycle',
     assert.doesNotMatch(installerScript, /!ifdef APP_EXECUTABLE_FILENAME/);
     assert.doesNotMatch(installerScript, /customFinishPage/);
     assert.match(installerScript, /!macro customPageAfterChangeDir[\s\S]*Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave/);
+    const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
+    assert.ok(customPageMacro);
+    assert.match(customPageMacro[1], /Function CreateDesktopShortcutPageCreate[\s\S]*\$\{If\} \$\{isUpdated\}[\s\S]*Function CreateDesktopShortcutPageLeave/);
     assert.match(installerScript, /!macro customInstall[\s\S]*CreateShortCut "\$newDesktopLink" "\$appExe"/);
     assert.match(installerScript, /WinShell::SetLnkAUMI "\$newDesktopLink" "\$\{APP_ID\}"/);
     assert.match(installerScript, /!macro customUnInstall[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"/);
@@ -67,7 +70,9 @@ test('shortcut page skips updates in its create callback without replacing direc
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
     assert.match(installerScript, /!macro customPageAfterChangeDir\s*Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave/);
     assert.doesNotMatch(installerScript, /!macro customPageAfterChangeDir[\s\S]*?!macroend[\s\S]*skipPageIfUpdated/);
-    assert.match(installerScript, /Function CreateDesktopShortcutPageCreate\s*\$\{If\} \$\{isUpdated\}\s*Abort\s*\$\{EndIf\}/);
+    const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
+    assert.ok(customPageMacro);
+    assert.match(customPageMacro[1], /Function CreateDesktopShortcutPageCreate\s*\$\{If\} \$\{isUpdated\}\s*Abort\s*\$\{EndIf\}/);
 });
 
 test('shortcut-page code is excluded while electron-builder compiles the uninstaller', () => {
