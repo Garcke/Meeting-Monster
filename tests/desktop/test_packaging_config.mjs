@@ -26,7 +26,8 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
     assert.match(installerScript, /CreateDesktopShortcutCheckbox/);
     assert.match(installerScript, /创建桌面快捷方式/);
-    assert.match(installerScript, /customFinishPage/);
+    assert.match(installerScript, /customPageAfterChangeDir/);
+    assert.match(installerScript, /customInstall/);
     assert.match(installerScript, /CreateDesktopShortcutPageLeave/);
     assert.match(installerScript, /CreateShortCut/);
     assert.equal(pkg.build.nsis.shortcutName, 'Meeting-Monster');
@@ -50,6 +51,57 @@ test('electron-builder packages only the desktop runtime and explicit unsigned t
     for (const [name, command] of Object.entries(pkg.scripts)) {
         if (name.startsWith('dist')) assert.match(command, /^npm run build &&/);
     }
+});
+
+test('custom shortcut selection is wired into the assisted installer lifecycle', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    assert.doesNotMatch(installerScript, /!ifdef APP_EXECUTABLE_FILENAME/);
+    assert.doesNotMatch(installerScript, /customFinishPage/);
+    assert.match(installerScript, /!macro customPageAfterChangeDir[\s\S]*Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave/);
+    const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
+    assert.ok(customPageMacro);
+    assert.match(customPageMacro[1], /Function CreateDesktopShortcutPageCreate[\s\S]*\$\{If\} \$\{isUpdated\}[\s\S]*Function CreateDesktopShortcutPageLeave/);
+    assert.match(installerScript, /!macro customInstall[\s\S]*CreateShortCut "\$newDesktopLink" "\$appExe"/);
+    assert.match(installerScript, /WinShell::SetLnkAUMI "\$newDesktopLink" "\$\{APP_ID\}"/);
+    assert.match(installerScript, /!macro customUnInstall[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"/);
+});
+
+test('shortcut page skips updates in its create callback without replacing directory sanitization', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    assert.match(installerScript, /!macro customPageAfterChangeDir\s*Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave/);
+    assert.doesNotMatch(installerScript, /!macro customPageAfterChangeDir[\s\S]*?!macroend[\s\S]*skipPageIfUpdated/);
+    const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
+    assert.ok(customPageMacro);
+    assert.match(customPageMacro[1], /Function CreateDesktopShortcutPageCreate[\s\S]*\$\{If\} \$\{isUpdated\}\s*Abort\s*\$\{EndIf\}/);
+});
+
+test('shortcut-page code is excluded while electron-builder compiles the uninstaller', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    const installerOnlySection = installerScript.match(/!ifndef BUILD_UNINSTALLER([\s\S]*)!endif\s*!macro customUnInstall/);
+    assert.ok(installerOnlySection, 'installer-only shortcut code must be guarded during uninstaller compilation');
+    assert.match(installerOnlySection[1], /Var CreateDesktopShortcutCheckbox/);
+    assert.match(installerOnlySection[1], /!macro customPageAfterChangeDir/);
+    assert.match(installerOnlySection[1], /Function CreateDesktopShortcutPageCreate/);
+    assert.match(installerOnlySection[1], /Function CreateDesktopShortcutPageLeave/);
+    assert.match(installerOnlySection[1], /!macro customInstall/);
+    assert.doesNotMatch(
+        installerScript.replace(installerOnlySection[0], '!macro customUnInstall'),
+        /CreateDesktopShortcutCheckbox|CreateDesktopShortcutState|customPageAfterChangeDir|CreateDesktopShortcutPage(Create|Leave)|customInstall/,
+    );
+});
+
+test('upgrades preserve an existing desktop shortcut across --updated --keep-shortcuts', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
+    const customUninstallMacro = installerScript.match(/!macro customUnInstall([\s\S]*?)!macroend/);
+    assert.ok(customPageMacro);
+    assert.ok(customUninstallMacro);
+
+    assert.match(
+        customPageMacro[1],
+        /!insertmacro setLinkVars[\s\S]*\$\{If\} \$\{FileExists\} "\$oldDesktopLink"[\s\S]*StrCpy \$CreateDesktopShortcutState \$\{BST_CHECKED\}[\s\S]*\$\{If\} \$\{isUpdated\}\s*Abort/,
+    );
+    assert.match(customUninstallMacro[1], /\$\{IfNot\} \$\{isKeepShortcuts\}[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"[\s\S]*Delete "\$oldDesktopLink"[\s\S]*\$\{EndIf\}/);
 });
 
 test('unsigned Windows packaging skips signing without disabling executable icon editing', () => {
