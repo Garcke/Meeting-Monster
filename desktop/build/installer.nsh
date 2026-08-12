@@ -9,6 +9,10 @@
   Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave
 
   Function CreateDesktopShortcutPageCreate
+    !insertmacro setLinkVars
+    ${If} ${FileExists} "$oldDesktopLink"
+      StrCpy $CreateDesktopShortcutState ${BST_CHECKED}
+    ${EndIf}
     ${If} ${isUpdated}
       Abort
     ${EndIf}
@@ -40,6 +44,8 @@
 !endif
 
 !macro customUnInstall
-  WinShell::UninstShortcut "$oldDesktopLink"
-  Delete "$oldDesktopLink"
+  ${IfNot} ${isKeepShortcuts}
+    WinShell::UninstShortcut "$oldDesktopLink"
+    Delete "$oldDesktopLink"
+  ${EndIf}
 !macroend

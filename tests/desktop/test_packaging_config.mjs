@@ -72,7 +72,7 @@ test('shortcut page skips updates in its create callback without replacing direc
     assert.doesNotMatch(installerScript, /!macro customPageAfterChangeDir[\s\S]*?!macroend[\s\S]*skipPageIfUpdated/);
     const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
     assert.ok(customPageMacro);
-    assert.match(customPageMacro[1], /Function CreateDesktopShortcutPageCreate\s*\$\{If\} \$\{isUpdated\}\s*Abort\s*\$\{EndIf\}/);
+    assert.match(customPageMacro[1], /Function CreateDesktopShortcutPageCreate[\s\S]*\$\{If\} \$\{isUpdated\}\s*Abort\s*\$\{EndIf\}/);
 });
 
 test('shortcut-page code is excluded while electron-builder compiles the uninstaller', () => {
@@ -88,6 +88,20 @@ test('shortcut-page code is excluded while electron-builder compiles the uninsta
         installerScript.replace(installerOnlySection[0], '!macro customUnInstall'),
         /CreateDesktopShortcutCheckbox|CreateDesktopShortcutState|customPageAfterChangeDir|CreateDesktopShortcutPage(Create|Leave)|customInstall/,
     );
+});
+
+test('upgrades preserve an existing desktop shortcut across --updated --keep-shortcuts', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    const customPageMacro = installerScript.match(/!macro customPageAfterChangeDir([\s\S]*?)!macroend/);
+    const customUninstallMacro = installerScript.match(/!macro customUnInstall([\s\S]*?)!macroend/);
+    assert.ok(customPageMacro);
+    assert.ok(customUninstallMacro);
+
+    assert.match(
+        customPageMacro[1],
+        /!insertmacro setLinkVars[\s\S]*\$\{If\} \$\{FileExists\} "\$oldDesktopLink"[\s\S]*StrCpy \$CreateDesktopShortcutState \$\{BST_CHECKED\}[\s\S]*\$\{If\} \$\{isUpdated\}\s*Abort/,
+    );
+    assert.match(customUninstallMacro[1], /\$\{IfNot\} \$\{isKeepShortcuts\}[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"[\s\S]*Delete "\$oldDesktopLink"[\s\S]*\$\{EndIf\}/);
 });
 
 test('unsigned Windows packaging skips signing without disabling executable icon editing', () => {
