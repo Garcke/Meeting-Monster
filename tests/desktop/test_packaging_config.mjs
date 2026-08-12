@@ -63,9 +63,17 @@ test('custom shortcut selection is wired into the assisted installer lifecycle',
     assert.match(installerScript, /!macro customUnInstall[\s\S]*WinShell::UninstShortcut "\$oldDesktopLink"/);
 });
 
+test('shortcut page replaces the consumed directory-page callback before adding its update skip', () => {
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    assert.match(
+        installerScript,
+        /!macro customPageAfterChangeDir\s*!ifdef MUI_PAGE_CUSTOMFUNCTION_PRE\s*!undef MUI_PAGE_CUSTOMFUNCTION_PRE\s*!endif\s*!insertmacro skipPageIfUpdated\s*Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave/,
+    );
+});
+
 test('shortcut-page code is excluded while electron-builder compiles the uninstaller', () => {
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
-    const installerOnlySection = installerScript.match(/!ifndef BUILD_UNINSTALLER([\s\S]*?)!endif/);
+    const installerOnlySection = installerScript.match(/!ifndef BUILD_UNINSTALLER([\s\S]*)!endif\s*!macro customUnInstall/);
     assert.ok(installerOnlySection, 'installer-only shortcut code must be guarded during uninstaller compilation');
     assert.match(installerOnlySection[1], /Var CreateDesktopShortcutCheckbox/);
     assert.match(installerOnlySection[1], /!macro customPageAfterChangeDir/);
@@ -73,7 +81,7 @@ test('shortcut-page code is excluded while electron-builder compiles the uninsta
     assert.match(installerOnlySection[1], /Function CreateDesktopShortcutPageLeave/);
     assert.match(installerOnlySection[1], /!macro customInstall/);
     assert.doesNotMatch(
-        installerScript.replace(installerOnlySection[0], ''),
+        installerScript.replace(installerOnlySection[0], '!macro customUnInstall'),
         /CreateDesktopShortcutCheckbox|CreateDesktopShortcutState|customPageAfterChangeDir|CreateDesktopShortcutPage(Create|Leave)|customInstall/,
     );
 });

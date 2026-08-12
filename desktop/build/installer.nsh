@@ -6,6 +6,9 @@
   Var CreateDesktopShortcutState
 
 !macro customPageAfterChangeDir
+  !ifdef MUI_PAGE_CUSTOMFUNCTION_PRE
+    !undef MUI_PAGE_CUSTOMFUNCTION_PRE
+  !endif
   !insertmacro skipPageIfUpdated
   Page custom CreateDesktopShortcutPageCreate CreateDesktopShortcutPageLeave
 !macroend
